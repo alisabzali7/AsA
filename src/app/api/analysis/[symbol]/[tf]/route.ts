@@ -4,8 +4,6 @@ import { ensureEngineBooted } from "@/lib/state";
 import { candleManager } from "@/lib/market/candles";
 import { sharedStore } from "@/lib/market/store";
 import { buildBundle } from "@/lib/analysis/bundle";
-import { buildMtf } from "@/lib/analysis/mtf";
-import { buildPsychology } from "@/lib/psychology/engine";
 import { isOperationalSymbol } from "@/lib/market/operational-universe";
 import { isTimeframe } from "@/lib/domain/timeframes";
 
@@ -21,7 +19,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ symbol: string
   } catch {
     /* degraded path */
   }
-  const series = await candleManager.ensureSeries(symbol, tf as never);
+  const series = await candleManager.ensureSeries(symbol, tf);
   if (!series || series.candles.length === 0) {
     return NextResponse.json({ ok: true, available: false, reason: "candles not available yet (backfill in progress)" });
   }

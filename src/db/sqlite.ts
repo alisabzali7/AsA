@@ -159,6 +159,16 @@ export class SqliteRepo implements Repo {
     if (state === "ALL") return this.db.prepare("SELECT * FROM telegram_outbox ORDER BY created_ms DESC LIMIT ?").all(limit) as OutboxRow[];
     return this.db.prepare("SELECT * FROM telegram_outbox WHERE state = ? ORDER BY created_ms DESC LIMIT ?").all(state, limit) as OutboxRow[];
   }
+  outboxRetryable(limit: number): OutboxRow[] {
+    // AUDIT FIX (P1): a transient provider failure must not permanently strand
+    // an advisory. FAILED rows with attempts remaining are retried; DEAD is
+    // terminal and never retried.
+    return this.db
+      .prepare(
+        "SELECT * FROM telegram_outbox WHERE state IN ('QUEUED','FAILED') AND attempts < 5 ORDER BY created_ms ASC LIMIT ?",
+      )
+      .all(limit) as OutboxRow[];
+  }
   outboxMark(id: number, state: OutboxRow["state"], error: string | null = null): void {
     if (state === "SENT") this.db.prepare("UPDATE telegram_outbox SET state=?, error=?, sent_ms=? WHERE id=?").run(state, error, Date.now(), id);
     else this.db.prepare("UPDATE telegram_outbox SET state=?, error=?, attempts=attempts+1 WHERE id=?").run(state, error, id);

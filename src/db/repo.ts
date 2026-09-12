@@ -120,6 +120,8 @@ export interface Repo {
   journalDelete(id: number): void;
   outboxEnqueue(kind: string, payload: unknown): number;
   outboxList(state: OutboxRow["state"] | "ALL", limit: number): OutboxRow[];
+  /** AUDIT FIX (P1): rows eligible for a retry — QUEUED plus FAILED rows that have not exhausted their attempts. DEAD is terminal. */
+  outboxRetryable(limit: number): OutboxRow[];
   outboxMark(id: number, state: OutboxRow["state"], error?: string | null): void;
   aiCallInsert(c: Omit<AiCallRow, "id">): void;
   aiCallList(limit: number): AiCallRow[];

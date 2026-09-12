@@ -10,9 +10,10 @@
 import { sharedStore } from "./store";
 import { candleManager } from "./candles";
 import { tttClient } from "../ttt/client";
+import { cachedCatalog } from "./catalog";
 import { sharedScheduler } from "../ttt/scheduler";
 import { eventBus } from "../events";
-import { operationalUniverse, refreshOperationalUniverse, universeSource } from "./operational-universe";
+import { operationalUniverse, refreshOperationalUniverse, universeSource, universeState } from "./operational-universe";
 import { CORE_TFS, type TimeframeId } from "../domain/timeframes";
 import { getRepo } from "../../db/sqlite";
 import { recordOiSnapshot } from "../psychology/engine";
@@ -87,12 +88,34 @@ export class MarketEngine {
       //    out by a stale symbol list before it could ever be registered.
       const disc = await refreshOperationalUniverse(true);
       if (disc.error) {
-        sharedStore.recordError("boot", "/futures/markets", `market discovery failed: ${disc.error}; universe source=${universeSource()}`);
+        sharedStore.recordError("boot", "/futures/markets", `market discovery failed: ${disc.error}; universe state=${universeState()}`);
       }
-      // 1) catalog
-      const markets = await tttClient.getMarkets();
-      const catalogN = sharedStore.ingestCatalog(markets);
-      sharedStore.recordError("boot", "/futures/markets", `catalog ingested for ${catalogN}/${operationalUniverse().length} operational symbols (source: ${universeSource()})`);
+      // 1) catalog — AUDIT FIX (P1): ingested from the SAME discovery snapshot
+      //    resolved above. The previous code issued a second /futures/markets
+      //    request at boot (double-fetch) and recorded a SUCCESS message
+      //    through recordError, inflating the TTT error counters shown by
+      //    /api/system/status and /api/system/logs.
+      const snap = cachedCatalog();
+      const catalogN = sharedStore.ingestCatalog(
+        (snap?.markets ?? []).map((m) => ({
+          symbol: m.symbol,
+          baseAsset: m.base_asset,
+          quoteAsset: m.quote_asset,
+          category: m.category,
+          name: m.display_name,
+          tickSize: m.constraints.tick_size,
+          stepSize: m.constraints.step_size,
+          maxLeverage: m.constraints.max_leverage,
+          maintenanceMarginRate: m.constraints.maintenance_margin_rate,
+          makerFeeCoefficient: m.constraints.maker_fee,
+          takerFeeCoefficient: m.constraints.taker_fee,
+          isActive: m.status === "ACTIVE",
+        })),
+      );
+      eventBus.emit("system", {
+        message: `catalog ingested for ${catalogN}/${operationalUniverse().length} operational symbols (source: ${universeSource()}, state: ${universeState()})`,
+        level: "info",
+      });
       // 2) first stats sweep (blocking so first snapshot is real)
       await this.sweepStats();
       // 3) kick background candle backfill (144 core series) — non-blocking
@@ -151,7 +174,7 @@ export class MarketEngine {
     }
   }
 
-  /** Universe stats sweep: ONE request covers all 48 symbols. */
+  /** Universe stats sweep: ONE request covers the whole DYNAMIC operational universe. */
   private async sweepStats(): Promise<void> {
     if (this.statsLoop.running) return;
     this.statsLoop.running = true;

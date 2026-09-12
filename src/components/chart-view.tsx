@@ -281,7 +281,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
             <span className="panel-2 px-2 py-1" style={{ borderColor: "#d4b87455" }}>15M trigger</span>
           </div>
           <p className="mt-2 text-[10.5px] leading-relaxed text-muted">
-            Core hierarchy: 4H defines the macro regime, 1H the context, 15M the setup/trigger. {CORE.has(tf as never) ? `Current view: ${tf}.` : "Switch to 4h/1h/15m for the core stack."}
+            Core hierarchy: 4H defines the macro regime, 1H the context, 15M the setup/trigger. {CORE.has(tf) ? `Current view: ${tf}.` : "Switch to 4h/1h/15m for the core stack."}
           </p>
         </Panel>
         <Panel title="data truth">

@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
-import { getStrategy, listStrategies, liveEligibleStrategies } from "../src/lib/strategy/registry";
+import { getStrategy, listStrategies, executableStrategyCandidates } from "../src/lib/strategy/registry";
 import { referenceStrategy } from "./fixtures/strategy/reference-strategy";
 import { listRuntimeStrategies, runtimeStrategyIds, executableStrategies, evaluateRuntime } from "../src/lib/strategy/runtime";
 import { evaluateRisk } from "../src/lib/risk/engine";
@@ -79,7 +79,7 @@ describe("§B Brain is the single strategy source of truth", () => {
     // it is now a TEST FIXTURE — production cannot import it at all
     expect(referenceStrategy.id).toBe("reference-trend-continuation");
     expect(fs.existsSync("src/lib/strategy/reference.ts")).toBe(false);
-    expect(liveEligibleStrategies().map((s) => s.setup_id)).not.toContain("reference-trend-continuation");
+    expect(executableStrategyCandidates().map((s) => s.setup_id)).not.toContain("reference-trend-continuation");
   });
 
   it("no production source file imports the reference strategy", () => {

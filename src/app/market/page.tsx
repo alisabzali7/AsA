@@ -10,7 +10,7 @@ export default function MarketPage() {
   const router = useRouter();
   return (
     <div>
-      <PageHead title={t("nav", "market")} sub="48 symbols · TTT only · live every ~7s" />
+      <PageHead title={t("nav", "market")} sub="dynamic TTT universe · live every ~7s" />
       <MarketBoard onFocus={(s) => router.push(`/chart?symbol=${s}`)} />
     </div>
   );

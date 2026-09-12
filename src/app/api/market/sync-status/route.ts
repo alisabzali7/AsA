@@ -10,7 +10,7 @@ import { cachedCatalog, discoverMarkets, PERMANENT_EXCLUSIONS, isPermanentlyExcl
 import { getHistoryStore, RETRIEVAL_VERSION } from "@/lib/market/history-store";
 import { PRODUCTION_TIMEFRAMES } from "../matrix/route";
 import { TIMEFRAMES } from "@/lib/domain/timeframes";
-import { LEGACY_UNIVERSE, discoveredSymbols } from "@/lib/domain/universe";
+import { LEGACY_48_REGRESSION_SET, discoveredSymbols } from "@/lib/domain/universe";
 import { TTT_MAX_BARS_PER_REQUEST } from "@/lib/market/history";
 
 export const dynamic = "force-dynamic";
@@ -20,11 +20,25 @@ export async function GET(): Promise<NextResponse> {
   const rows = store.allSyncRows();
 
   let catalog = cachedCatalog();
+  let discoveryStatus: string | null = null;
   let discoveryError: string | null = null;
   if (!catalog) {
+    // AUDIT FIX (P0): discoverMarkets() returns a DiscoveryOutcome, not a
+    // snapshot. The previous code assigned the whole outcome into the snapshot
+    // variable, which (a) failed typecheck and (b) threw a TypeError on
+    // `catalog.markets.some(...)` after a cold-cache discovery, 500-ing the
+    // route. The failure status is now surfaced instead of discarded.
     try {
-      catalog = await discoverMarkets();
+      const outcome = await discoverMarkets();
+      if (outcome.status === "NETWORK_FAILURE" || outcome.status === "INVALID_RESPONSE") {
+        discoveryStatus = outcome.status;
+        discoveryError = outcome.error;
+        catalog = null; // never present a failure as a healthy read
+      } else {
+        catalog = outcome.snapshot;
+      }
     } catch (err) {
+      discoveryStatus = "NETWORK_FAILURE";
       discoveryError = err instanceof Error ? err.message : String(err);
     }
   }
@@ -34,10 +48,20 @@ export async function GET(): Promise<NextResponse> {
   const failed = rows.filter((r) => r.last_error);
   const gapped = rows.filter((r) => r.gap_count > 0);
   const complete = rows.filter((r) => r.completion_state === "COMPLETE_TO_TTT_BOUNDARY");
-  const lastSync = rows.reduce<number | null>((a, r) => (a === null || r.last_sync_ms > a ? r.last_sync_ms : a), null);
+  // AUDIT FIX (P0-6): a successful sync is read from the SUCCESS column, never
+  // from the attempt column — a failed sync used to be reported as the last
+  // successful one.
+  const lastSuccessful = rows.reduce<number | null>(
+    (a, r) => (r.last_successful_sync_ms > 0 && (a === null || r.last_successful_sync_ms > a) ? r.last_successful_sync_ms : a),
+    null,
+  );
+  const lastAttempt = rows.reduce<number | null>(
+    (a, r) => (r.last_attempt_ms > 0 && (a === null || r.last_attempt_ms > a) ? r.last_attempt_ms : a),
+    null,
+  );
 
   const legacyPresent = catalog
-    ? LEGACY_UNIVERSE.filter((s) => catalog!.markets.some((m) => m.symbol === s)).length
+    ? LEGACY_48_REGRESSION_SET.filter((s) => catalog!.markets.some((m) => m.symbol === s)).length
     : null;
 
   return NextResponse.json({
@@ -54,9 +78,10 @@ export async function GET(): Promise<NextResponse> {
         ? catalog.markets.some((m) => isPermanentlyExcluded(m.symbol))
         : null,
       last_discovery_ms: catalog?.fetched_at_ms ?? null,
+      discovery_status: discoveryStatus,
       discovery_error: discoveryError,
       dynamic_allow_list_size: discoveredSymbols().length,
-      legacy_regression: { expected: LEGACY_UNIVERSE.length, still_listed: legacyPresent },
+      legacy_regression: { expected: LEGACY_48_REGRESSION_SET.length, still_listed: legacyPresent },
     },
     resolutions: {
       production_timeframes: PRODUCTION_TIMEFRAMES,
@@ -76,15 +101,19 @@ export async function GET(): Promise<NextResponse> {
       gapped_cells: gapped.length,
       total_gaps: rows.reduce((a, r) => a + r.gap_count, 0),
       failed_syncs: failed.length,
-      last_successful_sync_ms: lastSync,
+      last_attempt_ms: lastAttempt,
+      last_successful_sync_ms: lastSuccessful,
       last_error: failed.length ? failed[failed.length - 1].last_error : null,
       retrieval_version: RETRIEVAL_VERSION,
+      note: "last_successful_sync_ms moves ONLY on a successful sync; a failed attempt updates last_attempt_ms and last_error instead",
     },
     cells: rows.map((r) => ({
       symbol: r.symbol, timeframe: r.timeframe, bars: r.bar_count,
       earliest: r.earliest_ts, latest: r.latest_ts,
       completion_state: r.completion_state, gaps: r.gap_count,
-      last_sync_ms: r.last_sync_ms, error: r.last_error,
+      last_attempt_ms: r.last_attempt_ms,
+      last_successful_sync_ms: r.last_successful_sync_ms > 0 ? r.last_successful_sync_ms : null,
+      error: r.last_error,
       fingerprint: r.dataset_fingerprint,
     })),
     ts: Date.now(),

@@ -21,7 +21,7 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-2">
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="TTT market" value={<span style={{ color: sse.connected ? "#3fb68b" : "#d6a24a" }}>{board.data?.stats_age_ms !== null && board.data?.stats_age_ms !== undefined && board.data.stats_age_ms < 30000 ? "LIVE" : "CONNECTING/STALE"}</span>} sub={`last sweep ${board.data?.stats_age_ms !== null && board.data?.stats_age_ms !== undefined ? fmtAge(board.data.stats_age_ms) : "—"} · SSE ${sse.connected ? "on" : "off"}`} />
-        <Metric label="universe live" value={`${live}/48`} sub="TTT /futures/markets/stats — one request per sweep" color="#d4b874" />
+        <Metric label="universe live" value={`${live}/${rows.length}`} sub="TTT /futures/markets/stats — one request per sweep (dynamically discovered universe)" color="#d4b874" />
         <Metric label="health endpoint" value={<StatusChip state={sse.connected ? "LIVE" : "CONNECTING"} />} sub="/api/system/health" />
         <Metric label="mode" value="ADVISORY" sub="AsA never executes — human executes" color="#8b8f99" />
       </div>

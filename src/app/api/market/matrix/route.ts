@@ -24,7 +24,25 @@ export async function GET(req: Request): Promise<NextResponse> {
   const syncedOnly = url.searchParams.get("synced") === "1";
 
   try {
-    const snap = await discoverMarkets();
+    const outcome = await discoverMarkets();
+    // AUDIT FIX (P0): `discoverMarkets()` returns a DiscoveryOutcome, not a
+    // snapshot. The previous code read `outcome.markets` (undefined) and threw
+    // on every request, so the matrix endpoint was permanently 503. A failed
+    // discovery is now surfaced honestly instead of being masked.
+    if (outcome.status === "NETWORK_FAILURE" || outcome.status === "INVALID_RESPONSE") {
+      return NextResponse.json(
+        {
+          ok: false,
+          discovery_status: outcome.status,
+          error: outcome.error,
+          reason: "TTT market discovery failed; the availability matrix is not served from a stale snapshot",
+          stale_snapshot_returned: outcome.snapshot.markets.length > 0,
+          ts: Date.now(),
+        },
+        { status: 503 },
+      );
+    }
+    const snap = outcome.snapshot;
     const store = getHistoryStore();
     let markets = snap.markets.filter((m) => m.eligibility.includes("ASA_MARKET_ELIGIBLE"));
     if (filter?.length) markets = markets.filter((m) => filter.includes(m.symbol));
@@ -68,6 +86,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     return NextResponse.json({
       ok: true,
       source: "ttt",
+      discovery_status: outcome.status,
       generated_at_ms: Date.now(),
       production_timeframes: PRODUCTION_TIMEFRAMES,
       resolution_mapping: Object.fromEntries(

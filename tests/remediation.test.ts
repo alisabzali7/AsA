@@ -6,6 +6,7 @@
  */
 import { describe, expect, it, afterEach } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   operationalUniverse, isOperationalSymbol, universeSource, universeMeta,
@@ -88,19 +89,28 @@ describe("P0-1 the operational universe is dynamic, not the legacy 48", () => {
   });
 
   it("reports honestly when discovery has not completed", () => {
+    // AUDIT FIX: the removed bootstrap fallback must NEVER come back. Before a
+    // successful discovery the universe is EMPTY and the source is not-ready.
     __setOperationalUniverse(null);
     expect(universeMeta().discovery_complete).toBe(false);
-    expect(universeSource()).toBe("legacy-bootstrap");
+    expect(universeSource()).toBe("not-ready");
+    expect(operationalUniverse()).toEqual([]);
+    expect(universeMeta().state).toBe("NOT_READY");
   });
 
   it("discovery runs BEFORE catalog ingestion and the stats sweep at boot", () => {
     const eng = fs.readFileSync("src/lib/market/engine.ts", "utf8");
     const iDisc = eng.indexOf("refreshOperationalUniverse(true)");
-    const iCat = eng.indexOf("tttClient.getMarkets()");
+    // AUDIT FIX: catalog ingestion now reuses the DISCOVERY snapshot
+    // (cachedCatalog) instead of issuing a second /futures/markets request.
+    const iCat = eng.indexOf("cachedCatalog()");
     const iSweep = eng.indexOf("await this.sweepStats()");
     expect(iDisc).toBeGreaterThan(-1);
+    expect(iCat).toBeGreaterThan(-1);
     expect(iDisc).toBeLessThan(iCat);
     expect(iDisc).toBeLessThan(iSweep);
+    // and there is no second discovery fetch at boot
+    expect(eng.indexOf("tttClient.getMarkets()")).toBe(-1);
   });
 
   it("re-discovery runs periodically so post-boot listings appear", () => {
@@ -351,29 +361,51 @@ describe("P1 no stale architecture claims remain in production source", () => {
 /* ─────────────────── P1 Brain rule executability governance ──────────────── */
 
 describe("P1 Brain rules are honestly classified, never overclaimed", () => {
-  const BRAIN = "asa-data/brain.db";
-  const hasBrain = fs.existsSync(BRAIN);
+  // AUDIT FIX (P1, mandate I): these governance tests used to skip silently
+  // whenever the build artifact asa-data/brain.db was absent, so a clean CI
+  // checkout NEVER executed them. They now ingest the corpus into a TEMP brain
+  // database and always run.
+  const CORPUS = "knowledge/raw";
+  const hasCorpus = ["RAW_1.txt", "RAW_2.txt", "RAW_3.txt", "RAW_4.txt", "RAW_5.txt"].every((f) => fs.existsSync(path.join(CORPUS, f)));
 
-  it.runIf(hasBrain)("no stored source-text rule is a runtime candidate", async () => {
+  async function buildTempBrain(): Promise<string> {
+    const { BrainStore } = await import("../src/lib/brain/store");
+    const { ingestCorpus } = await import("../src/lib/brain/ingest");
+    const tmp = path.join(os.tmpdir(), `asa-brain-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    const store = new BrainStore(tmp);
+    try {
+      const report = ingestCorpus(store, CORPUS);
+      expect(report.errors, report.errors.join("; ")).toEqual([]);
+      expect(report.coverage_ok).toBe(true);
+    } finally {
+      store.close();
+    }
+    return tmp;
+  }
+
+  it.runIf(hasCorpus)("no stored source-text rule is a runtime candidate", async () => {
     const { default: Database } = await import("better-sqlite3");
+    const BRAIN = await buildTempBrain();
     const db = new Database(BRAIN, { readonly: true });
     try {
       const bad = db.prepare("SELECT COUNT(*) n FROM rules WHERE runtime_status != 'DISABLED'").get() as { n: number };
       expect(bad.n, "a rule with no predicate must never be CANDIDATE").toBe(0);
-    } finally { db.close(); }
+    } finally { db.close(); fs.rmSync(BRAIN, { force: true }); }
   });
 
-  it.runIf(hasBrain)("every rule with empty predicates carries a non_executable_reason", async () => {
+  it.runIf(hasCorpus)("every rule with empty predicates carries a non_executable_reason", async () => {
     const { default: Database } = await import("better-sqlite3");
+    const BRAIN = await buildTempBrain();
     const db = new Database(BRAIN, { readonly: true });
     try {
       const bad = db.prepare("SELECT COUNT(*) n FROM rules WHERE predicates='[]' AND (non_executable_reason IS NULL OR non_executable_reason='')").get() as { n: number };
       expect(bad.n).toBe(0);
-    } finally { db.close(); }
+    } finally { db.close(); fs.rmSync(BRAIN, { force: true }); }
   });
 
-  it.runIf(hasBrain)("source_status is not blanket SOURCE_VERIFIED", async () => {
+  it.runIf(hasCorpus)("source_status is not blanket SOURCE_VERIFIED", async () => {
     const { default: Database } = await import("better-sqlite3");
+    const BRAIN = await buildTempBrain();
     const db = new Database(BRAIN, { readonly: true });
     try {
       const rows = db.prepare("SELECT source_status k, COUNT(*) n FROM rules GROUP BY 1").all() as { k: string; n: number }[];
@@ -383,11 +415,12 @@ describe("P1 Brain rules are honestly classified, never overclaimed", () => {
       // absence of a [VERIFIED] marker must NOT be counted as verified
       expect(verified).toBeLessThan(total);
       expect(rows.some((r) => r.k === "SOURCE_INFERRED")).toBe(true);
-    } finally { db.close(); }
+    } finally { db.close(); fs.rmSync(BRAIN, { force: true }); }
   });
 
-  it.runIf(hasBrain)("rule_class distinguishes UNKNOWN / CLAIM / UNFORMALIZED", async () => {
+  it.runIf(hasCorpus)("rule_class distinguishes UNKNOWN / CLAIM / UNFORMALIZED", async () => {
     const { default: Database } = await import("better-sqlite3");
+    const BRAIN = await buildTempBrain();
     const db = new Database(BRAIN, { readonly: true });
     try {
       const classes = (db.prepare("SELECT DISTINCT rule_class k FROM rules").all() as { k: string }[]).map((r) => r.k);
@@ -395,7 +428,7 @@ describe("P1 Brain rules are honestly classified, never overclaimed", () => {
       for (const c of classes) {
         expect(["MACHINE_EXECUTABLE_RULE", "SOURCE_TEXT_RULE", "UNFORMALIZED_RULE", "ENGINEERING_RULE", "UNKNOWN", "CONFLICT", "CLAIM"]).toContain(c);
       }
-    } finally { db.close(); }
+    } finally { db.close(); fs.rmSync(BRAIN, { force: true }); }
   });
 
   it("the executable rules come from compiled strategies, not the stored table", async () => {

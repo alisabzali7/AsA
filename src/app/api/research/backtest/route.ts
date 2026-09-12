@@ -6,7 +6,8 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { ensureEngineBooted } from "@/lib/state";
-import { getHistoryStore, syncHistory } from "@/lib/market/history-store";
+import { getHistoryStore, syncHistory, type SyncResult } from "@/lib/market/history-store";
+import { describeFreshSync } from "@/lib/backtest/data-freshness";
 import type { TimeframeId } from "@/lib/domain/timeframes";
 import { getRepo } from "@/db/sqlite";
 import { guardMutation, readBody } from "@/lib/api-common";
@@ -32,13 +33,17 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   const rawSym = typeof body.symbol === "string" ? body.symbol.toUpperCase() : "BTCUSDT";
   if (!isOperationalSymbol(rawSym)) return NextResponse.json({ ok: false, error: "symbol not in the operational TTT universe" }, { status: 400 });
-  const dataMode = body.dataMode === "fixture" ? "fixture" : "ttt";
   const sameBarPolicy = body.sameBarPolicy === "target_first" ? "target_first" : "stop_first";
+  // AUDIT FIX (P0-7): the previous code accepted `dataMode: "fixture"` from the
+  // body while ALWAYS reading candles from the TTT history store — the lineage
+  // could claim "fixture" over TTT data. The data mode is now fixed to what the
+  // route actually does: TTT stored history.
+  const dataMode = "ttt" as const;
 
   try {
     await ensureEngineBooted();
   } catch {
-    /* degraded */
+    /* degraded — surfaced through the data-freshness contract below */
   }
   // Use the STRATEGY'S OWN timeframe — never a hard-coded 15m for everything.
   const tf = strat.timeframe as TimeframeId;
@@ -47,7 +52,18 @@ export async function POST(req: Request): Promise<NextResponse> {
   // 5000-bar ceiling — `days` selects a RANGE, not a bar cap, and omitting it
   // uses everything stored back to the TTT boundary.
   const days = typeof body.days === "number" ? Math.max(1, Math.floor(body.days)) : undefined;
-  await syncHistory(rawSym, tf, { full: true }).catch(() => undefined);
+
+  // AUDIT FIX (P0-7): a failed fresh sync is NO LONGER swallowed. The run may
+  // proceed on previously stored TTT history, but the result explicitly says
+  // so via the data-freshness contract (see lib/backtest/data-freshness.ts).
+  let syncOutcome: SyncResult | null = null;
+  let syncError: unknown = null;
+  try {
+    syncOutcome = await syncHistory(rawSym, tf, { full: true });
+  } catch (err) {
+    syncError = err;
+  }
+  const freshness = describeFreshSync(syncOutcome, syncError);
 
   const store = getHistoryStore();
   const nowSec = Math.floor(Date.now() / 1000);
@@ -63,6 +79,8 @@ export async function POST(req: Request): Promise<NextResponse> {
         error: `insufficient ${strat.timeframe} candles for backtest (need >= ${needed} closed, have ${candles.length})`,
         earliest_available: store.bounds(rawSym, tf).earliest,
         completion_state: syncRow?.completion_state ?? "NOT_SYNCED",
+        fresh_sync_status: freshness.fresh_sync_status,
+        fresh_sync_error: freshness.fresh_sync_error,
       },
       { status: 409 },
     );
@@ -77,6 +95,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     symbol: rawSym,
     candles: series.candles,
     dataMode,
+    dataFreshness: freshness,
     sameBarPolicy,
     warningsSeed: requestedRangeNote ? [requestedRangeNote] : undefined,
     feeRoundTripPct: typeof body.feeRoundTripPct === "number" ? body.feeRoundTripPct : undefined,
@@ -92,7 +111,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     symbol: rawSym,
     timeframe: strat.timeframe,
     strategy_id: strategyId,
-    params_json: JSON.stringify({ days, sameBarPolicy, dataMode }),
+    params_json: JSON.stringify({ days, sameBarPolicy, dataMode, fresh_sync_status: freshness.fresh_sync_status }),
     result_json: null,
     error: null,
   });
@@ -101,7 +120,16 @@ export async function POST(req: Request): Promise<NextResponse> {
     // old slice-index -> timestamp remapping step is gone entirely.
     const result = runBacktest(input);
     repo.backtestUpdate(jobId, result.ok ? "done" : "error", JSON.stringify(result), result.ok ? null : (result.error ?? "unknown"));
-    return NextResponse.json({ ok: true, jobId, status: result.ok ? "done" : "error", result });
+    return NextResponse.json({
+      ok: true, jobId, status: result.ok ? "done" : "error",
+      data_freshness: {
+        fresh_sync_status: freshness.fresh_sync_status,
+        fresh_sync_error: freshness.fresh_sync_error,
+        last_successful_sync_ms: freshness.last_successful_sync_ms,
+        used_stored_data_after_failed_sync: freshness.used_stored_data_after_failed_sync,
+      },
+      result,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     repo.backtestUpdate(jobId, "error", null, msg);

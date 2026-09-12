@@ -7,7 +7,7 @@ import { Badge, Panel } from "@/components/ui";
 interface ResearchShape {
   ok: boolean;
   hypotheses: { id: string; title: string; status: string; evidence: string; tested: boolean }[];
-  strategies: { id: string; name: string; status: string; liveEligible: boolean; rules: Record<string, string[]>; params: Record<string, unknown>; ruleDocs?: never }[];
+  strategies: { id: string; name: string; status: string; executable: boolean; live_eligible: boolean; rules: Record<string, string[]>; params: Record<string, unknown>; ruleDocs?: never }[];
   exit_policy: { id: string; description: string };
 }
 interface AiCallsShape { ok: boolean; items: { id: number; created_ms: number; provider: string; model: string; latency_ms: number | null; verdict: string }[] }
@@ -39,7 +39,8 @@ export default function ResearchPage() {
             <details key={s.id} className="panel-2 mb-1.5 px-2 py-1.5">
               <summary className="cursor-pointer text-[12px]">
                 {s.name} <Badge color={H_COLORS[s.status] ?? "#8b8f99"}>{s.status}</Badge>
-                {s.liveEligible && <Badge color="#3fb68b">LIVE ELIGIBLE</Badge>}
+                {s.executable && <Badge color="#d6b04a">EXECUTABLE</Badge>}
+                {s.live_eligible && <Badge color="#3fb68b">LIVE ELIGIBLE</Badge>}
               </summary>
               <div className="mt-1 grid gap-1 sm:grid-cols-2">
                 {Object.entries(s.rules).map(([cat, rules]) => (

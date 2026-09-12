@@ -72,6 +72,10 @@ export const ASA_RISK_PER_TRADE_PCT = Math.min(50, Math.max(0.1, num("ASA_RISK_P
 export const ASA_RISK_MAX_LEVERAGE = Math.min(50, Math.max(1, num("ASA_RISK_MAX_LEVERAGE", 5)));
 
 export const ASA_PUBLIC_URL = str("ASA_PUBLIC_URL", "http://localhost:3000");
+// AUDIT FIX (P2): the advisory admission threshold was read directly from
+// process.env inside getScoreThreshold() with no registration here, so the
+// System config surface could not show it and its default was undocumented.
+export const ASA_SCORE_THRESHOLD = Math.min(100, Math.max(0, num("ASA_SCORE_THRESHOLD", 85)));
 export const ASA_LOG_LEVEL = str("ASA_LOG_LEVEL", "info");
 
 export const APP_VERSION = "6.0.0";
@@ -98,6 +102,7 @@ export function maskedConfig() {
       per_trade_pct: ASA_RISK_PER_TRADE_PCT,
       max_leverage: ASA_RISK_MAX_LEVERAGE,
     },
+    advisory: { score_threshold: ASA_SCORE_THRESHOLD },
     api_token: ASA_API_TOKEN ? "CONFIGURED" : "NOT_CONFIGURED",
   };
 }

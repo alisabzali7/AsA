@@ -43,7 +43,7 @@ export async function GET(req: Request): Promise<NextResponse> {
 
     if (only && markets.length === 0) {
       return NextResponse.json(
-        { ok: false, error: `symbol ${only} is not in the discovered TTT catalog`, excluded: PERMANENT_EXCLUSIONS.includes(only as never) },
+        { ok: false, error: `symbol ${only} is not in the discovered TTT catalog`, excluded: (PERMANENT_EXCLUSIONS as readonly string[]).includes(only) },
         { status: 404 },
       );
     }

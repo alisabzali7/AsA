@@ -75,7 +75,9 @@ export async function refreshOperationalUniverse(force = false): Promise<Refresh
   }
 
   if (outcome.status === "NETWORK_FAILURE" || outcome.status === "INVALID_RESPONSE") {
-    lastError = outcome.error ?? outcome.status;
+    // `error` is a non-optional string on this union member: no `??` fallback
+    // (an `??` right-operand would narrow the member away and miscompile).
+    lastError = outcome.error || outcome.status;
     // Preserve the previous snapshot (better than going blind) but say STALE.
     state = snapshot ? "STALE" : outcome.status;
     return { symbols: operationalUniverse(), source: universeSource(), state, count: operationalUniverse().length, error: lastError };
@@ -161,6 +163,22 @@ export function isOperationalSymbol(s: string): boolean {
   const sym = (s ?? "").toUpperCase();
   if (!sym || isPermanentlyExcluded(sym)) return false;
   return operationalUniverse().includes(sym);
+}
+
+/**
+ * Production assertion helper. Throws (and therefore refuses the request) for
+ * any symbol not in the dynamically discovered operational universe. Returns a
+ * plain validated string — there is deliberately no compile-time union for the
+ * operational universe because it is dynamic.
+ */
+export function assertOperationalSymbol(s: string, ctx = "symbol"): string {
+  if (!isOperationalSymbol(s)) {
+    throw new Error(
+      `[operational-universe] '${s}' is not in the discovered TTT operational universe (${ctx}); ` +
+        `universe state=${universeState()} count=${operationalUniverse().length}`,
+    );
+  }
+  return s;
 }
 
 /** Test seam. */

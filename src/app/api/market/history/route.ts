@@ -19,6 +19,7 @@ import { getHistoryStore, syncHistory } from "@/lib/market/history-store";
 import { detectGaps, fingerprint } from "@/lib/market/history";
 import { getTimeframe, isTimeframe } from "@/lib/domain/timeframes";
 import { isPermanentlyExcluded, getMarket } from "@/lib/market/catalog";
+import { universeMeta } from "@/lib/market/operational-universe";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,21 @@ export async function GET(req: Request): Promise<NextResponse> {
 
   const market = await getMarket(symbol).catch(() => null);
   if (!market) {
+    // AUDIT FIX (swallow-site triage): "not found" and "catalog unavailable"
+    // are different failures. A discovery outage with no snapshot must NOT be
+    // reported as "symbol does not exist".
+    const meta = universeMeta();
+    if (!meta.discovery_complete) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `TTT catalog unavailable (${meta.state}${meta.last_error ? `: ${meta.last_error}` : ""}) — cannot confirm '${symbol}'`,
+          source: "ttt",
+          degraded: "DISCOVERY_UNAVAILABLE",
+        },
+        { status: 503 },
+      );
+    }
     return NextResponse.json(
       { ok: false, error: `${symbol} is not in the discovered TTT catalog`, source: "ttt" },
       { status: 404 },
@@ -112,6 +128,9 @@ export async function GET(req: Request): Promise<NextResponse> {
         gap_count: row?.gap_count ?? 0,
         dataset_fingerprint: row?.dataset_fingerprint ?? fingerprint(candles),
         last_sync_ms: row?.last_sync_ms ?? null,
+        last_attempt_ms: row?.last_attempt_ms ?? null,
+        last_successful_sync_ms: row && row.last_successful_sync_ms > 0 ? row.last_successful_sync_ms : null,
+        last_error: row?.last_error ?? null,
         retrieval_version: row?.retrieval_version ?? null,
         // progressive-loading hints for the chart
         has_more_history: candles.length > 0 && bounds.earliest !== null && candles[0].t > bounds.earliest,

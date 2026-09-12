@@ -31,7 +31,7 @@ export default function PsychologyPage() {
           {d?.sections.map((s) => (
             <Panel key={s.key} title={s.label} right={<Badge color={VERDICT_COLOR[s.verdict] ?? "#8b8f99"}>{s.verdict}</Badge>}>
               <div className="mb-1 flex items-center gap-2">
-                <StatusChip state={s.state as never} />
+                <StatusChip state={s.state} />
                 {s.value !== null && s.value !== undefined && <span className="mono text-[13px]">{typeof s.value === "number" ? (Math.abs(s.value) > 10 ? s.value.toLocaleString("en-US", { maximumFractionDigits: 2 }) : s.value) : s.value}</span>}
               </div>
               {s.reason && <p className="text-[10.5px] leading-relaxed" style={{ color: "#d6a24a" }}>reason: {s.reason}</p>}

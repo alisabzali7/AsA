@@ -83,19 +83,19 @@ export class CandleManager {
       try {
         while (this.queue.length > 0) {
           const item = this.queue.shift()!;
-          const key = item.symbol + item.tf;
-          if (this.inFlight.has(key)) continue;
+          // AUDIT FIX (P2): the pump used to keep a SECOND in-flight map keyed
+          // `symbol+tf` while fetch() coalesces on `symbol+tf:target` — two
+          // different key spaces that never matched, so the pump's check was
+          // dead and cross-path requests duplicated venue calls. The pump now
+          // relies on fetch()'s own coalescing (same key space) instead of
+          // double-tracking.
           try {
-            const p = this.fetch(item.symbol, item.tf);
-            this.inFlight.set(key, p);
-            await p;
+            await this.fetch(item.symbol, item.tf);
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             if (!/429/.test(msg) && !/rate_limited/.test(msg)) {
               this.store.recordError("candle", `udf ${item.symbol}@${item.tf}`, msg);
             }
-          } finally {
-            this.inFlight.delete(key);
           }
         }
       } finally {

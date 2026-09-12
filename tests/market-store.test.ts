@@ -2,23 +2,47 @@
  * Market store tests against LIVE TTT fixtures: universe filtering
  * (TONUSDT must vanish), metric truth semantics (capability vs measured),
  * coverage contract rows.
+ *
+ * AUDIT FIX (P0): the operational universe is DYNAMIC. These tests used to
+ * hard-code "48" and relied on the removed legacy fallback; they now seed the
+ * operational universe from the FIXTURE catalog the way discovery would, and
+ * every expected count is DERIVED from the fixture — never hard-coded.
  */
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { MarketStore } from "../src/lib/market/store";
-import { UNIVERSE } from "../src/lib/domain/universe";
+import { __setOperationalUniverse } from "../src/lib/market/operational-universe";
+import { isPermanentlyExcluded } from "../src/lib/market/catalog";
 
 const F = (n: string) => JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures/live", n), "utf8"));
 
+interface FixtureMarket {
+  symbol: string; baseAsset: string; quoteAsset: string; category: string; name: string;
+  tickSize: string; stepSize: string; maxLeverage: number; maintenanceMarginRate: string;
+  makerFeeCoefficient: string; takerFeeCoefficient: string; isActive: boolean;
+}
+
+/** The universe discovery would produce from this fixture: active + USDT + not excluded. */
+function fixtureUniverse(): string[] {
+  const markets = F("markets.json") as FixtureMarket[];
+  return markets
+    .filter((m) => m.isActive !== false)
+    .filter((m) => String(m.quoteAsset ?? "").toUpperCase() === "USDT")
+    .map((m) => m.symbol)
+    .filter((s) => !isPermanentlyExcluded(s))
+    .sort();
+}
+
 function makeStoreWithStats(): MarketStore {
   const store = new MarketStore();
-  const markets = F("markets.json") as { symbol: string; baseAsset: string; quoteAsset: string; category: string; name: string; tickSize: string; stepSize: string; maxLeverage: number; maintenanceMarginRate: string; makerFeeCoefficient: string; takerFeeCoefficient: string; isActive: boolean }[];
+  const markets = F("markets.json") as FixtureMarket[];
   store.ingestCatalog(markets);
   const stats = F("stats.json") as { symbol: string; lastPrice: string; markPrice: string; indexPrice: string; fundingRate: string; openInterest: string; change24hPct: string; volume24hQuote: string }[];
   const provenance = { source_name: "ttt" as const, endpoint: "/futures/markets/stats", fetched_at_ms: Date.now(), auth: "public" as const };
+  const universe = fixtureUniverse();
   for (const r of stats) {
-    if (!UNIVERSE.includes(r.symbol)) continue;
+    if (!universe.includes(r.symbol)) continue;
     store.ingestStats({
       symbol: r.symbol,
       lastPrice: Number(r.lastPrice) || null,
@@ -43,21 +67,29 @@ function makeStoreWithStats(): MarketStore {
 describe("MarketStore over live TTT fixture", () => {
   let store: MarketStore;
   beforeEach(() => {
+    // seed the dynamic universe exactly as discovery over this fixture would
+    __setOperationalUniverse(fixtureUniverse());
     store = makeStoreWithStats();
+  });
+  afterEach(() => {
+    __setOperationalUniverse(null);
   });
 
   it("filters TONUSDT and non-universe symbols out of the catalog", () => {
-    expect(store.catalog.size).toBe(48);
+    const expected = fixtureUniverse().length;
+    expect(expected).toBeGreaterThan(0);
+    expect(store.catalog.size).toBe(expected);
     expect(store.catalog.has("TONUSDT")).toBe(false);
-    // fixture venue contains TONUSDT in stats only (55 rows vs 54 markets)
+    // fixture venue contains TONUSDT in stats only
     expect(store.stats.has("TONUSDT")).toBe(false);
   });
 
-  it("reports 48/48 live rows after one sweep", () => {
+  it("reports a live row for every operational symbol after one sweep", () => {
     const rows = store.liveRows();
-    expect(rows.length).toBe(48);
+    const expected = fixtureUniverse().length;
+    expect(rows.length).toBe(expected);
     const live = rows.filter((r) => r.state === "LIVE" && r.price !== null);
-    expect(live.length).toBe(48);
+    expect(live.length).toBe(expected);
     expect(live[0].source).toBe("ttt");
     expect(live[0].endpoint).toBe("/futures/markets/stats");
   });
@@ -105,5 +137,13 @@ describe("MarketStore over live TTT fixture", () => {
     expect(cov.status).toBe("PENDING");
     expect(cov.bar_count).toBe(0);
     expect(cov.source).toBe("ttt");
+  });
+
+  it("an EMPTY operational universe yields an EMPTY board (no legacy fallback)", () => {
+    __setOperationalUniverse(null);
+    const fresh = new MarketStore();
+    fresh.ingestCatalog(F("markets.json") as FixtureMarket[]);
+    expect(fresh.catalog.size).toBe(0); // nothing ingested while NOT_READY
+    expect(fresh.liveRows()).toEqual([]);
   });
 });

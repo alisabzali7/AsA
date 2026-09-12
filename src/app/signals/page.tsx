@@ -47,9 +47,9 @@ export default function SignalsPage() {
         <p className="-mt-1 text-[11px] text-muted">
           Lifecycle: {LIFECYCLE.join(" → ")} · signal ≠ order · stale published signals are expired by the engine
         </p>
-        {items.length === 0 && <Empty text="No signals yet. Signals are only published by liveEligible strategies (none enabled by default — nothing is simulated)." />}
+        {items.length === 0 && <Empty text="No signals yet. Signals are only published by strategies that pass every gate including the empirical runtime gate (none currently qualify — nothing is simulated)." />}
         {items.map((s) => (
-          <Panel key={s.id} title={`${s.symbol} · ${s.direction} @ ${s.timeframe}`} right={<StatusChip state={s.state as never} label={s.state} />}>
+          <Panel key={s.id} title={`${s.symbol} · ${s.direction} @ ${s.timeframe}`} right={<StatusChip state={s.state} label={s.state} />}>
             <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
               <Badge color="#d4b874">score {s.score}</Badge>
               <Badge>{s.strategy_id}</Badge>

@@ -35,13 +35,15 @@ CREATE TABLE IF NOT EXISTS history_sync (
   gap_count INTEGER NOT NULL DEFAULT 0,
   dataset_fingerprint TEXT NOT NULL DEFAULT '',
   last_sync_ms INTEGER NOT NULL DEFAULT 0,
+  last_attempt_ms INTEGER NOT NULL DEFAULT 0,
+  last_successful_sync_ms INTEGER NOT NULL DEFAULT 0,
   last_error TEXT, retrieval_version TEXT NOT NULL DEFAULT '1.0.0',
   source TEXT NOT NULL DEFAULT 'ttt',
   PRIMARY KEY (symbol, timeframe)
 );
 `;
 
-export const RETRIEVAL_VERSION = "1.0.0";
+export const RETRIEVAL_VERSION = "1.1.0";
 
 export interface SyncRow {
   symbol: string;
@@ -52,7 +54,12 @@ export interface SyncRow {
   completion_state: CompletionState;
   gap_count: number;
   dataset_fingerprint: string;
+  /** legacy column = last ATTEMPT time (kept for compatibility); do NOT read it as a success timestamp */
   last_sync_ms: number;
+  /** AUDIT FIX (P0-6): every attempt, success or failure */
+  last_attempt_ms: number;
+  /** AUDIT FIX (P0-6): only set when the sync actually SUCCEEDED */
+  last_successful_sync_ms: number;
   last_error: string | null;
   retrieval_version: string;
   source: string;
@@ -67,6 +74,33 @@ export class HistoryStore {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("synchronous = NORMAL");
     this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  /**
+   * Lightweight column migration: CREATE TABLE IF NOT EXISTS does not alter an
+   * existing database, so the attempt/success columns are added explicitly.
+   */
+  private migrate(): void {
+    const cols = new Set(
+      (this.db.prepare("PRAGMA table_info(history_sync)").all() as { name: string }[]).map((c) => c.name),
+    );
+    if (!cols.has("last_attempt_ms")) {
+      // pre-1.1.0 rows: the old last_sync_ms was written on FAILED attempts too,
+      // so it cannot be trusted as a success timestamp — seed it as the attempt
+      // time only and leave last_successful_sync_ms at 0 (unknown, re-provable
+      // by one successful sync).
+      this.db.exec("ALTER TABLE history_sync ADD COLUMN last_attempt_ms INTEGER NOT NULL DEFAULT 0");
+      this.db.exec("UPDATE history_sync SET last_attempt_ms = last_sync_ms WHERE last_attempt_ms = 0");
+    }
+    if (!cols.has("last_successful_sync_ms")) {
+      this.db.exec("ALTER TABLE history_sync ADD COLUMN last_successful_sync_ms INTEGER NOT NULL DEFAULT 0");
+      // A row with no recorded error and stored bars was, to the best prior
+      // knowledge, successfully synced; a row with an error was not.
+      this.db.exec(
+        "UPDATE history_sync SET last_successful_sync_ms = last_sync_ms WHERE last_error IS NULL AND bar_count > 0",
+      );
+    }
   }
 
   /** Append/upsert candles. Existing bars are corrected, never duplicated. */
@@ -119,14 +153,28 @@ export class HistoryStore {
 
   putSync(r: SyncRow): void {
     this.db.prepare(
-      `INSERT INTO history_sync (symbol,timeframe,earliest_ts,latest_ts,bar_count,completion_state,gap_count,dataset_fingerprint,last_sync_ms,last_error,retrieval_version,source)
-       VALUES (@symbol,@timeframe,@earliest_ts,@latest_ts,@bar_count,@completion_state,@gap_count,@dataset_fingerprint,@last_sync_ms,@last_error,@retrieval_version,@source)
+      `INSERT INTO history_sync (symbol,timeframe,earliest_ts,latest_ts,bar_count,completion_state,gap_count,dataset_fingerprint,last_sync_ms,last_attempt_ms,last_successful_sync_ms,last_error,retrieval_version,source)
+       VALUES (@symbol,@timeframe,@earliest_ts,@latest_ts,@bar_count,@completion_state,@gap_count,@dataset_fingerprint,@last_sync_ms,@last_attempt_ms,@last_successful_sync_ms,@last_error,@retrieval_version,@source)
        ON CONFLICT(symbol,timeframe) DO UPDATE SET
          earliest_ts=excluded.earliest_ts, latest_ts=excluded.latest_ts, bar_count=excluded.bar_count,
          completion_state=excluded.completion_state, gap_count=excluded.gap_count,
          dataset_fingerprint=excluded.dataset_fingerprint, last_sync_ms=excluded.last_sync_ms,
+         last_attempt_ms=excluded.last_attempt_ms, last_successful_sync_ms=excluded.last_successful_sync_ms,
          last_error=excluded.last_error, retrieval_version=excluded.retrieval_version`,
     ).run(r);
+  }
+
+  /**
+   * AUDIT FIX (P0-6): record that an attempt happened WITHOUT claiming success.
+   * Used by the skip path (no round trip was made, so nothing was verified)
+   * and by failed syncs, so `last_sync_ms` can never masquerade as
+   * "last successful sync".
+   */
+  touchSyncAttempt(symbol: string, timeframe: TimeframeId, atMs: number, error: string | null = null): void {
+    this.db.prepare(
+      `UPDATE history_sync SET last_sync_ms = ?, last_attempt_ms = ?, last_error = COALESCE(?, last_error)
+       WHERE symbol = ? AND timeframe = ?`,
+    ).run(atMs, atMs, error, symbol, timeframe);
   }
 
   totalBars(): number {
@@ -163,6 +211,10 @@ export interface SyncResult {
   meta: HistoryMeta;
   incremental: boolean;
   skipped_reason?: string;
+  /** AUDIT FIX (P0-6): did THIS attempt actually sync from TTT successfully? */
+  sync_succeeded: boolean;
+  /** epoch ms of the last SUCCESSFUL sync (null when none ever succeeded) */
+  last_successful_sync_ms: number | null;
 }
 
 /**
@@ -191,10 +243,15 @@ export async function syncHistory(
     const nowSec = Math.floor(Date.now() / 1000);
     const stepSec = spec.minutes * 60;
     if (nowSec - (bounds.latest as number) < stepSec) {
+      // AUDIT FIX (P0-6): a skip is an ATTEMPT, not a verified success. Record
+      // the attempt without touching the success timestamp.
+      store.touchSyncAttempt(symbol, timeframe, Date.now());
       const stored = store.get(symbol, timeframe);
       return {
         symbol, timeframe, fetched: 0, stored_total: before, added: 0, incremental: true,
         skipped_reason: "no new bar has closed since the last sync",
+        sync_succeeded: true, // nothing was asked of the venue; stored data stands
+        last_successful_sync_ms: prior?.last_successful_sync_ms ?? null,
         meta: {
           symbol, timeframe, ttt_resolution: spec.tttResolution,
           earliest_available: bounds.earliest, latest_available: bounds.latest,
@@ -228,8 +285,15 @@ export async function syncHistory(
         to: oldest - spec.minutes * 60,
         maxChunks: 1,
       });
-      if (probe.candles.length === 0) boundaryProven = true;
-      else store.put(symbol, timeframe, probe.candles);
+      // AUDIT FIX (mandate bug 5): zero candles alone do NOT prove the
+      // boundary — an s:"ok" empty-success would slip through. Only the
+      // explicit no-data signal (or a proven-boundary walk) counts.
+      if (probe.candles.length === 0 &&
+          (probe.meta.completion_state === "NO_DATA" || probe.meta.completion_state === "COMPLETE_TO_TTT_BOUNDARY")) {
+        boundaryProven = true;
+      } else if (probe.candles.length > 0) {
+        store.put(symbol, timeframe, probe.candles);
+      }
     }
   }
 
@@ -251,7 +315,11 @@ export async function syncHistory(
 
   let completion: CompletionState;
   if (stored.length === 0) {
-    completion = res.meta.completion_state === "UNAVAILABLE" ? "UNAVAILABLE" : "NO_DATA";
+    if (res.meta.completion_state === "UNAVAILABLE") completion = "UNAVAILABLE";
+    // AUDIT FIX (mandate bug 5): keep the empty-success state instead of
+    // collapsing it to NO_DATA — they mean different things upstream.
+    else if (res.meta.completion_state === "AMBIGUOUS_EMPTY") completion = "AMBIGUOUS_EMPTY";
+    else completion = "NO_DATA";
   } else if (gaps.length > 0) {
     completion = "GAPPED";
   } else if (everReachedBoundary) {
@@ -272,18 +340,37 @@ export async function syncHistory(
     dataset_fingerprint: fingerprint(stored),
   };
 
+  // AUDIT FIX (P0-6): failure transparency. A sync SUCCEEDED only when the
+  // venue actually answered (no transport error and not UNAVAILABLE). A failed
+  // sync must never move `last_successful_sync_ms`, and a successful sync must
+  // clear the previous error. `last_error` always reflects the LAST attempt.
+  // AUDIT FIX (mandate bug 5): AMBIGUOUS_EMPTY (200 s:"ok", zero bars) is NOT
+  // a successful sync either — an anomalous empty answer must never move the
+  // success timestamp or clear the error channel.
+  const attemptMs = Date.now();
+  const syncSucceeded =
+    !res.meta.reason &&
+    res.meta.completion_state !== "UNAVAILABLE" &&
+    res.meta.completion_state !== "AMBIGUOUS_EMPTY";
+  const priorSuccessMs = prior?.last_successful_sync_ms ?? 0;
+  const successMs = syncSucceeded ? attemptMs : priorSuccessMs;
+
   store.putSync({
     symbol, timeframe,
     earliest_ts: meta.earliest_available, latest_ts: meta.latest_available,
     bar_count: meta.bar_count, completion_state: meta.completion_state,
     gap_count: meta.gap_count, dataset_fingerprint: meta.dataset_fingerprint,
-    last_sync_ms: Date.now(), last_error: meta.reason ?? null,
+    last_sync_ms: attemptMs, last_attempt_ms: attemptMs,
+    last_successful_sync_ms: successMs,
+    last_error: res.meta.reason ?? null,
     retrieval_version: RETRIEVAL_VERSION, source: "ttt",
   });
 
   return {
     symbol, timeframe, fetched: res.candles.length, stored_total: after,
     added: after - before, incremental: canIncrement, meta,
+    sync_succeeded: syncSucceeded,
+    last_successful_sync_ms: successMs > 0 ? successMs : null,
   };
 }
 

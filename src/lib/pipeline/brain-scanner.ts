@@ -15,7 +15,8 @@ import { COMPILED_STRATEGIES, evaluateCompiled, type CompiledEvaluation } from "
 import { evaluateRisk } from "../risk/engine";
 import { evaluatePortfolio, type OpenRisk } from "../risk/portfolio";
 import { evaluatePsychologyGate, defaultPsychologyState, type PsychologyState } from "../psychology/gate";
-import { computeScore, admitOpportunity, SCORE_DISCLAIMER, type ScoreResult } from "../brain/score";
+import { admitOpportunity, SCORE_DISCLAIMER, type ScoreResult } from "../brain/score";
+import { scoreFromEvaluation } from "./scoring";
 import type { PsychologyPolicy, RiskPolicy, SourceRef } from "../brain/types";
 import type { EmpiricalStatus } from "../brain/types";
 
@@ -75,7 +76,15 @@ export interface ScanResult {
   duration_ms: number;
 }
 
-/** Build the score from deterministic evidence only. */
+/**
+ * Build the score from deterministic evidence only.
+ *
+ * AUDIT FIX (§J): this used to DUPLICATE scoreFromEvaluation minus the
+ * unknown-rule (−3 each) and contradiction (−10 each) penalties, so the
+ * scanner systematically over-scored candidates relative to the advisory
+ * pipeline. It now DELEGATES to the single shared implementation (closure §J:
+ * "ONE function ... so the scanner cannot drift apart").
+ */
 function scoreCandidate(
   ev: CompiledEvaluation,
   riskPass: boolean,
@@ -84,47 +93,16 @@ function scoreCandidate(
   barsAvailable: number,
   stale: boolean,
 ): ScoreResult {
-  const stages = new Map(ev.setup.stages.map((s) => [s.stage, s]));
-  const stageAchieved = (name: string): { achieved: number | null; reason: string; kind: "MEASURED" | "SOURCE" | "UNKNOWN" } => {
-    const s = stages.get(name as never);
-    if (!s || s.outcome === "SKIPPED") return { achieved: null, reason: `${name}: no rule in source`, kind: "UNKNOWN" };
-    if (s.outcome === "UNKNOWN") return { achieved: null, reason: `${name}: data unavailable`, kind: "UNKNOWN" };
-    if (s.outcome === "BLOCKED") return { achieved: 0, reason: `${name}: blocked`, kind: "SOURCE" };
-    return { achieved: s.outcome === "PASS" ? 1 : 0, reason: `${name}: ${s.outcome} (${s.note})`, kind: "MEASURED" };
-  };
-
-  const ctx = stageAchieved("context");
-  const loc = stageAchieved("location");
-  const str = stageAchieved("structure");
-  const conf = stageAchieved("confirmation");
-
-  const passed = ev.setup.passed_rules.length;
-  const totalRules = passed + ev.setup.failed_rules.length + ev.setup.unknown_rules.length + ev.setup.blocked_rules.length;
-
-  return computeScore({
-    components: {
-      strategy_compliance: {
-        achieved: totalRules > 0 ? passed / totalRules : null,
-        reason: `${passed}/${totalRules} rules passed`,
-        evidence_kind: "MEASURED",
-      },
-      structure_alignment: { achieved: str.achieved, reason: str.reason, evidence_kind: str.kind },
-      technical_confluence: { achieved: loc.achieved, reason: loc.reason, evidence_kind: loc.kind },
-      confirmation_quality: { achieved: conf.achieved, reason: conf.reason, evidence_kind: conf.kind },
-      market_regime: { achieved: ctx.achieved, reason: ctx.reason, evidence_kind: ctx.kind },
-      reward_risk_quality: ev.rr !== null
-        ? { achieved: Math.min(1, ev.rr / 3), reason: `R:R ${ev.rr} (1.0 achieved at 3R)`, evidence_kind: "MEASURED" }
-        : { achieved: null, reason: "R:R not computable — target or stop missing", evidence_kind: "UNKNOWN" },
-      risk_quality: { achieved: riskPass ? 1 : 0, reason: riskPass ? "risk engine passed" : "risk engine blocked", evidence_kind: "MEASURED" },
-      data_quality: {
-        achieved: stale ? 0 : Math.min(1, barsAvailable / 200),
-        reason: stale ? "data is stale" : `${barsAvailable} closed bars available`,
-        evidence_kind: "MEASURED",
-      },
-      psychology_gate: { achieved: psychReady ? 1 : 0, reason: psychReady ? "psychology ready" : "psychology not ready", evidence_kind: "MEASURED" },
-    },
-    penalties: psychPenalty > 0 ? [{ reason: "psychology soft warnings", points: psychPenalty }] : [],
-    source_refs: ev.setup.stages.flatMap((s) => s.rules.flatMap((r) => r.source_refs)).slice(0, 6),
+  // Contradiction derivation mirrors the orchestrator exactly: contradictions
+  // come from the rule layer, never hard-coded.
+  const contradictions = ev.setup.blocked_rules.map((id) => `rule ${id} is BLOCKED (non-computable or invalidation fired)`);
+  return scoreFromEvaluation(ev, {
+    riskPass,
+    psychReady,
+    psychPenalty,
+    bars: barsAvailable,
+    stale,
+    contradictions,
   });
 }
 

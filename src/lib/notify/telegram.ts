@@ -7,7 +7,7 @@
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_CONFIGURED, TELEGRAM_DRY_RUN } from "../env";
 import { getRepo } from "../../db/sqlite";
 import type { ChartEvidence } from "../chart/evidence";
-import type { OutboxRow } from "../../db/repo";
+import type { OutboxRow, Repo } from "../../db/repo";
 import { eventBus } from "../events";
 import type { AppState } from "../domain/types";
 
@@ -202,7 +202,11 @@ async function renderAdvisoryPng(payload: TelegramSignalPayload): Promise<Uint8A
     const evidence = parsed.chart_evidence;
     if (!evidence) return null;
     const { candleManager } = await import("../market/candles");
-    const series = await candleManager.ensureSeries(row.symbol, evidence.timeframe as never, true);
+    const { isTimeframe } = await import("../domain/timeframes");
+    // AUDIT FIX (P1): validate the stored timeframe instead of `as never` —
+    // a corrupt payload must not reach the fetcher.
+    if (!isTimeframe(evidence.timeframe)) return null;
+    const series = await candleManager.ensureSeries(row.symbol, evidence.timeframe, true);
     const { renderEvidencePng } = await import("../chart/render");
     return renderEvidencePng(evidence, series?.candles ?? []);
   } catch {
@@ -211,8 +215,7 @@ async function renderAdvisoryPng(payload: TelegramSignalPayload): Promise<Uint8A
 }
 
 /** Deliver ONE outbox row through the Telegram provider. */
-export async function deliverOutboxRow(row: OutboxRow): Promise<{ ok: boolean; error?: string }> {
-  const repo = getRepo();
+export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): Promise<{ ok: boolean; error?: string }> {
   if (!TELEGRAM_CONFIGURED) {
     repo.outboxMark(row.id, "FAILED", "telegram not configured");
     return { ok: false, error: "telegram not configured" };
@@ -250,9 +253,13 @@ export async function deliverOutboxRow(row: OutboxRow): Promise<{ ok: boolean; e
     const attempts = row.attempts + 1;
     if (attempts >= 5) {
       repo.outboxMark(row.id, "DEAD", "max attempts reached");
+      // AUDIT FIX (observability mandate): a permanently lost delivery is a
+      // DEGRADED event, not silence.
+      eventBus.emit("system", { message: `telegram outbox row ${row.id} DEAD after ${attempts} attempts (delivery permanently failed)`, level: "error" });
       return { ok: false, error: "max attempts reached" };
     }
     repo.outboxMark(row.id, "FAILED", "provider did not accept");
+    eventBus.emit("system", { message: `telegram outbox row ${row.id} FAILED (attempt ${attempts}/5): provider did not accept — will retry`, level: "warn" });
     return { ok: false, error: "provider did not accept" };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -261,14 +268,21 @@ export async function deliverOutboxRow(row: OutboxRow): Promise<{ ok: boolean; e
   }
 }
 
-/** Process all QUEUED rows (called by engine every minute). */
-export async function drainOutbox(): Promise<{ attempted: number; sent: number }> {
-  const repo = getRepo();
-  const queued = repo.outboxList("QUEUED", 50);
+/**
+ * Process retryable rows (called by engine every minute).
+ *
+ * AUDIT FIX (P1): the drain used to select ONLY QUEUED rows, so any row marked
+ * FAILED by a transient Telegram outage was stranded forever — the "durable
+ * outbox" silently lost delivery. The drain now retries FAILED rows that have
+ * attempts left; DEAD (5 failures) stays terminal.
+ */
+export async function drainOutbox(repo: Repo = getRepo()): Promise<{ attempted: number; sent: number; retried_failed: number }> {
+  const retryable = repo.outboxRetryable(50);
+  const retriedFailed = retryable.filter((r) => r.state === "FAILED").length;
   let sent = 0;
-  for (const row of queued) {
-    const r = await deliverOutboxRow(row);
+  for (const row of retryable) {
+    const r = await deliverOutboxRow(row, repo);
     if (r.ok) sent++;
   }
-  return { attempted: queued.length, sent };
+  return { attempted: retryable.length, sent, retried_failed: retriedFailed };
 }

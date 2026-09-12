@@ -11,6 +11,7 @@ import { buildBundle } from "../analysis/bundle";
 import { buildMtf } from "../analysis/mtf";
 import { buildPsychology } from "../psychology/engine";
 import { getRepo } from "../../db/sqlite";
+import { getExperiments } from "../backtest/experiments";
 import { getRuntimeStrategy, listRuntimeStrategies, evaluateRuntime, type StrategyRuntimeDefinition } from "../strategy/runtime";
 import { evaluateRisk } from "../risk/engine";
 import { evaluatePortfolio } from "../risk/portfolio";
@@ -22,6 +23,7 @@ import { scoreFromEvaluation } from "./scoring";
 import { buildChartEvidence, type ChartEvidence } from "../chart/evidence";
 import { eventBus } from "../events";
 import { getRiskPrefs } from "../prefs";
+import { ASA_SCORE_THRESHOLD } from "../env";
 import type { TimeframeId } from "../domain/timeframes";
 
 export const OPPORTUNITY_STATES = ["SCANNING", "ANALYZING", "CANDIDATE", "RISK_CHECK", "READY", "REJECTED", "COOLDOWN", "EXPIRED"] as const;
@@ -70,7 +72,8 @@ export interface OpportunityPayload {
       series_fetched_ms: number;
       stats_fetched_ms: number | null;
       native_1d: boolean;
-      candles: { macro: number; context: number; trigger: number };
+      /** null = that series was NOT part of this decision (never a fake 0) */
+      candles: { macro: number | null; context: number | null; trigger: number | null };
     };
   };
 }
@@ -257,7 +260,12 @@ export async function scanSymbol(
         series_fetched_ms: seriesTrg.fetched_at_ms,
         stats_fetched_ms: sharedStore.getStats(symbol)?.provenance.fetched_at_ms ?? null,
         native_1d: seriesTrg.native,
-        candles: { macro: 0, context: 0, trigger: candles.length },
+        // AUDIT FIX (P2): macro/context counts were hard-coded 0, which
+        // reads as "measured zero bars". The advisory decision uses ONLY the
+        // strategy's own trigger series; the MTF macro/context bundles belong
+        // to the /api/analysis path. Honest value: null = not part of this
+        // decision.
+        candles: { macro: null, context: null, trigger: candles.length },
       },
     },
   };
@@ -298,27 +306,27 @@ export function tfStalenessMs(tf: string): number {
 
 /** Admission threshold. Decision score, NOT a probability. */
 export function getScoreThreshold(): number {
-  const raw = Number(process.env.ASA_SCORE_THRESHOLD ?? 85);
-  return Number.isFinite(raw) ? raw : 85;
+  // AUDIT FIX (P2): single registered source (clamped 0..100 in env.ts),
+  // previously an undocumented direct process.env read.
+  return ASA_SCORE_THRESHOLD;
 }
 
 /**
  * Runtime status for live gating, resolved from persisted empirical evidence.
  * Nothing reaches LIVE_ADVISORY_ONLY without OOS/walk-forward proof.
+ *
+ * AUDIT FIX (P1): the old implementation used `require()` (which silently
+ * fails under ESM test runners — always yielding DISABLED) and opened a NEW
+ * SQLite connection on every call. It now uses the shared experiments
+ * singleton via a static import and still fails CLOSED on any error.
  */
 export function runtimeStatusFor(strategyId: string): string {
   try {
-    const { ExperimentStore } = require("../backtest/experiments") as typeof import("../backtest/experiments");
-    const store = new ExperimentStore();
-    try {
-      const st = store.statusByStrategy()[strategyId]?.status ?? "UNTESTED";
-      if (st === "ROBUST" || st === "WALK_FORWARD") return "LIVE_ADVISORY_ONLY";
-      if (st === "OOS_TESTED") return "PAPER";
-      if (st === "BACKTESTED") return "CANDIDATE";
-      return "DISABLED";
-    } finally {
-      store.close();
-    }
+    const st = getExperiments().statusByStrategy()[strategyId]?.status ?? "UNTESTED";
+    if (st === "ROBUST" || st === "WALK_FORWARD") return "LIVE_ADVISORY_ONLY";
+    if (st === "OOS_TESTED") return "PAPER";
+    if (st === "BACKTESTED") return "CANDIDATE";
+    return "DISABLED";
   } catch {
     return "DISABLED";
   }
@@ -380,27 +388,35 @@ export function publishSignal(opp: OpportunityPayload): { id: string } {
   return { id };
 }
 
-/** Mark stale published signals EXPIRED (freshness correctness). */
-export function expireStaleSignals(maxAgeMs = 60 * 60_000): number {
-  const repo = getRepo();
-  let n = 0;
-  // Cursor over EVERY signal, not just the newest 200: an old published signal
-  // beyond the first page would otherwise never expire.
+/**
+ * Mark stale published signals EXPIRED (freshness correctness).
+ *
+ * AUDIT FIX (P1): pagination happens over `updated_ms DESC` and expiring a row
+ * MUTATES `updated_ms`, which used to reshuffle rows mid-walk and could skip a
+ * band of rows for a cycle. The walk is now two-phase: collect every stale id
+ * first (no mutation during pagination), then expire them.
+ */
+export function expireStaleSignals(maxAgeMs = 60 * 60_000, repo: ReturnType<typeof getRepo> = getRepo()): number {
+  const now = Date.now();
+  // Phase 1: collect. No writes happen while the pages are being read, so the
+  // ordering cannot shift underneath the cursor.
+  const staleIds: string[] = [];
   const PAGE = 500;
   let offset = 0;
   for (;;) {
     const page = repo.signalPage(PAGE, offset);
     if (page.length === 0) break;
     for (const s of page) {
-      if ((s.state === "published" || s.state === "qualified") && Date.now() - s.updated_ms > maxAgeMs) {
-        repo.signalUpdate({ id: s.id, state: "expired" });
-        n++;
+      if ((s.state === "published" || s.state === "qualified") && now - s.updated_ms > maxAgeMs) {
+        staleIds.push(s.id);
       }
     }
     if (page.length < PAGE) break;
     offset += PAGE;
   }
-  return n;
+  // Phase 2: expire.
+  for (const id of staleIds) repo.signalUpdate({ id, state: "expired" });
+  return staleIds.length;
 }
 
 export function listStrategiesSummary() {
@@ -411,7 +427,14 @@ export function listStrategiesSummary() {
     family: s.family,
     status: s.availability,
     version: s.version,
-    liveEligible: s.availability === "EXECUTABLE",
+    // AUDIT FIX (P1-9): executability is NOT live eligibility. `executable`
+    // means the rules are deterministic; `live_eligible` additionally requires
+    // the Brain runtime gate (empirical OOS/walk-forward evidence), which no
+    // compiled strategy currently holds.
+    executable: s.availability === "EXECUTABLE",
+    live_eligible: s.availability === "EXECUTABLE" && runtimeStatusFor(s.strategy_id) === "LIVE_ADVISORY_ONLY",
+    live_eligibility_note:
+      "live_eligible requires LIVE_ADVISORY_ONLY runtime status (empirical OOS/walk-forward proof); executable alone is never live",
     timeframe: s.timeframe,
     direction: s.direction,
     blocked_reason: s.blocked_reason,

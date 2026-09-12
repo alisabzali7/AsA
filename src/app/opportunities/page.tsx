@@ -29,11 +29,11 @@ export default function OpportunitiesPage() {
       </div>
       {error && <div className="text-[11px]" style={{ color: "#d9605e" }}>{error}</div>}
       {items.length === 0 && (
-        <Empty text="No stored opportunities yet. Live scans only run when a liveEligible strategy is enabled — ReferenceStrategy is intentionally structural (liveEligible=false). Research scans / backtests use it explicitly and are labeled." />
+        <Empty text="No stored opportunities yet. Live advisory scans additionally require a strategy with LIVE_ADVISORY_ONLY runtime status (empirically proven); no strategy currently holds it." />
       )}
       <div className="grid gap-2 xl:grid-cols-2">
         {items.map((o) => (
-          <Panel key={o.id} title={`${o.symbol} · ${o.timeframe} · ${o.direction}`} right={<StatusChip state={o.fresh === "READY" ? (o.state as never) ?? "READY" : "EXPIRED"} label={o.fresh === "READY" ? o.state : "EXPIRED"} />}>
+          <Panel key={o.id} title={`${o.symbol} · ${o.timeframe} · ${o.direction}`} right={<StatusChip state={o.fresh === "READY" ? o.state ?? "READY" : "EXPIRED"} label={o.fresh === "READY" ? o.state : "EXPIRED"} />}>
             <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px]">
               <Badge color="#d4b874">score {o.score}</Badge>
               <Badge>{o.mode}</Badge>

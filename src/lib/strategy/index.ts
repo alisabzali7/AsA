@@ -73,7 +73,8 @@ export interface StrategyDefinition {
   name: string;
   status: StrategyStatus;
   version: string;
-  liveEligible: boolean;
+  /** AUDIT FIX (P1-9): renamed from liveEligible — executability is not live eligibility */
+  executable: boolean;
   timeframes: { macro: string; context: string; trigger: string };
   rules: StrategyRules;
   params: Record<string, number | string | boolean>;

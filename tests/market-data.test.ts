@@ -334,8 +334,14 @@ describe("§7 completion-state semantics (recomputed, never stale)", () => {
 
   it("COMPLETE_TO_TTT_BOUNDARY is only reachable via a real no_data response", () => {
     const src = fs.readFileSync("src/lib/market/history.ts", "utf8");
-    // the walk sets reachedBoundary only on no_data / no-new-bars
-    expect(src).toMatch(/if \(res\.noData \|\| res\.candles\.length === 0\) \{ reachedBoundary = true/);
+    // AUDIT UPDATE (mandate bug 5): the walk sets reachedBoundary ONLY on the
+    // explicit no_data signal or no-new-bars overlap — an s:"ok" response
+    // with zero candles is tracked as AMBIGUOUS_EMPTY and can NEVER set
+    // reachedBoundary.
+    expect(src).toMatch(/if \(res\.noData\) \{ reachedBoundary = true; break; \}/);
+    expect(src).toMatch(/if \(res\.candles\.length === 0\) \{ ambiguousEmpty = true; break; \}/);
+    // the old conflation must not come back
+    expect(src).not.toMatch(/res\.noData \|\| res\.candles\.length === 0\) \{ reachedBoundary/);
   });
 });
 

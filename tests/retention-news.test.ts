@@ -3,13 +3,14 @@
  * + fundamental connector basics (RSS parse, dedupe, classification).
  * Uses a temp SQLite file (no app DB touched).
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { SqliteRepo } from "../src/db/sqlite";
 import type { Repo } from "../src/db/repo";
 import { parseRss, dedupeKey, classifyImpact, matchSymbols, ingestNews } from "../src/lib/fundamental/engine";
+import { __setOperationalUniverse } from "../src/lib/market/operational-universe";
 
 let repo: Repo;
 let dbPath: string;
@@ -55,6 +56,10 @@ describe("news retention (30d rolling window)", () => {
 });
 
 describe("RSS parsing (defensive, no external parser)", () => {
+  // AUDIT FIX (P0): symbol matching gates on the DYNAMIC operational universe;
+  // before discovery it is empty, so tests must seed it.
+  beforeEach(() => { __setOperationalUniverse(["BTCUSDT", "ETHUSDT", "SOLUSDT"]); });
+  afterEach(() => { __setOperationalUniverse(null); });
   const xml = `<?xml version="1.0"?>
 <rss version="2.0"><channel>
   <item><title>SEC approves spot ETF</title><link>https://e.com/a</link><guid>abc</guid><pubDate>Tue, 03 Sep 2026 10:00:00 GMT</pubDate><description>Regulator decision &amp; market reaction</description></item>

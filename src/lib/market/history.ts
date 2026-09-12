@@ -29,7 +29,11 @@ export type CompletionState =
   | "PARTIAL"
   | "NO_DATA"
   | "UNAVAILABLE"
-  | "GAPPED";
+  | "GAPPED"
+  // AUDIT FIX (mandate bug 5): HTTP 200 s:"ok" with zero bars is NOT the
+  // explicit no-data boundary. It gets its own state so it can never be
+  // conflated with a proven complete walk.
+  | "AMBIGUOUS_EMPTY";
 
 export interface HistoryGap {
   from_ts: number;
@@ -188,6 +192,7 @@ export async function fetchFullHistory(
   let chunks = 0;
   let reachedBoundary = false;
   let lastError: string | undefined;
+  let ambiguousEmpty = false;
 
   while (chunks < maxChunks) {
     const chunkFrom = opts.from !== undefined
@@ -198,7 +203,12 @@ export async function fetchFullHistory(
     chunks++;
 
     if (!res.ok && !res.noData) { lastError = res.reason; break; }
-    if (res.noData || res.candles.length === 0) { reachedBoundary = true; break; }
+    // AUDIT FIX (mandate bug 5): only the EXPLICIT s:"no_data" signal is an
+    // authoritative boundary. An s:"ok" response with zero candles is an
+    // ambiguous empty-success: it stops the walk (there is nothing to merge)
+    // but it must NOT be recorded as COMPLETE_TO_TTT_BOUNDARY.
+    if (res.noData) { reachedBoundary = true; break; }
+    if (res.candles.length === 0) { ambiguousEmpty = true; break; }
 
     const before = all.length;
     const m = mergeCandles(all, res.candles);
@@ -223,8 +233,18 @@ export async function fetchFullHistory(
   let completion: CompletionState;
   let quality: HistoryMeta["data_quality"];
   if (valid.length === 0) {
-    completion = lastError ? "UNAVAILABLE" : "NO_DATA";
-    quality = lastError ? "UNAVAILABLE" : "NO_DATA";
+    if (lastError) {
+      completion = "UNAVAILABLE";
+      quality = "UNAVAILABLE";
+    } else if (ambiguousEmpty) {
+      // venue answered 200 s:"ok" but returned zero bars and we hold nothing:
+      // NOT the same as the explicit no-data boundary.
+      completion = "AMBIGUOUS_EMPTY";
+      quality = "INSUFFICIENT";
+    } else {
+      completion = "NO_DATA";
+      quality = "NO_DATA";
+    }
   } else if (gaps.length > 0) {
     // GAPPED describes DATA QUALITY, not traversal. We still record whether the
     // walk reached the venue boundary so a later backfill can clear it.
@@ -234,8 +254,14 @@ export async function fetchFullHistory(
     completion = reachedBoundary ? "COMPLETE_TO_TTT_BOUNDARY" : "PARTIAL";
     quality = "OK";
   } else {
+    // AUDIT FIX (mandate bug 5): an empty-success stopped the walk after bars
+    // were collected — the dataset is usable but the boundary is NOT proven,
+    // so this can never be recorded as COMPLETE_TO_TTT_BOUNDARY.
     completion = "PARTIAL";
     quality = "OK";
+    if (ambiguousEmpty && !lastError) {
+      lastError = "walk stopped on an s:ok response with zero candles; TTT boundary not proven";
+    }
   }
 
   return {

@@ -1,4 +1,4 @@
-/** GET /api/market/prices — 48-row live board, one bounded aggregation pass. */
+/** GET /api/market/prices — live board over the dynamic universe, one bounded aggregation pass. */
 import { NextResponse } from "next/server";
 import { ensureEngineBooted } from "@/lib/state";
 import { sharedStore } from "@/lib/market/store";
