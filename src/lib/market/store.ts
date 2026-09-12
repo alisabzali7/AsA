@@ -24,12 +24,13 @@ export interface SymbolMeta {
   quoteAsset: string;
   category: string;
   name: string;
-  tickSize: number;
-  stepSize: number;
-  maxLeverage: number;
-  maintenanceMarginRate: number;
-  makerFeeCoefficient: number;
-  takerFeeCoefficient: number;
+  /** venue constraint; null when TTT did not supply it (never a guess) */
+  tickSize: number | null;
+  stepSize: number | null;
+  maxLeverage: number | null;
+  maintenanceMarginRate: number | null;
+  makerFeeCoefficient: number | null;
+  takerFeeCoefficient: number | null;
   isActive: boolean;
 }
 
@@ -61,7 +62,7 @@ export class MarketStore {
   }
 
   // ---------------------------------------------------------------- catalog
-  ingestCatalog(raw: { symbol: string; baseAsset: string; quoteAsset: string; category: string; name: string; tickSize: string; stepSize: string; maxLeverage: number; maintenanceMarginRate: string; makerFeeCoefficient: string; takerFeeCoefficient: string; isActive: boolean }[]): number {
+  ingestCatalog(raw: { symbol: string; baseAsset: string; quoteAsset: string; category: string; name: string; tickSize: string | number | null; stepSize: string | number | null; maxLeverage: number | null; maintenanceMarginRate: string | number | null; makerFeeCoefficient: string | number | null; takerFeeCoefficient: string | number | null; isActive: boolean }[]): number {
     let n = 0;
     for (const m of raw) {
       if (!isOperationalSymbol(m.symbol)) continue; // TONUSDT & co excluded here
@@ -71,12 +72,14 @@ export class MarketStore {
         quoteAsset: m.quoteAsset,
         category: m.category,
         name: m.name,
-        tickSize: num(m.tickSize),
-        stepSize: num(m.stepSize),
-        maxLeverage: m.maxLeverage,
-        maintenanceMarginRate: num(m.maintenanceMarginRate),
-        makerFeeCoefficient: num(m.makerFeeCoefficient),
-        takerFeeCoefficient: num(m.takerFeeCoefficient),
+        // NaN (missing/unparseable) becomes NULL — a missing constraint is
+        // never represented as a number.
+        tickSize: nn(num(m.tickSize)),
+        stepSize: nn(num(m.stepSize)),
+        maxLeverage: nn(num(m.maxLeverage)),
+        maintenanceMarginRate: nn(num(m.maintenanceMarginRate)),
+        makerFeeCoefficient: nn(num(m.makerFeeCoefficient)),
+        takerFeeCoefficient: nn(num(m.takerFeeCoefficient)),
         isActive: m.isActive,
       });
       n++;
@@ -250,6 +253,11 @@ export function num(s: string | number | undefined | null): number {
   if (s === undefined || s === null) return NaN;
   const n = typeof s === "number" ? s : Number(s);
   return n;
+}
+
+/** NaN -> null: a missing/unparseable constraint is NULL, never a fake number. */
+function nn(v: number): number | null {
+  return Number.isFinite(v) ? v : null;
 }
 
 function tfMinutesFor(tf: string): number {

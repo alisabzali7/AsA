@@ -25,6 +25,7 @@ import {
   type PositionRecord, type BacktestMetrics,
 } from "./strategy-runner";
 import { datasetFingerprint } from "./experiments";
+import type { DataFreshness } from "./data-freshness";
 
 export type { SameBarPolicy };
 
@@ -42,6 +43,13 @@ export interface BacktestInput {
   endTsSec?: number;
   accountEquity?: number;
   warningsSeed?: string[];
+  /**
+   * AUDIT FIX (P0-7): explicit statement of whether the underlying history was
+   * freshly synchronized from TTT, or the run used previously stored data
+   * after a failed fresh sync. Surfaced in BOTH warnings and lineage so a
+   * stale-data run can never be presented as freshly synchronized.
+   */
+  dataFreshness?: DataFreshness;
 }
 
 export interface BacktestOutput {
@@ -124,6 +132,7 @@ export function runBacktest(input: BacktestInput): BacktestOutput {
     assumptions: result.assumptions,
     warnings: [
       ...(input.warningsSeed ?? []),
+      ...(input.dataFreshness?.warning ? [input.dataFreshness.warning] : []),
       "funding is NOT modelled — TTT historical funding is not integrated into replay (declared, not silently ignored)",
       `data mode: ${input.dataMode ?? "fixture"}`,
     ],
@@ -131,6 +140,14 @@ export function runBacktest(input: BacktestInput): BacktestOutput {
       run_id,
       dataset_fingerprint: datasetFingerprint(candles),
       ttt_source: input.dataMode === "ttt" ? "ttt:/futures/udf/history" : "fixture",
+      data_freshness: input.dataFreshness
+        ? {
+            fresh_sync_status: input.dataFreshness.fresh_sync_status,
+            fresh_sync_error: input.dataFreshness.fresh_sync_error,
+            last_successful_sync_ms: input.dataFreshness.last_successful_sync_ms,
+            used_stored_data_after_failed_sync: input.dataFreshness.used_stored_data_after_failed_sync,
+          }
+        : null,
       symbol: input.symbol,
       timeframe: strat.timeframe,
       date_range: { from_ts: candles[0].t, to_ts: candles[candles.length - 1].t, bars: candles.length },

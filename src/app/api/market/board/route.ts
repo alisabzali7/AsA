@@ -1,8 +1,9 @@
 /**
- * GET /api/market/board — the 48-symbol market board with the metrics that
- * are actually measurable per symbol (price/24h/volume/funding/OI/mark…)
- * plus per-metric truth flags. One bounded pass over cached state; never 48
- * deep requests. Focus-symbol deep metrics come from their own lanes.
+ * GET /api/market/board — the market board over the DYNAMIC discovered
+ * universe, with the metrics that are actually measurable per symbol
+ * (price/24h/volume/funding/OI/mark…) plus per-metric truth flags. One bounded
+ * pass over cached state; never per-symbol deep requests. Focus-symbol deep
+ * metrics come from their own lanes.
  */
 import { NextResponse } from "next/server";
 import { ensureEngineBooted } from "@/lib/state";

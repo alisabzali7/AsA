@@ -5,12 +5,13 @@
  * scans the whole source tree for execution verbs and asserts the transport
  * physically refuses unsafe HTTP methods.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import type { Candle } from "../src/lib/domain/types";
 import { parseUdfHistory } from "../src/lib/ttt/udf";
 import { scanForOpportunities } from "../src/lib/pipeline/brain-scanner";
+import { __setOperationalUniverse } from "../src/lib/market/operational-universe";
 import { buildPsychologyPolicies, buildRiskPolicies } from "../src/lib/brain/policies";
 import { tttRequest } from "../src/lib/ttt/http";
 import { COMPILED_STRATEGY_IDS } from "../src/lib/strategy/compiled";
@@ -48,6 +49,12 @@ function baseInput(series: Map<string, Map<string, Candle[]>>, over: Record<stri
 describe.runIf(hasReplay)("opportunity scanner", () => {
   const candles = () => load("BTCUSDT-60.json", 60);
   const series = () => new Map([["BTCUSDT", new Map([["1h", candles()], ["1d", candles()]])]]);
+
+  // AUDIT FIX (P0): the operational universe is DYNAMIC — before discovery it
+  // is EMPTY, so `isOperationalSymbol("BTCUSDT")` is false and every symbol is
+  // skipped. Tests must seed the universe the way discovery would.
+  beforeEach(() => { __setOperationalUniverse(["BTCUSDT"]); });
+  afterEach(() => { __setOperationalUniverse(null); });
 
   it("evaluates candidates and explains every rejection", () => {
     const r = scanForOpportunities(baseInput(series()));

@@ -33,16 +33,10 @@ export interface PsychologySummary {
   };
 }
 
-const fundingBand = (symbol: string): { min: number | null; max: number | null } => {
-  const s = sharedStore.getStats(symbol);
-  return { min: null, max: null }; // band values live in /markets raw but are not re-exposed; funding band shown from stats only when measured
-};
-
 export function buildPsychology(symbol: string): PsychologySummary {
   const stats = sharedStore.getStats(symbol);
   const now = Date.now();
   const sections: PsychSection[] = [];
-  const meta = sharedStore.catalog.get(symbol);
 
   // 1) funding (measured via stats sweep)
   const funding = stats?.fundingRate ?? null;
@@ -161,9 +155,6 @@ export function buildPsychology(symbol: string): PsychologySummary {
   const bias: "neutral" = "neutral";
   const bias_reason =
     "No directional bias is asserted: (a) liquidation pressure is unavailable, (b) tape-side semantics are unverified, (c) funding/OI alone are context, not a bias signal.";
-
-  void fundingBand(symbol);
-  void meta;
 
   return {
     symbol,

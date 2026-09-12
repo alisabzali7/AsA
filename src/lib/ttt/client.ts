@@ -121,7 +121,7 @@ export class TttClient {
     toSec: number;
     countback?: number;
     tfMinutes: number;
-  }): Promise<{ series: CandleSeries; fetched_at_ms: number }> {
+  }): Promise<{ series: CandleSeries; fetched_at_ms: number; no_data: boolean }> {
     const { symbol, resolution, fromSec, toSec, countback, tfMinutes } = opts;
     const q = [
       `symbol=${encodeURIComponent(symbol)}`,
@@ -147,6 +147,11 @@ export class TttClient {
         closed_count: parsed.candles.length,
       },
       fetched_at_ms: res.fetched_at_ms,
+      // AUDIT FIX (mandate bug 5): expose the EXPLICIT no-data signal so
+      // callers can distinguish "venue says no_data" (authoritative boundary)
+      // from "s:ok with zero bars" (ambiguous empty-success — NOT a boundary
+      // proof and NOT a license to derive).
+      no_data: parsed.meta.no_data === true,
     };
   }
 
@@ -171,8 +176,15 @@ export class TttClient {
     try {
       const native = await this.getUdfHistory({ symbol, resolution: "1D", fromSec: toSec - spanSec, toSec, countback: targetBars + 5, tfMinutes: 1440 });
       if (native.series.candles.length > 0) return native.series;
-      // explicit no-data -> labeled derivation is allowed
-      return await this.derive1DFallback(symbol, targetBars, toSec);
+      if (native.no_data) {
+        // explicit no-data -> labeled derivation is allowed
+        return await this.derive1DFallback(symbol, targetBars, toSec);
+      }
+      // AUDIT FIX (mandate bug 5): HTTP 200 s:"ok" with ZERO bars is an
+      // ambiguous empty-success. It is NOT proof that the venue lacks native
+      // 1D, so deriving a synthetic series here would mask a venue anomaly as
+      // market data. Surface it instead.
+      throw new Error(`TTT 1D ${symbol}: venue returned s:ok with zero candles (ambiguous empty-success; refusing to derive)`);
     } catch (err) {
       if (isUnsupportedResolution(err)) {
         // explicit unsupported-resolution -> labeled derivation is allowed

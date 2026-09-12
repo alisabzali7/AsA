@@ -26,13 +26,13 @@ export async function GET(req: Request): Promise<NextResponse> {
   const { symbol, error: symErr } = sym(url.searchParams, "symbol", "BTCUSDT");
   if (symErr) return symErr;
   const { tf, error: tfErr } = tff(url.searchParams, "tf", "15m");
-  if (tfErr) return tfErr;
+  if (tfErr || !tf) return tfErr ?? jsonError("unsupported timeframe");
   // transport window only; see /api/market/history for full-range traversal
   const limit = intParam(url.searchParams, "limit", 700, 50, 5000);
   const force = url.searchParams.get("refresh") === "1";
 
   try {
-    const series = await candleManager.ensureSeries(symbol as string, tf as never, force);
+    const series = await candleManager.ensureSeries(symbol as string, tf, force);
     if (!series || series.candles.length === 0) {
       const cov = sharedStore.coverageRow(symbol as string, tf as string);
       return NextResponse.json({

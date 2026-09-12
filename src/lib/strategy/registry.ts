@@ -27,14 +27,19 @@ export function getStrategy(id: string): StrategyRuntimeDefinition | undefined {
 }
 
 /**
- * Strategies eligible to influence live advisory output.
+ * AUDIT FIX (P1-9, mandate B9): renamed from `liveEligibleStrategies()`.
  *
- * Deterministic executability is necessary but NOT sufficient: empirical
- * promotion (OOS/walk-forward evidence) is enforced separately by the Brain
- * gate. This function therefore returns executable candidates only; the caller
- * must still consult the runtime status before surfacing anything live.
+ * The old name lied: deterministic EXECUTABILITY is necessary but NOT
+ * sufficient for live advisory. Empirical promotion (OOS/walk-forward
+ * evidence, enforced by the Brain gate via `runtimeStatusFor`) is what makes a
+ * strategy live-eligible, and no compiled strategy currently holds it. The
+ * misleading name could have let an API expose executable-but-unvalidated
+ * strategies as "live".
+ *
+ * Returns the EXECUTABLE CANDIDATES only. Callers that surface anything as
+ * live-eligible MUST additionally consult the runtime status gate.
  */
-export function liveEligibleStrategies(): StrategyRuntimeDefinition[] {
+export function executableStrategyCandidates(): StrategyRuntimeDefinition[] {
   return executableStrategies();
 }
 

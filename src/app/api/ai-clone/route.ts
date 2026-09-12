@@ -55,7 +55,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   if (/ton/i.test(question)) facts.push("RULE: TONUSDT is excluded from the AsA universe by definition — it will never appear in the board or analysis.");
   if (/probability|certainty|٪|درصد/.test(question)) facts.push("RULE: AsA scores are deterministic scores, never calibrated probabilities. No probability claim is made without a calibration system.");
   if (/execute|order|buy|sell|trade now|سفارش|خرید|فروش/.test(question)) facts.push("RULE: AsA is advisory-only. It never places, cancels or modifies orders, and has no execution client. You execute on your venue account.");
-  if (/strategy|استراتژی/.test(question)) facts.push("FACT: the ~300-page personal strategy is not yet formalized; the pluggable StrategyDefinition interface is ready and ReferenceStrategy exists for structural tests only (liveEligible=false).");
+  if (/strategy|استراتژی/.test(question)) facts.push("FACT: executable strategies come from the Brain runtime (corpus-derived, source-referenced). Deterministic executability is NOT live eligibility: live advisory additionally requires empirical OOS/walk-forward proof, which no strategy currently holds.");
 
   if (facts.length === 0) {
     facts.push(`UNAVAILABLE: the question "${question.slice(0, 80)}" does not map to measured AsA evidence. Ask about a symbol, metrics, coverage, funding, risk, or strategy state.`);

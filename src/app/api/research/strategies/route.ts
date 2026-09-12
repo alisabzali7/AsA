@@ -4,7 +4,10 @@
  */
 import { NextResponse } from "next/server";
 import { listRuntimeStrategies } from "@/lib/strategy/runtime";
+import { runtimeStatusFor } from "@/lib/pipeline/orchestrator";
 import { EXIT_POLICY } from "@/lib/strategy/index";
+import { verifyCompiledLineage, type LineageReport } from "@/lib/strategy/lineage";
+import { getBrain } from "@/lib/brain/store";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +18,20 @@ const HYPOTHESES = [
 ] as const;
 
 export async function GET(): Promise<NextResponse> {
+  // AUDIT FIX (mandate B8): surface the Brain-lineage governance of
+  // COMPILED_STRATEGIES explicitly. If the brain store is unavailable the
+  // lineage is reported UNKNOWN — never silently "ok".
+  let lineage: LineageReport | { unavailable: string };
+  try {
+    lineage = verifyCompiledLineage(getBrain().strategies());
+  } catch (err) {
+    lineage = { unavailable: `brain store not accessible: ${err instanceof Error ? err.message : String(err)}` };
+  }
   return NextResponse.json({
     ok: true,
     hypotheses: HYPOTHESES,
     // Brain-backed registry: the same definitions live advisory and backtest use.
+    brain_lineage: lineage,
     strategies: listRuntimeStrategies().map((s) => ({
       id: s.setup_id,
       strategy_id: s.strategy_id,
@@ -26,7 +39,11 @@ export async function GET(): Promise<NextResponse> {
       family: s.family,
       status: s.availability,
       version: s.version,
-      liveEligible: s.availability === "EXECUTABLE",
+      // AUDIT FIX (P1-9): executability is NOT live eligibility. The old
+      // `liveEligible: EXECUTABLE` field could expose executable-but-
+      // unvalidated strategies as live to any API consumer.
+      executable: s.availability === "EXECUTABLE",
+      live_eligible: s.availability === "EXECUTABLE" && runtimeStatusFor(s.strategy_id) === "LIVE_ADVISORY_ONLY",
       timeframe: s.timeframe,
       direction: s.direction,
       rules: s.rule_ids,
@@ -34,7 +51,7 @@ export async function GET(): Promise<NextResponse> {
       source_refs: s.source_refs,
     })),
     exit_policy: EXIT_POLICY,
-    note: "no hypothesis here claims validation; every row states its evidence state",
+    note: "no hypothesis here claims validation; every row states its evidence state. executable ≠ live_eligible: live requires empirical OOS/walk-forward proof via the Brain gate",
     ts: Date.now(),
   });
 }

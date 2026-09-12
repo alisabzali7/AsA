@@ -19,7 +19,7 @@ export const referenceStrategy: StrategyDefinition = {
   name: "Reference — trend continuation (structural only)",
   status: "REFERENCE",
   version: "1.0.0",
-  liveEligible: false, // structural test only; never publishes production signals
+  executable: false, // structural test only; never publishes production signals
   timeframes: { macro: "4h", context: "1h", trigger: "15m" },
   rules: {
     prerequisites: ["macro trend is up (long) or down (short) by structure engine", "macro series has >= 200 closed candles", "context has >= 150 closed candles"],

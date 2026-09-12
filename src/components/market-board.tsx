@@ -1,5 +1,5 @@
 "use client";
-/** Full 48-symbol board table (chart-centric, dense, truthful ages). */
+/** Full board table over the DYNAMIC discovered universe (chart-centric, dense, truthful ages). */
 import { useMemo, useRef, useState } from "react";
 import { useLang } from "./lang";
 import { usePoll, formatPrice, stateColor } from "./hooks";
@@ -79,7 +79,7 @@ export function MarketBoard({ onFocus, compact = false }: { onFocus?: (s: string
     <div>
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
         <div className="text-[11px] text-muted">
-          {t("board", "title")} · <span className="text-dim">48 rows · stats endpoint /futures/markets/stats · sweep age {data?.stats_age_ms !== null && data?.stats_age_ms !== undefined ? `${Math.round((data.stats_age_ms ?? 0) / 1000)}s` : "…"}</span>
+          {t("board", "title")} · <span className="text-dim">{rows.length} rows (dynamic TTT universe) · stats endpoint /futures/markets/stats · sweep age {data?.stats_age_ms !== null && data?.stats_age_ms !== undefined ? `${Math.round((data.stats_age_ms ?? 0) / 1000)}s` : "…"}</span>
         </div>
         {error && <span className="text-[10px]" style={{ color: "#d9605e" }}>{error}</span>}
       </div>
