@@ -1,0 +1,32 @@
+ASА Agent Execution Package v1 — Manifest
+
+PROJECT/
+  Current AsA implementation snapshot from the latest available agent workspace.
+  Secrets removed: `.env.local` is intentionally absent.
+
+KNOWLEDGE/
+  ASA_CANONICAL_KNOWLEDGE_PACK_v1_1.json
+  strategy_registry.csv
+  STRATEGY_EVIDENCE.txt
+  source_line_index.jsonl
+  README.md
+  SOURCE_MANIFEST.json
+  uncertainty_registry and other generated pack assets
+  RAW_1.txt ... RAW_5.txt
+  RAW_ORIGINAL/ — exact 5 source TXT files from the user's `my stratgist.zip`
+
+REFERENCE/
+  Official TTT API PDF
+  AsA Master Build Bible
+  Fable frontend master prompt
+  AI trade deep research report
+  prior extreme benchmark prompt
+  prior super master development prompt (historical/subordinate)
+
+DOCS/
+  00_READ_FIRST.md
+  ASA_IMPLEMENTATION_CONTRACT_v1.md
+  MASTER_PROMPT_ASA_AGENT_EXECUTION_v1.txt
+  PACKAGE_MANIFEST.txt
+
+No real credential is intentionally bundled.

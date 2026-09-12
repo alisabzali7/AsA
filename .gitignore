@@ -1,0 +1,52 @@
+# dependencies / build
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# local data & secrets
+asa-data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+
+# misc
+.DS_Store
+npm-debug.log*
+*.log
+coverage/
+.npm/
+
+# user-supplied credential inventory (never commit)
+uploads/
+api.txt
+API.txt
+
+# Runtime/generated databases are NEVER part of the source handoff (§I1).
+# They are rebuildable: npm run brain:ingest && npm run brain:mine && history sync.
+asa-data/
+*.db
+*.db-wal
+*.db-shm
+
+# knowledge/ IS source-of-truth and MUST be tracked — listed here explicitly so
+# nobody re-ignores it: knowledge/raw (immutable corpus), knowledge/canonical.
+!knowledge/
+!knowledge/**
+
+# transient build artifacts from scripts/ingest-brain.mjs
+.asa-ingest-*
+
+# source handoff archive (regenerate with `npm run handoff`)
+# handoff archives are BUILD OUTPUT and must never live inside the project
+*.zip
+# verification snapshots / scratch extractions (never source)
+_verify/
+
+# local tool caches (machine-specific)
+.config/
+.sudo_as_admin_successful

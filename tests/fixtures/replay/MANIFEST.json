@@ -1,0 +1,104 @@
+{
+  "captured_at_utc": "2026-09-09T11:27:18.651Z",
+  "base": "https://apiv2.thetruetrade.io",
+  "endpoint": "/futures/udf/history",
+  "note": "Real TTT public UDF history for deterministic replay/backtest. Production market truth is TTT only. Universe remains exactly 48 symbols; TONUSDT excluded.",
+  "series": [
+    {
+      "file": "BTCUSDT-60.json",
+      "symbol": "BTCUSDT",
+      "resolution": "60",
+      "bars": 1500,
+      "from_ts": 1783504800,
+      "to_ts": 1788897600
+    },
+    {
+      "file": "ETHUSDT-60.json",
+      "symbol": "ETHUSDT",
+      "resolution": "60",
+      "bars": 1500,
+      "from_ts": 1783504800,
+      "to_ts": 1788897600
+    },
+    {
+      "file": "SOLUSDT-60.json",
+      "symbol": "SOLUSDT",
+      "resolution": "60",
+      "bars": 1500,
+      "from_ts": 1783504800,
+      "to_ts": 1788897600
+    },
+    {
+      "file": "BTCUSDT-1D.json",
+      "symbol": "BTCUSDT",
+      "resolution": "1D",
+      "bars": 277,
+      "from_ts": 1764806400,
+      "to_ts": 1788739200
+    },
+    {
+      "file": "XRPUSDT-60.json",
+      "symbol": "XRPUSDT",
+      "resolution": "60",
+      "bars": 1500,
+      "from_ts": 1783555200,
+      "to_ts": 1788948000
+    },
+    {
+      "file": "DOGEUSDT-60.json",
+      "symbol": "DOGEUSDT",
+      "resolution": "60",
+      "bars": 1500,
+      "from_ts": 1783555200,
+      "to_ts": 1788948000
+    },
+    {
+      "file": "BNBUSDT-60.json",
+      "symbol": "BNBUSDT",
+      "resolution": "60",
+      "bars": 1500,
+      "from_ts": 1783555200,
+      "to_ts": 1788948000
+    },
+    {
+      "file": "ADAUSDT-60.json",
+      "symbol": "ADAUSDT",
+      "resolution": "60",
+      "bars": 1500,
+      "from_ts": 1783555200,
+      "to_ts": 1788948000
+    },
+    {
+      "file": "LINKUSDT-60.json",
+      "symbol": "LINKUSDT",
+      "resolution": "60",
+      "bars": 1500,
+      "from_ts": 1783555200,
+      "to_ts": 1788948000
+    },
+    {
+      "file": "AVAXUSDT-60.json",
+      "symbol": "AVAXUSDT",
+      "resolution": "60",
+      "bars": 1500,
+      "from_ts": 1783555200,
+      "to_ts": 1788948000
+    },
+    {
+      "file": "ETHUSDT-1D.json",
+      "symbol": "ETHUSDT",
+      "resolution": "1D",
+      "bars": 279,
+      "from_ts": 1764806400,
+      "to_ts": 1788912000
+    },
+    {
+      "file": "SOLUSDT-1D.json",
+      "symbol": "SOLUSDT",
+      "resolution": "1D",
+      "bars": 279,
+      "from_ts": 1764806400,
+      "to_ts": 1788912000
+    }
+  ]
+}

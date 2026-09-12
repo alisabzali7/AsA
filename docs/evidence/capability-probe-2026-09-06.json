@@ -1,0 +1,70 @@
+{
+  "ts": "2026-09-08T21:37:20.328Z",
+  "ttt": {
+    "key": "PRESENT len=40",
+    "secret": "PRESENT len=64",
+    "base": "https://apiv2.thetruetrade.io",
+    "public_unsigned": {
+      "status": 200,
+      "ms": 910
+    },
+    "public_signed": {
+      "status": 403,
+      "ms": 184
+    },
+    "header_isolation": {
+      "x_api_key_only": 403,
+      "x_timestamp_only": 200,
+      "x_signature_only": 200,
+      "bogus_api_key": 403
+    },
+    "private_reads": {
+      "/futures/account": {
+        "status": 403,
+        "ms": 176,
+        "body_kind": "html_error_page"
+      },
+      "/futures/account/balance": {
+        "status": 403,
+        "ms": 172,
+        "body_kind": "html_error_page"
+      },
+      "/futures/account/summary": {
+        "status": 403,
+        "ms": 180,
+        "body_kind": "html_error_page"
+      },
+      "/futures/balance": {
+        "status": 403,
+        "ms": 175,
+        "body_kind": "html_error_page"
+      },
+      "/futures/user/info": {
+        "status": 403,
+        "ms": 171,
+        "body_kind": "html_error_page"
+      }
+    },
+    "verdict": "KEY_HEADER_REJECTED_AT_EDGE",
+    "conclusion": "The venue edge returns 403 for ANY request carrying X-API-Key, including routes that return 200 unsigned. Credentials cannot be attached to market data without breaking it; AsA sends market requests unsigned."
+  },
+  "ai": {
+    "base": "CONFIGURED (https://<host>/v1)",
+    "key": "PRESENT len=44",
+    "configured_model": "gpt-4o-mini",
+    "catalogue_status": 200,
+    "latency_ms": 179,
+    "models_count": 330,
+    "model_available": true,
+    "state": "ONLINE"
+  },
+  "telegram": {
+    "token": "PRESENT len=46",
+    "chat_id": "523***15",
+    "getme_status": 200,
+    "latency_ms": 478,
+    "state": "ONLINE",
+    "bot_username": "alisabzalitrade_bot",
+    "bot_id": 8732439864
+  }
+}

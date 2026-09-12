@@ -1,0 +1,133 @@
+{
+  "current": {
+    "generated_at": "2026-09-11T10:36:59.650309+00:00",
+    "phase": "FINAL_RELEASE_FIX",
+    "git_commit": "c29fc81",
+    "git_commit_full": "c29fc81da0e3bce77180419c8048cd2f2cc2712a",
+    "tests": {
+      "discovered": 389,
+      "executed": 389,
+      "passed": 389,
+      "failed": 0,
+      "skipped": 0,
+      "files": 19
+    },
+    "market": {
+      "count": 63,
+      "source": "ttt-dynamic",
+      "tonusdt_present": false,
+      "note": "verified live; legacy 48 is LEGACY_48_REGRESSION_SET (test-only)"
+    },
+    "workspace": {
+      "source_bytes": 7086973,
+      "source_mb": 6.76,
+      "source_files": 273,
+      "git_bytes": 12868424,
+      "git_mb": 12.27,
+      "active_mb": 19.03,
+      "runtime_dbs": "not carried in source workspace \u2014 rebuildable"
+    },
+    "gates": {
+      "npm_ci": "PASS",
+      "typecheck": "PASS",
+      "lint": "PASS",
+      "tests": "PASS",
+      "build": "PASS"
+    },
+    "handoff": {
+      "git_entries": 0,
+      "nested_zips": 0,
+      "runtime_dbs": 0,
+      "note": "packager fails the build if any .git entry appears"
+    },
+    "commit_note": "Refreshed by `npm run handoff`, which stamps the true HEAD into the packaged artifacts. If a docs-only commit later moves HEAD, re-run the packager; code is identical between them (git diff --stat <commit> HEAD -- src tests knowledge scripts).",
+    "known_issues": [
+      "experiments table is NOT reproduced by brain:ingest/brain:mine; run `npm run brain:validate`.",
+      "Brain rule registry and the runtime rule set remain SEPARATE systems (documented prior FAIL).",
+      "Zero strategies are live; none has passed the OOS gate."
+    ]
+  },
+  "history": [
+    {
+      "phase": "closure_run",
+      "generated_at": "2026-09-09T11:45:28.622408+00:00",
+      "git_commit": "f4f6da5",
+      "summary": {
+        "total": 30,
+        "pass": 30,
+        "partial": 0,
+        "blocked": 0,
+        "fail": 0
+      },
+      "freeze_tag": "backend-freeze-v1"
+    },
+    {
+      "phase": "market_data_remediation",
+      "generated_at": "2026-09-09T18:26:15.574367+00:00",
+      "git_commit": "f3c1727",
+      "freeze_tag": "market-data-freeze-v1",
+      "summary": {
+        "total": 24,
+        "pass": 24,
+        "partial": 0,
+        "blocked": 0,
+        "fail": 0
+      }
+    },
+    {
+      "phase": "unified_finalization",
+      "generated_at": "2026-09-10T07:56:15.574905+00:00",
+      "git_commit": "d336b51",
+      "summary": {
+        "total": 30,
+        "pass": 30,
+        "partial": 0,
+        "blocked": 0,
+        "fail": 0
+      },
+      "freeze_tag": "unified-freeze-v1"
+    },
+    {
+      "phase": "REMEDIATION_FINAL",
+      "git_commit": "d1b26e9",
+      "generated_at": "2026-09-10T08:59:35.919961+00:00",
+      "tests": {
+        "discovered": 389,
+        "executed": 389,
+        "passed": 389,
+        "failed": 0,
+        "skipped": 0,
+        "files": 113
+      },
+      "note": "superseded by workspace surgery"
+    },
+    {
+      "phase": "WORKSPACE_SURGERY",
+      "git_commit": "4ef1796",
+      "generated_at": "2026-09-11T09:46:49.350533+00:00",
+      "tests": {
+        "discovered": 389,
+        "executed": 389,
+        "passed": 389,
+        "failed": 0,
+        "skipped": 0,
+        "files": 19
+      },
+      "note": "superseded by final micro-clean"
+    },
+    {
+      "phase": "FINAL_MICRO_CLEAN",
+      "git_commit": "cad0230",
+      "generated_at": "2026-09-11T10:16:54.969516+00:00",
+      "tests": {
+        "discovered": 389,
+        "executed": 389,
+        "passed": 389,
+        "failed": 0,
+        "skipped": 0,
+        "files": 19
+      },
+      "note": "superseded by final release fix"
+    }
+  ]
+}

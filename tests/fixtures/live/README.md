@@ -1,0 +1,6 @@
+# Live TTT fixtures
+
+- **captured_at_utc**: 2026-09-05T19:50-20:10Z
+- **base**: https://apiv2.thetruetrade.io
+- **note**: Live public TTT responses captured during the AsA audit on 2026-09-05. Used as deterministic fixtures for normalization tests (udf-15 shows duplicated final timestamp; udf-nodata shows s=no_data at HTTP 200). auth-*-401 show the error envelope without credentials.
+- **files**: {'markets.json': 'GET /futures/markets (54 rows incl TONUSDT — universe filter is mandatory)', 'stats.json': 'GET /futures/markets/stats (55 rows; TONUSDT present in stats but absent from markets)', 'orderbook.json': 'GET /futures/markets/orderbook?symbol=BTCUSDT', 'trades.json': 'GET /futures/markets/trades?symbol=BTCUSDT (side=ASK/BID present; aggressor semantics undocumented)', 'funding-history-p1.json': 'GET /futures/markets/funding-history?symbol=BTCUSDT&page=1', 'udf-15.json': 'GET /futures/udf/history?symbol=BTCUSDT&resolution=15 (1152 bars; duplicated final ts)', 'udf-1d.json': 'GET /futures/udf/history?symbol=BTCUSDT&resolution=1D (NATIVE 1D confirmed)', 'udf-1d-deep.json': 'GET /futures/udf/history?symbol=ETHUSDT&resolution=1D&countback=5000 (275 daily bars since 2025-12-04)', 'udf-nodata.json': "GET /futures/udf/history?symbol=ZZZUSDT → {s:'no_data'} at HTTP 200", 'auth-orders-401.json': 'GET /futures/orders without credentials → 401 {errors:[...]}'}

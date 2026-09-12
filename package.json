@@ -1,0 +1,43 @@
+{
+  "name": "asa",
+  "version": "6.0.0",
+  "private": true,
+  "description": "AsA — advisory-only crypto trading intelligence terminal (TTT market truth only)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "probe": "node scripts/probe-ttt.mjs",
+    "probe:caps": "node scripts/probe-capabilities.mjs",
+    "brain:ingest": "node scripts/ingest-brain.mjs",
+    "brain:audit": "node scripts/brain-audit.mjs",
+    "brain:validate": "node scripts/run-validation.mjs",
+    "brain:mine": "node scripts/mine-brain.mjs",
+    "handoff": "node scripts/package-handoff.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.4.1",
+    "dotenv": "17.3.1",
+    "lightweight-charts": "5.2.1",
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.17",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "22.15.32",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "postcss": "8.5.8",
+    "tailwindcss": "4.1.17",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
