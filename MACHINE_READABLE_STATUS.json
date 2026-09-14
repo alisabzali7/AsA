@@ -43,7 +43,7 @@
     "commit_note": "Refreshed by `npm run handoff`, which stamps the true HEAD into the packaged artifacts. If a docs-only commit later moves HEAD, re-run the packager; code is identical between them (git diff --stat <commit> HEAD -- src tests knowledge scripts).",
     "known_issues": [
       "experiments table is NOT reproduced by brain:ingest/brain:mine; run `npm run brain:validate`.",
-      "Brain rule registry and the runtime rule set remain SEPARATE systems (documented prior FAIL).",
+      "Brain rule registry and runtime rule set are now CLOSED into one registry: 31 compiled rules registered as MACHINE_EXECUTABLE_RULE rows with predicates + binding; 503 source-text rules stay DISABLED. Bidirectional drift is machine-detectable via verifyRuleRegistryClosure.",
       "Zero strategies are live; none has passed the OOS gate."
     ]
   },

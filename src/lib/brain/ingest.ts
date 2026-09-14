@@ -23,6 +23,9 @@ import { CORPUS_FILES, CANONICAL_PACK_FILE } from "./corpus-manifest";
 import { buildPrimitives, buildFeatures } from "./primitives";
 import { buildRiskPolicies, buildPsychologyPolicies, buildConflictGroups } from "./policies";
 import { canonicalFamilyFor } from "./ontology";
+import {
+  buildMachineRuleGraph, compiledImplementationBinding, machineRuleRegistryRows, nodesByStrategy,
+} from "../strategy/rule-graph";
 import type {
   ClaimRecord, KnowledgeItem, RuleSpec, SourceDocument, SourceFragment, SourceRef, StrategyRecord,
 } from "./types";
@@ -37,6 +40,8 @@ export interface IngestReport {
   executable_specs: number;
   setups: number;
   rules: number;
+  /** machine-executable rules registered into the rule registry (rule-graph closure) */
+  machine_rules: number;
   claims: number;
   conflicts: number;
   unknown_fragments: number;
@@ -307,6 +312,33 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
   store.setMeta("compiled_specs", JSON.stringify(compiled.filter((c) => c.executable).map((c) => c.strategy_id)));
   store.setMeta("compiled_specs_full", JSON.stringify(compiled));
 
+  /* ------------------------------------ rule-graph closure (registry ↔ runtime)
+   * The compiled runtime rules (the ONLY executable representation) are
+   * registered into the Brain Rule Registry below; here we wire each strategy
+   * record to them: `rule_ids` lists exactly the runtime rules of the
+   * strategy, and `implementation` points at the compiled binding that
+   * `evaluateRuntime` consumes. Records without a compiled binding keep their
+   * brain-spec (text-level) binding and stay non-executable at runtime.
+   */
+  const machineGraph = buildMachineRuleGraph();
+  const nodesByStrat = nodesByStrategy(machineGraph);
+  for (const rec of strategies) {
+    const nodes = nodesByStrat.get(rec.strategy_id);
+    if (!nodes || nodes.length === 0) continue;
+    rec.rule_ids = nodes.map((n) => n.rule_id).sort();
+    rec.implementation = compiledImplementationBinding(rec.strategy_id, machineGraph);
+    rec.setup_ids = [...new Set([...rec.setup_ids, ...nodes.map((n) => n.setup_id)])];
+    const v3 = evaluateGate({
+      source_status: rec.source_status,
+      empirical_status: rec.empirical_status,
+      unknown_critical: rec.unknown_critical,
+      conflict_unresolved: false,
+      has_implementation: true,
+    });
+    rec.runtime_status = v3.allowed;
+    rec.disabled_reason = v3.reasons.join("; ");
+  }
+
   store.putStrategies(strategies);
 
   /* ----------------------------------------------------------------- rules */
@@ -361,6 +393,26 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
     };
   });
   store.putRules(rules);
+
+  /* ------------------------------------------- machine rule registration ---
+   * RULE-GRAPH CLOSURE: the 503 rows above are source text (never executable).
+   * The machine-executable rules are the compiled runtime's RuleDefinitions;
+   * they are registered HERE so the Brain Rule Registry is the single,
+   * complete, auditable rule record: every executable rule exists as a
+   * MACHINE_EXECUTABLE_RULE row with structural predicates, feature
+   * dependencies, corpus provenance and an explicit runtime binding.
+   * No text rule is touched, and no predicate is invented for one.
+   */
+  const machineRules = machineRuleRegistryRows(machineGraph);
+  store.putRules(machineRules);
+  store.setMeta("machine_rule_graph", JSON.stringify({
+    node_count: machineGraph.node_count,
+    executable_count: machineGraph.executable_count,
+    blocked_count: machineGraph.blocked_count,
+    feature_ids: machineGraph.feature_ids,
+    strategy_ids: machineGraph.strategy_ids,
+    semantics: machineGraph.semantics,
+  }));
 
   /* -------------------------------------------------- claims from the pack */
   for (const c of pack.uncertainty_registry?.CLAIM ?? []) {
@@ -424,6 +476,7 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
     executable_specs: compiled.filter((c) => c.executable).length,
     setups: setups.length,
     rules: rules.length,
+    machine_rules: machineRules.length,
     claims: dedupClaims.length,
     conflicts: conflicts.length,
     unknown_fragments: unknownFragments,

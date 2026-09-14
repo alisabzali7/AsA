@@ -78,7 +78,9 @@ export const ASA_PUBLIC_URL = str("ASA_PUBLIC_URL", "http://localhost:3000");
 export const ASA_SCORE_THRESHOLD = Math.min(100, Math.max(0, num("ASA_SCORE_THRESHOLD", 85)));
 export const ASA_LOG_LEVEL = str("ASA_LOG_LEVEL", "info");
 
-export const APP_VERSION = "6.0.0";
+// 6.0.1: brain `rules` schema gains the additive `binding` column
+// (rule-graph closure; migrated in BrainStore.migrate — BACKEND_FREEZE §10).
+export const APP_VERSION = "6.0.1";
 
 /** Masked settings summary for the System surface — NEVER includes secret values. */
 export function maskedConfig() {

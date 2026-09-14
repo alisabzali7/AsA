@@ -330,7 +330,10 @@ export function fourLineSetup(): SetupDefinition {
 
 /** Double top/bottom at a PRZ — direction is chosen by the caller. */
 export function doublePatternSetup(direction: "long" | "short"): SetupDefinition {
-  const refs = [ref(1258, 1275, "نام استراتژی: استراتژی معاملاتی دو قله و دو دره بر اساس نواحی PRZ")];
+  // The block spans 1258–1280: the entry-method lines (1279/1280) state the
+  // TRIGGER event ("the second touch fails to break the level") and are part
+  // of the same strategy block's provenance.
+  const refs = [ref(1258, 1280, "نام استراتژی: استراتژی معاملاتی دو قله و دو دره بر اساس نواحی PRZ")];
   return {
     setup_id: `SET-STR-RAW-2-1258-${direction}`,
     strategy_id: "STR-RAW-2-1258",
@@ -338,7 +341,7 @@ export function doublePatternSetup(direction: "long" | "short"): SetupDefinition
     direction,
     timeframe: "1h",
     source_refs: refs,
-    version: "1.1.0",
+    version: "1.1.1",
     rules: levelRules({
       idPrefix: `R-1258-${direction}`,
       tf: "1h",
@@ -352,6 +355,13 @@ export function doublePatternSetup(direction: "long" | "short"): SetupDefinition
           ? "شرایط ورود Long: شکل‌گیری الگوی دو دره در نواحی حمایتی و PRZ معتبر پس از یک روند نزولی. [VERIFIED]"
           : "شرایط ورود Short: شکل‌گیری الگوی دو قله در نواحی مقاومتی و PRZ معتبر پس از یک روند صعودی. [VERIFIED]",
         structure: "شرایط لازم: تشکیل روند اولیه، برخورد قیمت به ناحیه PRZ و شکل‌گیری الگوهای دو قله یا دو دره. [VERIFIED]",
+        // TRIGGER provenance (rule-graph closure): this rule previously had NO
+        // source text — an executable rule without lineage. The verbatim
+        // trigger is the block's own entry-method sentence (2.txt:1279/1280):
+        // price returns to the PRZ a second time and fails to break it.
+        trigger: direction === "long"
+          ? "روش ورود دوم (Long): برعکس حالت قبل، پس از تشکیل دو دره در نواحی حمایتی و برگشت قدرت روند نزولی. [VERIFIED]"
+          : "روش ورود اول (Short): پس از اینکه روند صعودی به ناحیه PRZ اول خورد، ریزش کرد، دوباره پولبک زد به PRZ بالا و بار دوم نتوانست مقاومت را بشکند و شروع به ریزش کرد. [VERIFIED]",
         confirmation: "تأییدیه ورود: بازگشت قیمت از ناحیه PRZ و عدم توانایی بازار در شکستن مقاومت/حمایت در بار دوم. [VERIFIED]",
         invalidation: "شرایطی که نباید معامله کرد: زمانی که نواحی PRZ معتبر شکسته شده و روند پرقدرت ادامه دارد. [VERIFIED]",
       },

@@ -1,6 +1,6 @@
 {
   "name": "asa",
-  "version": "6.0.0",
+  "version": "6.0.1",
   "private": true,
   "description": "AsA — advisory-only crypto trading intelligence terminal (TTT market truth only)",
   "scripts": {
