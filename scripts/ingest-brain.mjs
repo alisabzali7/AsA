@@ -82,7 +82,8 @@ if (JSON_OUT) {
   console.log(`fragments written : ${report.fragments_written}`);
   console.log(`coverage_ok       : ${report.coverage_ok}`);
   console.log(`strategies        : ${report.strategies}`);
-  console.log(`rules             : ${report.rules}`);
+  console.log(`rules             : ${report.rules} (source text)`);
+  console.log(`machine rules     : ${report.machine_rules} (registered executable)`);
   console.log(`claims            : ${report.claims}`);
   console.log(`conflicts         : ${report.conflicts}`);
   console.log(`unknown fragments : ${report.unknown_fragments}`);

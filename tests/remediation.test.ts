@@ -388,8 +388,17 @@ describe("P1 Brain rules are honestly classified, never overclaimed", () => {
     const BRAIN = await buildTempBrain();
     const db = new Database(BRAIN, { readonly: true });
     try {
-      const bad = db.prepare("SELECT COUNT(*) n FROM rules WHERE runtime_status != 'DISABLED'").get() as { n: number };
-      expect(bad.n, "a rule with no predicate must never be CANDIDATE").toBe(0);
+      // RULE-GRAPH CLOSURE: the registry now ALSO holds machine-executable
+      // rules (MACHINE_EXECUTABLE_RULE rows with real predicates, registered
+      // from the compiled runtime). The original governance invariant stands,
+      // stated precisely: a rule WITHOUT predicates can never be a candidate,
+      // and only MACHINE_EXECUTABLE_RULE rows may ever leave DISABLED.
+      const noPredicateCandidates = db.prepare("SELECT COUNT(*) n FROM rules WHERE predicates='[]' AND runtime_status != 'DISABLED'").get() as { n: number };
+      expect(noPredicateCandidates.n, "a rule with no predicate must never be CANDIDATE").toBe(0);
+      const textCandidates = db.prepare("SELECT COUNT(*) n FROM rules WHERE rule_class != 'MACHINE_EXECUTABLE_RULE' AND runtime_status != 'DISABLED'").get() as { n: number };
+      expect(textCandidates.n, "a source-text rule must never be a runtime candidate").toBe(0);
+      const machineWithoutPredicates = db.prepare("SELECT COUNT(*) n FROM rules WHERE rule_class='MACHINE_EXECUTABLE_RULE' AND predicates='[]'").get() as { n: number };
+      expect(machineWithoutPredicates.n, "a machine rule without predicates is not a machine rule").toBe(0);
     } finally { db.close(); fs.rmSync(BRAIN, { force: true }); }
   });
 

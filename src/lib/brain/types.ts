@@ -186,12 +186,31 @@ export type RuleClass =
   | "CONFLICT"
   | "CLAIM";
 
+/**
+ * Explicit binding of a MACHINE_EXECUTABLE_RULE row into the runtime
+ * (rule-graph closure). Source-text rules carry `binding: null` — they are
+ * never bound to the runtime, and a row that claims a binding without
+ * machine predicates is a registry defect, asserted by the closure verifier.
+ */
+export interface RuleBinding {
+  /** Brain strategy id the rule belongs to (identical to the runtime strategy_id) */
+  strategy_id: string;
+  /** compiled setup id that evaluates this rule */
+  setup_id: string;
+  /** pipeline stage this rule occupies (context/location/.../filter) */
+  stage: string;
+  /** the single runtime entry point that consumes the compiled representation */
+  consumer: "evaluateRuntime";
+}
+
 export interface RuleSpec {
   rule_id: string;
   /** governance class; defaults to UNFORMALIZED_RULE for stored source text */
   rule_class?: RuleClass;
   /** why this rule cannot execute, when applicable */
   non_executable_reason?: string | null;
+  /** runtime binding for machine rules; null for source-text rules */
+  binding?: RuleBinding | null;
   description: string;
   /** machine-readable predicate expressions evaluated by the rule engine */
   predicates: string[];

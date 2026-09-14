@@ -88,6 +88,8 @@ const status = {
     primitives: primitives.length,
     features: features.length,
     rules: count("rules"),
+    machine_rules: count("rules", "WHERE rule_class='MACHINE_EXECUTABLE_RULE'"),
+    source_text_rules: count("rules", "WHERE rule_class!='MACHINE_EXECUTABLE_RULE'"),
     setups: count("setups"),
     strategies: strategies.length,
     risk_policies: risk.length,
@@ -98,6 +100,12 @@ const status = {
     quarantined: count("source_fragments", "WHERE quarantined=1"),
   },
   fragment_classes: fragClasses,
+  // rule-graph closure metadata recorded by ingest (absent on older brains)
+  machine_rule_graph: (() => {
+    const row = one("SELECT v FROM brain_meta WHERE k='machine_rule_graph'");
+    if (!row) return { present: false, note: "run npm run brain:ingest to register machine rules" };
+    try { return { present: true, ...JSON.parse(row.v) }; } catch { return { present: false, note: "unparseable" }; }
+  })(),
   strategies: {
     by_runtime: byRuntime, by_family: byFamily,
     by_source_status: bySource, by_empirical_status: byEmpirical,
@@ -196,9 +204,18 @@ ${Object.entries(fragClasses).map(([k, v]) => `- ${k}: ${v}`).join("\n")}
 Knowledge items: ${status.counts.knowledge_items}
 
 ## 4. Rules
-${status.counts.rules} rule records, each with file+line provenance. They are stored as
-SOURCE_TEXT candidates: none carries machine-executable predicates yet, so all remain
-non-executable (\`missing_fields\` names exactly what is absent).
+${status.counts.rules} rule records in one registry, two governed populations:
+- **${status.counts.machine_rules} MACHINE_EXECUTABLE_RULE** rows — the compiled runtime's
+  rules, registered by ingest with structural predicates, feature dependencies,
+  corpus provenance and an explicit binding (\`strategy_id\`, \`setup_id\`, stage,
+  consumer \`evaluateRuntime\`). Only this class may drive runtime evaluation.
+- **${status.counts.source_text_rules} source-text rules**, each with file+line provenance.
+  None carries a machine predicate, so every one remains DISABLED with an explicit
+  \`non_executable_reason\` (\`missing_fields\` names exactly what is absent).
+
+Closure: \`verifyRuleRegistryClosure\` (src/lib/strategy/rule-graph.ts) checks the
+registry against the runtime in BOTH directions — a drifted predicate, a missing
+row, an orphan machine row or a promoted text rule is a machine-detectable violation.
 
 ## 5. Strategies
 By runtime status: ${JSON.stringify(byRuntime)}

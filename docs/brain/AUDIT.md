@@ -1,6 +1,6 @@
 # AsA Brain — Self Audit
 
-Generated 2026-09-09T11:44:35.755Z from `./asa-data/brain.db`. Every number below is read from
+Generated 2026-09-14T14:14:36.023Z from `./asa-data/brain.db`. Every number below is read from
 stored evidence; nothing is asserted without a record behind it.
 
 ## 1. Corpus coverage
@@ -33,9 +33,18 @@ One fragment per source line: **VERIFIED**
 Knowledge items: 104
 
 ## 4. Rules
-503 rule records, each with file+line provenance. They are stored as
-SOURCE_TEXT candidates: none carries machine-executable predicates yet, so all remain
-non-executable (`missing_fields` names exactly what is absent).
+534 rule records in one registry, two governed populations:
+- **31 MACHINE_EXECUTABLE_RULE** rows — the compiled runtime's
+  rules, registered by ingest with structural predicates, feature dependencies,
+  corpus provenance and an explicit binding (`strategy_id`, `setup_id`, stage,
+  consumer `evaluateRuntime`). Only this class may drive runtime evaluation.
+- **503 source-text rules**, each with file+line provenance.
+  None carries a machine predicate, so every one remains DISABLED with an explicit
+  `non_executable_reason` (`missing_fields` names exactly what is absent).
+
+Closure: `verifyRuleRegistryClosure` (src/lib/strategy/rule-graph.ts) checks the
+registry against the runtime in BOTH directions — a drifted predicate, a missing
+row, an orphan machine row or a promoted text rule is a machine-detectable violation.
 
 ## 5. Strategies
 By runtime status: {"DISABLED":98,"CANDIDATE":6}

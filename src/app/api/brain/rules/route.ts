@@ -1,13 +1,22 @@
 /**
- * GET /api/brain/rules — the executable rule registry.
+ * GET /api/brain/rules — the complete rule registry (rule-graph closure).
  *
- * Shows every rule bound to a compiled strategy with its verbatim source text,
- * predicates, feature dependencies and semantic status. Rules that could not be
- * formalized appear with their exact `unresolved` reason.
+ * Two governed populations, one endpoint:
+ *  1. MACHINE rules — every runtime RuleDefinition, shown both as the live
+ *     runtime representation AND as its Brain registry row
+ *     (rule_class MACHINE_EXECUTABLE_RULE, registered by ingest). A
+ *     bidirectional closure check proves the two agree.
+ *  2. SOURCE-TEXT rules — stored corpus sentences with provenance, all
+ *     DISABLED with an explicit non_executable_reason; never runtime
+ *     candidates.
+ *
+ * ?predicates=1 also returns the structural predicate expressions.
  */
 import { NextResponse } from "next/server";
 import { listRuntimeStrategies } from "@/lib/strategy/runtime";
+import { buildMachineRuleGraph, verifyRuleRegistryClosure, type RuleClosureReport } from "@/lib/strategy/rule-graph";
 import { getBrain } from "@/lib/brain/store";
+import type { RuleSpec } from "@/lib/brain/types";
 
 export const dynamic = "force-dynamic";
 
@@ -38,34 +47,66 @@ export async function GET(req: Request): Promise<NextResponse> {
     }));
   });
 
-  // Governance breakdown of the STORED source-text rules (remediation P1).
+  // Registry read-back + closure verification. If the brain store is
+  // unavailable the closure is reported UNKNOWN — never silently "ok".
   let stored = 0;
+  let storedMachine = 0;
+  let storedText = 0;
   let storedBreakdown: Record<string, number> = {};
   let storedByStatus: Record<string, number> = {};
+  let registryRows: RuleSpec[] = [];
+  let closure: RuleClosureReport | { unavailable: string };
   try {
     const b = getBrain();
-    stored = b.stats().rules;
+    registryRows = b.rules();
+    stored = registryRows.length;
+    storedMachine = registryRows.filter((r) => r.rule_class === "MACHINE_EXECUTABLE_RULE").length;
+    storedText = stored - storedMachine;
     storedBreakdown = b.ruleClassCounts();
     storedByStatus = b.ruleSourceStatusCounts();
-  } catch {
-    stored = 0;
+    closure = verifyRuleRegistryClosure({
+      graph: buildMachineRuleGraph(),
+      registryRules: registryRows,
+      strategies: b.strategies(),
+    });
+  } catch (err) {
+    closure = { unavailable: `brain store not accessible: ${err instanceof Error ? err.message : String(err)}` };
   }
+
+  const machineRows = registryRows.filter((r) => r.rule_class === "MACHINE_EXECUTABLE_RULE");
 
   return NextResponse.json({
     ok: true,
     executable_rules: executable.length,
-    stored_source_rules: stored,
+    stored_rules: stored,
+    stored_machine_rules: storedMachine,
+    stored_source_rules: storedText,
     stored_by_rule_class: storedBreakdown,
     stored_by_source_status: storedByStatus,
     governance: {
       machine_executable: executable.length,
-      unformalized: stored,
-      runtime_candidates_among_stored: 0,
+      unformalized_source_text: storedText,
+      runtime_candidates_among_source_text: 0,
       note:
-        "the ONLY machine-executable rules are the compiled ones listed here. Every stored source-text rule is DISABLED with an explicit non_executable_reason; none is a runtime candidate.",
+        "machine-executable rules are registered in the Brain rule registry as MACHINE_EXECUTABLE_RULE rows with predicates, feature dependencies, provenance and an explicit runtime binding; every source-text rule stays DISABLED with an explicit non_executable_reason and is never a runtime candidate",
     },
-    note:
-      "executable rules carry machine predicates; the remaining stored rules are source text with provenance and are deliberately NOT executable",
+    // Bidirectional registry↔runtime closure. `ok:false` (or unavailable)
+    // means the registry and the runtime disagree — an auditable defect.
+    closure,
+    machine_registry_rows: machineRows.map((r) => ({
+      rule_id: r.rule_id,
+      rule_class: r.rule_class,
+      predicates: wantPredicates ? r.predicates : undefined,
+      predicate_count: r.predicates.length,
+      required_features: r.required_features,
+      direction: r.direction,
+      timeframe: r.timeframe,
+      source_refs: r.source_refs,
+      source_status: r.source_status,
+      runtime_status: r.runtime_status,
+      binding: r.binding,
+      non_executable_reason: r.non_executable_reason,
+    })),
     rules: wantPredicates
       ? executable
       : executable.map(({ predicates, ...rest }) => ({ ...rest, predicate_count: predicates.length })),

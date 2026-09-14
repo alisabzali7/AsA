@@ -77,7 +77,8 @@ CREATE TABLE IF NOT EXISTS rules (
   missing_fields TEXT NOT NULL DEFAULT '[]', source_status TEXT NOT NULL,
   empirical_status TEXT NOT NULL, runtime_status TEXT NOT NULL,
   rule_class TEXT NOT NULL DEFAULT 'UNFORMALIZED_RULE',
-  non_executable_reason TEXT
+  non_executable_reason TEXT,
+  binding TEXT
 );
 CREATE TABLE IF NOT EXISTS setups (
   setup_id TEXT PRIMARY KEY, family TEXT NOT NULL,
@@ -140,6 +141,19 @@ export class BrainStore {
     this.db = new Database(filePath);
     this.db.pragma("journal_mode = WAL");
     this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  /**
+   * Additive migrations for brain DBs created before a schema change.
+   * The brain DB is rebuildable (`npm run brain:ingest`), so migrations only
+   * ever ADD optional columns — never rewrite stored provenance.
+   */
+  private migrate(): void {
+    const cols = this.db.prepare("PRAGMA table_info(rules)").all() as { name: string }[];
+    if (!cols.some((c) => c.name === "binding")) {
+      this.db.exec("ALTER TABLE rules ADD COLUMN binding TEXT");
+    }
   }
 
   meta(k: string): string | null {
@@ -228,15 +242,43 @@ export class BrainStore {
   putRules(rows: RuleSpec[]): void {
     const st = this.db.prepare(
       `INSERT OR REPLACE INTO rules
-       (rule_id,description,predicates,required_features,direction,timeframe,confirmation,invalidation,source_refs,missing_fields,source_status,empirical_status,runtime_status,rule_class,non_executable_reason)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (rule_id,description,predicates,required_features,direction,timeframe,confirmation,invalidation,source_refs,missing_fields,source_status,empirical_status,runtime_status,rule_class,non_executable_reason,binding)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
     this.db.transaction((l: RuleSpec[]) => {
       for (const r of l) st.run(r.rule_id, r.description, J(r.predicates), J(r.required_features),
         r.direction, r.timeframe, J(r.confirmation), J(r.invalidation), J(r.source_refs),
         J(r.missing_fields), r.source_status, r.empirical_status, r.runtime_status,
-        r.rule_class ?? "UNFORMALIZED_RULE", r.non_executable_reason ?? null);
+        r.rule_class ?? "UNFORMALIZED_RULE", r.non_executable_reason ?? null,
+        r.binding ? J(r.binding) : null);
     })(rows);
+  }
+
+  /**
+   * Full rule registry read-back (rule-graph closure). Every row carries its
+   * governance class and binding so a caller can separate machine-executable
+   * rules from source-text rules without re-deriving anything.
+   */
+  rules(): RuleSpec[] {
+    const rows = this.db.prepare("SELECT * FROM rules ORDER BY rule_id").all() as Record<string, unknown>[];
+    return rows.map((r) => ({
+      rule_id: String(r.rule_id),
+      rule_class: String(r.rule_class ?? "UNFORMALIZED_RULE") as RuleSpec["rule_class"],
+      non_executable_reason: (r.non_executable_reason as string) ?? null,
+      binding: r.binding ? (JSON.parse(r.binding as string) as RuleSpec["binding"]) : null,
+      description: String(r.description),
+      predicates: P(r.predicates as string, [] as string[]),
+      required_features: P(r.required_features as string, [] as string[]),
+      direction: String(r.direction) as RuleSpec["direction"],
+      timeframe: (r.timeframe as string) ?? null,
+      confirmation: P(r.confirmation as string, [] as string[]),
+      invalidation: P(r.invalidation as string, [] as string[]),
+      source_refs: P(r.source_refs as string, []),
+      missing_fields: P(r.missing_fields as string, [] as string[]),
+      source_status: String(r.source_status) as RuleSpec["source_status"],
+      empirical_status: String(r.empirical_status) as RuleSpec["empirical_status"],
+      runtime_status: String(r.runtime_status) as RuleSpec["runtime_status"],
+    }));
   }
 
   putSetups(rows: SetupSpec[]): void {
