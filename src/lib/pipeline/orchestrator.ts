@@ -11,7 +11,7 @@ import { buildBundle } from "../analysis/bundle";
 import { buildMtf } from "../analysis/mtf";
 import { buildPsychology } from "../psychology/engine";
 import { getRepo } from "../../db/sqlite";
-import { getExperiments } from "../backtest/experiments";
+import { promotedRuntimeStatus } from "../backtest/promotion";
 import { getRuntimeStrategy, listRuntimeStrategies, evaluateRuntime, type StrategyRuntimeDefinition } from "../strategy/runtime";
 import { evaluateRisk } from "../risk/engine";
 import { evaluatePortfolio } from "../risk/portfolio";
@@ -205,6 +205,10 @@ export async function scanSymbol(
     strategy_runtime_status: mode === "live" ? runtimeStatusFor(strategy.strategy_id) : "CANDIDATE",
     unresolved_contradiction: contradictions.length > 0,
     unknown_required_fields: unknownFields,
+    // Live output additionally requires the FULL promotion gate: a strategy
+    // that is merely executable, or in-sample BACKTESTED, must never publish a
+    // live advisory signal.
+    requires_live_eligibility: mode === "live",
   });
 
   if (ev.setup.outcome !== "PASS") {
@@ -312,24 +316,25 @@ export function getScoreThreshold(): number {
 }
 
 /**
- * Runtime status for live gating, resolved from persisted empirical evidence.
- * Nothing reaches LIVE_ADVISORY_ONLY without OOS/walk-forward proof.
+ * Runtime status for live gating.
+ *
+ * PROMOTION PHASE: this is now a thin read of the ONE deterministic promotion
+ * gate (`backtest/promotion`) instead of a hand-rolled status→status mapping.
+ * The old mapping consulted persisted empirical status only, so it could not
+ * see governance (critical UNKNOWNs, unresolved conflicts, a missing
+ * implementation binding) and could not tell whether the evidence still
+ * described the current build. `LIVE_ADVISORY_ONLY` is now reachable ONLY
+ * through a fully satisfied promotion gate; every other case is the
+ * evidence-derived status CLAMPED by the governance ceiling, and any error
+ * fails CLOSED.
  *
  * AUDIT FIX (P1): the old implementation used `require()` (which silently
  * fails under ESM test runners — always yielding DISABLED) and opened a NEW
- * SQLite connection on every call. It now uses the shared experiments
- * singleton via a static import and still fails CLOSED on any error.
+ * SQLite connection on every call. It now uses the shared stores via static
+ * imports and still fails CLOSED on any error.
  */
 export function runtimeStatusFor(strategyId: string): string {
-  try {
-    const st = getExperiments().statusByStrategy()[strategyId]?.status ?? "UNTESTED";
-    if (st === "ROBUST" || st === "WALK_FORWARD") return "LIVE_ADVISORY_ONLY";
-    if (st === "OOS_TESTED") return "PAPER";
-    if (st === "BACKTESTED") return "CANDIDATE";
-    return "DISABLED";
-  } catch {
-    return "DISABLED";
-  }
+  return promotedRuntimeStatus(strategyId);
 }
 
 /** Publish advisory signal (live mode only). Signal ≠ order. */
@@ -434,7 +439,7 @@ export function listStrategiesSummary() {
     executable: s.availability === "EXECUTABLE",
     live_eligible: s.availability === "EXECUTABLE" && runtimeStatusFor(s.strategy_id) === "LIVE_ADVISORY_ONLY",
     live_eligibility_note:
-      "live_eligible requires LIVE_ADVISORY_ONLY runtime status (empirical OOS/walk-forward proof); executable alone is never live",
+      "live_eligible requires LIVE_ADVISORY_ONLY from the deterministic promotion gate (`backtest/promotion`: evidence provenance + current versions + computed metrics + OOS + governance); executable alone is never live",
     timeframe: s.timeframe,
     direction: s.direction,
     blocked_reason: s.blocked_reason,

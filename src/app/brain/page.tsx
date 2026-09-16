@@ -28,6 +28,7 @@ interface ValidationShape {
     strategy_id: string; name: string; family: string; setups: string[];
     empirical_status: string; experiments: number; symbols_tested: string[];
     runtime_status: string; runtime_ceiling: string; why: string[]; blocking: string[];
+    stage?: string; promotion_status?: string; promotion_decision?: string; validation_status?: string;
   }[];
   criteria: Record<string, unknown>;
 }
@@ -120,6 +121,7 @@ export default function BrainPage() {
                 <tr className="text-muted">
                   <th className="text-left font-medium">strategy</th>
                   <th className="text-left font-medium">family</th>
+                  <th className="text-left font-medium">stage</th>
                   <th className="text-left font-medium">empirical</th>
                   <th className="text-left font-medium">runtime</th>
                   <th className="text-right font-medium">exp</th>
@@ -136,6 +138,7 @@ export default function BrainPage() {
                       <div className="mono text-[9.5px] text-muted">{st.strategy_id}</div>
                     </td>
                     <td className="text-muted">{st.family}</td>
+                    <td><Badge color={st.stage === "E_PROMOTION_ELIGIBLE" || st.stage === "F_LIVE_ELIGIBLE" ? "#3fb68b" : "#d6a24a"}>{st.stage ? st.stage.split("_")[0] : "—"}</Badge></td>
                     <td><Badge color={STATUS_COLOR[st.empirical_status] ?? "#8b8f98"}>{st.empirical_status}</Badge></td>
                     <td><Badge color={STATUS_COLOR[st.runtime_status] ?? "#8b8f98"}>{st.runtime_status}</Badge></td>
                     <td className="mono text-right">{st.experiments}</td>

@@ -1,6 +1,6 @@
 # AsA Brain — Self Audit
 
-Generated 2026-09-14T14:14:36.023Z from `./asa-data/brain.db`. Every number below is read from
+Generated 2026-09-16T09:50:22.421Z from `./asa-data/brain.db`. Every number below is read from
 stored evidence; nothing is asserted without a record behind it.
 
 ## 1. Corpus coverage

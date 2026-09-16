@@ -16,6 +16,7 @@ copy .env.example .env        # Windows
 #    Runtime DBs are NOT shipped; they are rebuilt from the source corpus.
 npm run brain:ingest    # knowledge/raw/*.txt -> asa-data/brain.db (9,398 fragments)
 npm run brain:mine      # narrative mining    -> atoms/components/candidates
+npm run brain:validate  # real TTT replay     -> validation experiments + promotion verdicts
 # 4. Run
 npm run build && npm run start   # production
 # npm run dev                    # development
@@ -30,6 +31,40 @@ Open http://localhost:3000. The engine boots at server start: TTT markets → ba
 ```bash
 npx vitest run         # unit + source-scan tests (see docs/testing.md)
 ```
+
+## Strategy validation & promotion
+
+A compiled strategy is a **candidate**, never a live strategy:
+`executable ≠ validated ≠ promotable ≠ live eligible`.
+
+```
+Registry → Executable → Validation → OOS → Governance → Promotion → (Live)
+```
+
+Every stage is machine-checkable and every refusal is explainable:
+
+- `npm run brain:validate` runs real historical backtests on TTT-derived data
+  (in-sample → chronological OOS split → rolling walk-forward) and persists one
+  append-only experiment per (strategy, symbol) **with its dataset identity**
+  (venue base, capture time, artifact sha256, recomputed candle fingerprint) and
+  the periods it covers.
+- `src/lib/backtest/promotion.ts` is the ONE deterministic gate. It requires the
+  strategy to exist and be executable, the governance state to be clean, the
+  evidence provenance to be valid, the evidence to still describe the current
+  build, every required metric to have been computed, the persisted verdict to be
+  reproducible from the stored metrics, out-of-sample evidence to exist, and the
+  quality ladder to support it. Otherwise the decision is `NOT_ELIGIBLE` with the
+  exact failing checks.
+- **UNKNOWN propagates.** A missing metric, an unreadable row, a missing
+  provenance record or an absent Brain record is reported as a blocking
+  `UNKNOWN` and is never treated as a pass.
+- `GET /api/brain/validation` returns the A→F state per strategy
+  (`exists / executable / has_validation_evidence / has_oos_evidence /
+  promotion_eligible / live_eligible`) plus the failure/unknown reasons. No
+  fabricated metrics are ever produced: a strategy with no evidence reports
+  `NOT_VALIDATED`/`UNKNOWN` and stays disabled.
+
+See `docs/brain/strategy-promotion.md`.
 
 ## What is measured vs derived vs unavailable
 

@@ -7,7 +7,19 @@ import { Badge, Panel } from "@/components/ui";
 interface ResearchShape {
   ok: boolean;
   hypotheses: { id: string; title: string; status: string; evidence: string; tested: boolean }[];
-  strategies: { id: string; name: string; status: string; executable: boolean; live_eligible: boolean; rules: Record<string, string[]>; params: Record<string, unknown>; ruleDocs?: never }[];
+  strategies: {
+    id: string;
+    name: string;
+    status: string;
+    executable: boolean;
+    live_eligible: boolean;
+    promotion_eligible?: boolean;
+    promotion_stage?: string;
+    validation_status?: string;
+    rules: Record<string, string[]>;
+    params: Record<string, unknown>;
+    ruleDocs?: never;
+  }[];
   exit_policy: { id: string; description: string };
 }
 interface AiCallsShape { ok: boolean; items: { id: number; created_ms: number; provider: string; model: string; latency_ms: number | null; verdict: string }[] }
@@ -37,10 +49,12 @@ export default function ResearchPage() {
         <Panel title="strategy registry (pluggable)">
           {r.data?.strategies.map((s) => (
             <details key={s.id} className="panel-2 mb-1.5 px-2 py-1.5">
-              <summary className="cursor-pointer text-[12px]">
-                {s.name} <Badge color={H_COLORS[s.status] ?? "#8b8f99"}>{s.status}</Badge>
+              <summary className="cursor-pointer text-[12px] flex flex-wrap items-center gap-1">
+                <span>{s.name}</span>
+                <Badge color={H_COLORS[s.status] ?? "#8b8f99"}>{s.status}</Badge>
+                {s.promotion_stage && <Badge color="#d4b874">STAGE {s.promotion_stage.split("_")[0]}</Badge>}
                 {s.executable && <Badge color="#d6b04a">EXECUTABLE</Badge>}
-                {s.live_eligible && <Badge color="#3fb68b">LIVE ELIGIBLE</Badge>}
+                {s.live_eligible ? <Badge color="#3fb68b">LIVE ELIGIBLE</Badge> : <Badge color="#8b8f98">NOT LIVE</Badge>}
               </summary>
               <div className="mt-1 grid gap-1 sm:grid-cols-2">
                 {Object.entries(s.rules).map(([cat, rules]) => (
