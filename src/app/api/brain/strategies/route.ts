@@ -57,7 +57,10 @@ export async function GET(req: Request): Promise<NextResponse> {
       total: rows.length,
       returned: out.length,
       strategies: out,
-      note: "empirical_status is NEVER inferred from source_status; UNTESTED strategies cannot go live",
+      note:
+        "empirical_status is NEVER inferred from source_status; UNTESTED strategies cannot go live. " +
+        "`runtime_ceiling` here is the ceiling of the CORPUS record; the evidence-backed ceiling and the " +
+        "promotion decision live in GET /api/brain/validation (the same deterministic gate runtime uses).",
       ts: Date.now(),
     });
   } catch (err) {

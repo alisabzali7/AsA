@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { listRuntimeStrategies } from "@/lib/strategy/runtime";
 import { runtimeStatusFor } from "@/lib/pipeline/orchestrator";
+import { promotionReport } from "@/lib/backtest/promotion";
 import { EXIT_POLICY } from "@/lib/strategy/index";
 import { verifyCompiledLineage, type LineageReport } from "@/lib/strategy/lineage";
 import { getBrain } from "@/lib/brain/store";
@@ -32,7 +33,12 @@ export async function GET(): Promise<NextResponse> {
     hypotheses: HYPOTHESES,
     // Brain-backed registry: the same definitions live advisory and backtest use.
     brain_lineage: lineage,
-    strategies: listRuntimeStrategies().map((s) => ({
+    strategies: listRuntimeStrategies().map((s) => {
+      // Promotion phase: the executable/validated/promotable/live states come
+      // from the ONE deterministic gate, so this endpoint and
+      // /api/brain/validation can never disagree about live eligibility.
+      const promotion = promotionReport(s.strategy_id);
+      return {
       id: s.setup_id,
       strategy_id: s.strategy_id,
       name: s.name,
@@ -44,12 +50,17 @@ export async function GET(): Promise<NextResponse> {
       // unvalidated strategies as live to any API consumer.
       executable: s.availability === "EXECUTABLE",
       live_eligible: s.availability === "EXECUTABLE" && runtimeStatusFor(s.strategy_id) === "LIVE_ADVISORY_ONLY",
+      promotion_decision: promotion.promotion.decision,
+      promotion_stage: promotion.strategy_state.stage,
+      validation_status: promotion.validation_status,
+      blocking: promotion.blocking,
       timeframe: s.timeframe,
       direction: s.direction,
       rules: s.rule_ids,
       blocked_reason: s.blocked_reason,
       source_refs: s.source_refs,
-    })),
+    };
+    }),
     exit_policy: EXIT_POLICY,
     note: "no hypothesis here claims validation; every row states its evidence state. executable ≠ live_eligible: live requires empirical OOS/walk-forward proof via the Brain gate",
     ts: Date.now(),

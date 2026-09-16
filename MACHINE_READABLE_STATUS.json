@@ -1,133 +1,572 @@
 {
-  "current": {
-    "generated_at": "2026-09-11T10:36:59.650309+00:00",
-    "phase": "FINAL_RELEASE_FIX",
-    "git_commit": "c29fc81",
-    "git_commit_full": "c29fc81da0e3bce77180419c8048cd2f2cc2712a",
-    "tests": {
-      "discovered": 389,
-      "executed": 389,
-      "passed": 389,
-      "failed": 0,
-      "skipped": 0,
-      "files": 19
+  "generated_at": "2026-09-16T09:50:22.421Z",
+  "brain_db": "./asa-data/brain.db",
+  "corpus": {
+    "files": 5,
+    "total_lines": 9398,
+    "total_chars": 1412928,
+    "documents": [
+      {
+        "file_id": "1.txt",
+        "filename": "RAW_1.txt",
+        "lines": 2450,
+        "chars": 349998,
+        "sha256": "b430f52e191c763e7c8752359ddc21820cbe8f79ea58b212f14ca0107d3a7244",
+        "truncated": true,
+        "truncation_note": "supplied bytes end mid-content at 349998 chars (upstream 350000-char cap); content beyond this point is NOT present in this package and is not reconstructed"
+      },
+      {
+        "file_id": "2.txt",
+        "filename": "RAW_2.txt",
+        "lines": 1987,
+        "chars": 350000,
+        "sha256": "0177294c7f5b14b758efab3cd8a3b39e3ed8444766c6bdba318978a3e872fbb1",
+        "truncated": true,
+        "truncation_note": "supplied bytes end mid-content at 350000 chars (upstream 350000-char cap); content beyond this point is NOT present in this package and is not reconstructed"
+      },
+      {
+        "file_id": "3.txt",
+        "filename": "RAW_3.txt",
+        "lines": 1100,
+        "chars": 253714,
+        "sha256": "bf0ae22b7fdbde3959c5563338058d378f030d5506ca5b15cf92f59a2be06cee",
+        "truncated": false,
+        "truncation_note": null
+      },
+      {
+        "file_id": "4.txt",
+        "filename": "RAW_4.txt",
+        "lines": 2901,
+        "chars": 350000,
+        "sha256": "bc050e2aefbb9a0bf0894114d791a7e93dfa01afe263e25ade0b04b1b560db8a",
+        "truncated": true,
+        "truncation_note": "supplied bytes end mid-content at 350000 chars (upstream 350000-char cap); content beyond this point is NOT present in this package and is not reconstructed"
+      },
+      {
+        "file_id": "5.txt",
+        "filename": "RAW_5.txt",
+        "lines": 960,
+        "chars": 109216,
+        "sha256": "1c73c915fe90d7bd5c49f2b93ceab47b15850b795f53989914fa1f53d208baaf",
+        "truncated": false,
+        "truncation_note": null
+      }
+    ],
+    "truncated_files": [
+      "1.txt",
+      "2.txt",
+      "4.txt"
+    ],
+    "coverage": {
+      "fragments": 9398,
+      "lines_expected": 9398,
+      "one_fragment_per_line": true
+    }
+  },
+  "counts": {
+    "fragments": 9398,
+    "knowledge_items": 104,
+    "primitives": 32,
+    "features": 22,
+    "rules": 534,
+    "machine_rules": 31,
+    "source_text_rules": 503,
+    "setups": 6,
+    "strategies": 104,
+    "risk_policies": 8,
+    "psychology_policies": 10,
+    "conflict_groups": 3,
+    "claims": 553,
+    "unknown_fragments": 649,
+    "quarantined": 46
+  },
+  "fragment_classes": {
+    "NARRATIVE": 6782,
+    "UNKNOWN_MARKER": 649,
+    "SECTION_HEADER": 482,
+    "RISK": 470,
+    "RULE_CANDIDATE": 247,
+    "PSYCHOLOGY": 246,
+    "CLAIM": 239,
+    "CONFLICT_MARKER": 161,
+    "STRATEGY_DECL": 76,
+    "META_COMMENTARY": 46
+  },
+  "machine_rule_graph": {
+    "present": true,
+    "node_count": 31,
+    "executable_count": 31,
+    "blocked_count": 0,
+    "feature_ids": [
+      "FTR-ABCD",
+      "FTR-DOUBLE",
+      "FTR-LEVEL-TOUCH",
+      "FTR-LEVELS",
+      "FTR-REJECTION",
+      "FTR-STRUCT-BIAS",
+      "FTR-VOL-REGIME"
+    ],
+    "strategy_ids": [
+      "STR-RAW-2-1258",
+      "STR-RAW-2-581",
+      "STR-RAW-2-803",
+      "STR-RAW-2-926",
+      "STR-RAW-4-2425",
+      "STR-RAW-4-2449"
+    ],
+    "semantics": {
+      "unknown": "MISSING_OR_INVALID_FEATURE_PRODUCES_UNKNOWN",
+      "unresolved": "UNFORMALIZED_SOURCE_PRODUCES_BLOCKED",
+      "conflict": "UNRESOLVED_CONFLICT_BLOCKS_PROMOTION",
+      "combination": "AND_REQUIRES_ALL_TRUE;OR_REQUIRES_ANY_TRUE"
+    }
+  },
+  "strategies": {
+    "by_runtime": {
+      "DISABLED": 98,
+      "CANDIDATE": 6
     },
-    "market": {
-      "count": 63,
-      "source": "ttt-dynamic",
-      "tonusdt_present": false,
-      "note": "verified live; legacy 48 is LEGACY_48_REGRESSION_SET (test-only)"
+    "by_family": {
+      "multi-indicator": 2,
+      "process-layer": 8,
+      "reversal": 12,
+      "level-reaction": 21,
+      "discretionary-framework": 14,
+      "trend-following": 15,
+      "pullback": 3,
+      "breakout": 9,
+      "momentum-continuation": 3,
+      "divergence": 2,
+      "smc-ob": 9,
+      "market-structure": 3,
+      "harmonic": 3
     },
-    "workspace": {
-      "source_bytes": 7086973,
-      "source_mb": 6.76,
-      "source_files": 273,
-      "git_bytes": 12868424,
-      "git_mb": 12.27,
-      "active_mb": 19.03,
-      "runtime_dbs": "not carried in source workspace \u2014 rebuildable"
+    "by_source_status": {
+      "SOURCE_VERIFIED": 100,
+      "SOURCE_INFERRED": 4
     },
-    "gates": {
-      "npm_ci": "PASS",
-      "typecheck": "PASS",
-      "lint": "PASS",
-      "tests": "PASS",
-      "build": "PASS"
+    "by_empirical_status": {
+      "UNTESTED": 104
     },
-    "handoff": {
-      "git_entries": 0,
-      "nested_zips": 0,
-      "runtime_dbs": 0,
-      "note": "packager fails the build if any .git entry appears"
-    },
-    "commit_note": "Refreshed by `npm run handoff`, which stamps the true HEAD into the packaged artifacts. If a docs-only commit later moves HEAD, re-run the packager; code is identical between them (git diff --stat <commit> HEAD -- src tests knowledge scripts).",
-    "known_issues": [
-      "experiments table is NOT reproduced by brain:ingest/brain:mine; run `npm run brain:validate`.",
-      "Brain rule registry and runtime rule set are now CLOSED into one registry: 31 compiled rules registered as MACHINE_EXECUTABLE_RULE rows with predicates + binding; 503 source-text rules stay DISABLED. Bidirectional drift is machine-detectable via verifyRuleRegistryClosure.",
-      "Zero strategies are live; none has passed the OOS gate."
+    "executable_specs": 6,
+    "executable_list": [
+      {
+        "id": "STR-RAW-2-581",
+        "name": "PRZ Bounce Strategy",
+        "family": "level-reaction",
+        "runtime": "CANDIDATE"
+      },
+      {
+        "id": "STR-RAW-2-803",
+        "name": "پرایس اکشن سطوح نامرئی",
+        "family": "level-reaction",
+        "runtime": "CANDIDATE"
+      },
+      {
+        "id": "STR-RAW-2-926",
+        "name": "استراتژی ۴-خطی (برگشت از نواحی PRZ)",
+        "family": "level-reaction",
+        "runtime": "CANDIDATE"
+      },
+      {
+        "id": "STR-RAW-2-1258",
+        "name": "استراتژی معاملاتی دو قله و دو دره بر اساس نواحی PRZ",
+        "family": "level-reaction",
+        "runtime": "CANDIDATE"
+      },
+      {
+        "id": "STR-RAW-4-2425",
+        "name": "هارمونیک پایه (AB=CD)",
+        "family": "harmonic",
+        "runtime": "CANDIDATE"
+      },
+      {
+        "id": "STR-RAW-4-2449",
+        "name": "هارمونیک پایه معکوس",
+        "family": "harmonic",
+        "runtime": "CANDIDATE"
+      }
+    ],
+    "live_count": 0,
+    "disabled_reasons": {
+      "critical spec fields are UNKNOWN in source: stop, target, invalidation": 2,
+      "no executable implementation binding": 98,
+      "empirical_status=UNTESTED": 98,
+      "compile: stop UNKNOWN in source, target UNKNOWN in source, no exit/invalidation stated in ": 2,
+      "critical spec fields are UNKNOWN in source: stop, target, timeframe": 2,
+      "compile: timeframe UNKNOWN in source, stop UNKNOWN in source, target UNKNOWN in source": 3,
+      "critical spec fields are UNKNOWN in source: stop, target, timeframe, invalidation": 8,
+      "compile: timeframe UNKNOWN in source, stop UNKNOWN in source, target UNKNOWN in source, no": 8,
+      "critical spec fields are UNKNOWN in source: entry, stop, target, timeframe, invalidation": 59,
+      "compile: timeframe UNKNOWN in source, no entry condition stated in source, stop UNKNOWN in": 10,
+      "critical spec fields are UNKNOWN in source: target, invalidation": 1,
+      "compile: target UNKNOWN in source, no exit/invalidation stated in source": 1,
+      "critical spec fields are UNKNOWN in source: stop, timeframe": 5,
+      "compile: timeframe UNKNOWN in source, stop UNKNOWN in source": 4,
+      "critical spec fields are UNKNOWN in source: stop, target": 3,
+      "compile: stop UNKNOWN in source, target UNKNOWN in source": 3,
+      "critical spec fields are UNKNOWN in source: stop": 1,
+      "compile: stop UNKNOWN in source": 1,
+      "critical spec fields are UNKNOWN in source: stop, invalidation": 1,
+      "compile: stop UNKNOWN in source, no exit/invalidation stated in source": 1,
+      "critical spec fields are UNKNOWN in source: entry, stop, target": 3,
+      "compile: no entry condition stated in source, stop UNKNOWN in source, target UNKNOWN in so": 5,
+      "critical spec fields are UNKNOWN in source: entry, target, timeframe": 1,
+      "compile: timeframe UNKNOWN in source, no entry condition stated in source, target UNKNOWN ": 1,
+      "critical spec fields are UNKNOWN in source: entry, stop, timeframe": 1,
+      "critical spec fields are UNKNOWN in source: entry, stop, target, invalidation": 2,
+      "critical spec fields are UNKNOWN in source: timeframe": 5,
+      "compile: timeframe UNKNOWN in source": 5,
+      "critical spec fields are UNKNOWN in source: timeframe, invalidation": 2,
+      "compile: timeframe UNKNOWN in source, no exit/invalidation stated in source": 2,
+      "critical spec fields are UNKNOWN in source: invalidation": 1,
+      "compile: no exit/invalidation stated in source": 1,
+      "critical spec fields are UNKNOWN in source: target": 1,
+      "compile: target UNKNOWN in source": 1
+    }
+  },
+  "empirical_validation": {
+    "backtested": 0,
+    "oos": 0,
+    "walk_forward": 0,
+    "robust": 0,
+    "untested": 104,
+    "note": "empirical_status is never inferred from source_status"
+  },
+  "ttt_capability_matrix": {
+    "measured": [
+      "FTR-FUNDING",
+      "FTR-OI",
+      "FTR-BOOK-IMB"
+    ],
+    "derived": [
+      "FTR-RSI14",
+      "FTR-RSI-ZONE",
+      "FTR-EMA20",
+      "FTR-EMA50",
+      "FTR-MA-ALIGN",
+      "FTR-ATR14",
+      "FTR-ATRPCT",
+      "FTR-SWINGS",
+      "FTR-TREND",
+      "FTR-BOS",
+      "FTR-CHOCH",
+      "FTR-SR",
+      "FTR-FIB",
+      "FTR-PINBAR",
+      "FTR-OI-DELTA"
+    ],
+    "proxy": [
+      {
+        "id": "FTR-TAPE-FLOW",
+        "reason": null
+      }
+    ],
+    "unavailable": [
+      {
+        "id": "FTR-LIQ",
+        "reason": "no documented public TTT liquidation endpoint"
+      },
+      {
+        "id": "FTR-LSR",
+        "reason": "not exposed by verified public TTT interface"
+      },
+      {
+        "id": "FTR-CVD",
+        "reason": "requires verified aggressor semantics TTT does not document"
+      }
     ]
   },
-  "history": [
+  "risk_policy_matrix": [
     {
-      "phase": "closure_run",
-      "generated_at": "2026-09-09T11:45:28.622408+00:00",
-      "git_commit": "f4f6da5",
-      "summary": {
-        "total": 30,
-        "pass": 30,
-        "partial": 0,
-        "blocked": 0,
-        "fail": 0
-      },
-      "freeze_tag": "backend-freeze-v1"
+      "id": "RISK-2PCT-PER-TRADE",
+      "name": "Fixed 2% risk per trade (RAW_1)",
+      "per_trade": 2,
+      "daily": null,
+      "account": null,
+      "period": null,
+      "source_status": "CONFLICT",
+      "conflict_group": "CFG-RISK-PCT",
+      "runtime": "CANDIDATE"
     },
     {
-      "phase": "market_data_remediation",
-      "generated_at": "2026-09-09T18:26:15.574367+00:00",
-      "git_commit": "f3c1727",
-      "freeze_tag": "market-data-freeze-v1",
-      "summary": {
-        "total": 24,
-        "pass": 24,
-        "partial": 0,
-        "blocked": 0,
-        "fail": 0
+      "id": "RISK-1PCT-PER-TRADE",
+      "name": "1% normal risk per trade (RAW_5 / RAW_4)",
+      "per_trade": 1,
+      "daily": null,
+      "account": null,
+      "period": null,
+      "source_status": "CONFLICT",
+      "conflict_group": "CFG-RISK-PCT",
+      "runtime": "CANDIDATE"
+    },
+    {
+      "id": "RISK-2PCT-POSITION-CAP",
+      "name": "Per-position cap 2% (RAW_4)",
+      "per_trade": 2,
+      "daily": null,
+      "account": null,
+      "period": null,
+      "source_status": "CONFLICT",
+      "conflict_group": "CFG-RISK-PCT",
+      "runtime": "CANDIDATE"
+    },
+    {
+      "id": "RISK-DAILY-5PCT",
+      "name": "Daily loss limit 5% (RAW_4)",
+      "per_trade": null,
+      "daily": 5,
+      "account": null,
+      "period": null,
+      "source_status": "SOURCE_VERIFIED",
+      "conflict_group": null,
+      "runtime": "CANDIDATE"
+    },
+    {
+      "id": "RISK-ACCOUNT-11PCT",
+      "name": "Total account risk ~11% (RAW_4)",
+      "per_trade": null,
+      "daily": null,
+      "account": 11,
+      "period": null,
+      "source_status": "SOURCE_VERIFIED",
+      "conflict_group": null,
+      "runtime": "CANDIDATE"
+    },
+    {
+      "id": "RISK-PERIOD-15PCT",
+      "name": "Period loss limit 15% (RAW_4)",
+      "per_trade": null,
+      "daily": null,
+      "account": null,
+      "period": 15,
+      "source_status": "SOURCE_VERIFIED",
+      "conflict_group": null,
+      "runtime": "CANDIDATE"
+    },
+    {
+      "id": "RISK-TOLERANCE-5PCT",
+      "name": "5% tolerance example (RAW_4)",
+      "per_trade": 5,
+      "daily": null,
+      "account": null,
+      "period": null,
+      "source_status": "CLAIM",
+      "conflict_group": "CFG-RISK-PCT",
+      "runtime": "DISABLED"
+    },
+    {
+      "id": "RISK-ASA-CONSERVATIVE-DEFAULT",
+      "name": "AsA conservative default (ENGINEERING ASSUMPTION)",
+      "per_trade": 1,
+      "daily": 5,
+      "account": 11,
+      "period": 15,
+      "source_status": "SOURCE_INFERRED",
+      "conflict_group": null,
+      "runtime": "CANDIDATE"
+    }
+  ],
+  "psychology_policy_matrix": [
+    {
+      "id": "PSY-DAILY-LOSS",
+      "name": "Daily loss stop",
+      "effect": "BLOCK",
+      "penalty": 0,
+      "runtime": "LIVE_ADVISORY_ONLY",
+      "overridable": false
+    },
+    {
+      "id": "PSY-REVENGE",
+      "name": "Revenge-trading block",
+      "effect": "BLOCK",
+      "penalty": 0,
+      "runtime": "LIVE_ADVISORY_ONLY",
+      "overridable": false
+    },
+    {
+      "id": "PSY-COOLDOWN",
+      "name": "Post-loss cooldown",
+      "effect": "BLOCK",
+      "penalty": 0,
+      "runtime": "LIVE_ADVISORY_ONLY",
+      "overridable": true
+    },
+    {
+      "id": "PSY-CHASE",
+      "name": "Chasing / FOMO guard",
+      "effect": "REDUCE_SCORE",
+      "penalty": 15,
+      "runtime": "LIVE_ADVISORY_ONLY",
+      "overridable": true
+    },
+    {
+      "id": "PSY-OVERTRADE",
+      "name": "Overtrading guard",
+      "effect": "REDUCE_SCORE",
+      "penalty": 10,
+      "runtime": "LIVE_ADVISORY_ONLY",
+      "overridable": true
+    },
+    {
+      "id": "PSY-CHECKLIST",
+      "name": "Pre-trade checklist",
+      "effect": "REQUIRE_CHECKLIST",
+      "penalty": 0,
+      "runtime": "LIVE_ADVISORY_ONLY",
+      "overridable": false
+    },
+    {
+      "id": "PSY-REVIEW",
+      "name": "Post-trade review requirement",
+      "effect": "FLAG",
+      "penalty": 0,
+      "runtime": "LIVE_ADVISORY_ONLY",
+      "overridable": true
+    },
+    {
+      "id": "PSY-STANDARDS",
+      "name": "Standards over vague discipline",
+      "effect": "FLAG",
+      "penalty": 0,
+      "runtime": "LIVE_ADVISORY_ONLY",
+      "overridable": false
+    },
+    {
+      "id": "PSY-EMOTIONAL-STATE",
+      "name": "Emotional-state restriction",
+      "effect": "BLOCK",
+      "penalty": 0,
+      "runtime": "LIVE_ADVISORY_ONLY",
+      "overridable": false
+    },
+    {
+      "id": "PSY-SECURITY",
+      "name": "Account security hygiene",
+      "effect": "FLAG",
+      "penalty": 0,
+      "runtime": "LIVE_ADVISORY_ONLY",
+      "overridable": false
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "CFG-RISK-PCT",
+      "topic": "Risk percentage per trade",
+      "resolution": "UNRESOLVED",
+      "variants": 4,
+      "chosen": null
+    },
+    {
+      "id": "CFG-STOP-METHOD",
+      "topic": "Stop-loss methodology",
+      "resolution": "UNRESOLVED",
+      "variants": 3,
+      "chosen": null
+    },
+    {
+      "id": "CFG-SOURCE-MARKED",
+      "topic": "Source-marked contradictions (161 lines)",
+      "resolution": "UNRESOLVED",
+      "variants": 161,
+      "chosen": null
+    }
+  ],
+  "safety_invariants": {
+    "execution_endpoints_present": false,
+    "execution_note": "TTT transport refuses non-GET/HEAD at the source; no order/position/transfer path exists",
+    "live_strategies": 0,
+    "fabricated_market_fields": 0,
+    "unavailable_fields_declared": 3
+  },
+  "phase2": {
+    "experiments": 171,
+    "empirical_by_strategy": {
+      "STR-RAW-4-2449": {
+        "status": "BACKTESTED",
+        "symbols": [
+          "AVAXUSDT",
+          "LINKUSDT",
+          "ADAUSDT",
+          "BNBUSDT",
+          "DOGEUSDT",
+          "XRPUSDT",
+          "SOLUSDT",
+          "ETHUSDT",
+          "BTCUSDT"
+        ]
+      },
+      "STR-RAW-4-2425": {
+        "status": "BACKTESTED",
+        "symbols": [
+          "AVAXUSDT",
+          "LINKUSDT",
+          "ADAUSDT",
+          "BNBUSDT",
+          "DOGEUSDT",
+          "XRPUSDT",
+          "SOLUSDT",
+          "ETHUSDT",
+          "BTCUSDT"
+        ]
+      },
+      "STR-RAW-2-1258": {
+        "status": "UNTESTED",
+        "symbols": [
+          "AVAXUSDT",
+          "LINKUSDT",
+          "ADAUSDT",
+          "BNBUSDT",
+          "DOGEUSDT",
+          "XRPUSDT",
+          "SOLUSDT",
+          "ETHUSDT",
+          "BTCUSDT"
+        ]
+      },
+      "STR-RAW-2-926": {
+        "status": "UNTESTED",
+        "symbols": [
+          "AVAXUSDT",
+          "LINKUSDT",
+          "ADAUSDT",
+          "BNBUSDT",
+          "DOGEUSDT",
+          "XRPUSDT",
+          "SOLUSDT",
+          "ETHUSDT",
+          "BTCUSDT"
+        ]
+      },
+      "STR-RAW-2-803": {
+        "status": "UNTESTED",
+        "symbols": [
+          "AVAXUSDT",
+          "LINKUSDT",
+          "ADAUSDT",
+          "BNBUSDT",
+          "DOGEUSDT",
+          "XRPUSDT",
+          "SOLUSDT",
+          "ETHUSDT",
+          "BTCUSDT"
+        ]
+      },
+      "STR-RAW-2-581": {
+        "status": "UNTESTED",
+        "symbols": [
+          "SOLUSDT",
+          "ETHUSDT",
+          "BTCUSDT"
+        ]
       }
     },
-    {
-      "phase": "unified_finalization",
-      "generated_at": "2026-09-10T07:56:15.574905+00:00",
-      "git_commit": "d336b51",
-      "summary": {
-        "total": 30,
-        "pass": 30,
-        "partial": 0,
-        "blocked": 0,
-        "fail": 0
-      },
-      "freeze_tag": "unified-freeze-v1"
-    },
-    {
-      "phase": "REMEDIATION_FINAL",
-      "git_commit": "d1b26e9",
-      "generated_at": "2026-09-10T08:59:35.919961+00:00",
-      "tests": {
-        "discovered": 389,
-        "executed": 389,
-        "passed": 389,
-        "failed": 0,
-        "skipped": 0,
-        "files": 113
-      },
-      "note": "superseded by workspace surgery"
-    },
-    {
-      "phase": "WORKSPACE_SURGERY",
-      "git_commit": "4ef1796",
-      "generated_at": "2026-09-11T09:46:49.350533+00:00",
-      "tests": {
-        "discovered": 389,
-        "executed": 389,
-        "passed": 389,
-        "failed": 0,
-        "skipped": 0,
-        "files": 19
-      },
-      "note": "superseded by final micro-clean"
-    },
-    {
-      "phase": "FINAL_MICRO_CLEAN",
-      "git_commit": "cad0230",
-      "generated_at": "2026-09-11T10:16:54.969516+00:00",
-      "tests": {
-        "discovered": 389,
-        "executed": 389,
-        "passed": 389,
-        "failed": 0,
-        "skipped": 0,
-        "files": 19
-      },
-      "note": "superseded by final release fix"
-    }
+    "promoted_to_live": 0,
+    "note": "empirical status per strategy is the WEAKEST across all symbols tested"
+  },
+  "missing_implementation": [
+    "98 strategies have no executable spec because the corpus left critical fields UNKNOWN (see disabled_reasons)",
+    "No OOS/walk-forward validation has been run yet, so no strategy can leave CANDIDATE.",
+    "3 source files are truncated upstream; content beyond 350k chars is unavailable."
   ]
 }

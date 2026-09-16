@@ -150,6 +150,17 @@ export interface AdmissionInput {
   strategy_runtime_status: string;
   unresolved_contradiction: boolean;
   unknown_required_fields: string[];
+  /**
+   * LIVE MODE ONLY. Live advisory output requires the FULL promotion gate
+   * (`strategy/promotion`), not merely "the strategy is not DISABLED".
+   *
+   * Without this flag a strategy holding CANDIDATE (in-sample BACKTESTED) or
+   * PAPER (OOS only) would still be admitted and published as a live signal,
+   * which would collapse `executable ≠ validated ≠ promotable ≠ live eligible`
+   * into one boolean. Research/backtest callers leave it false because they are
+   * not producing live advisory output.
+   */
+  requires_live_eligibility?: boolean;
 }
 
 export interface AdmissionResult {
@@ -169,6 +180,11 @@ export function admitOpportunity(a: AdmissionInput): AdmissionResult {
     reasons.push(`required fields UNKNOWN: ${a.unknown_required_fields.join(", ")}`);
   }
   if (a.strategy_runtime_status === "DISABLED") reasons.push("strategy is DISABLED by the runtime gate");
+  if (a.requires_live_eligibility && a.strategy_runtime_status !== "LIVE_ADVISORY_ONLY") {
+    reasons.push(
+      `live advisory requires a promotion-eligible strategy — the promotion gate reports ${a.strategy_runtime_status}`,
+    );
+  }
   if (a.score < a.threshold) reasons.push(`score ${a.score} below threshold ${a.threshold}`);
   return { admitted: reasons.length === 0, reasons };
 }

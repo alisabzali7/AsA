@@ -4,7 +4,8 @@
  *
  * The critical question this page answers is "WHY is this disabled?" — every
  * row exposes its runtime ceiling, the missing critical fields, and (on
- * drilldown) the exact source lines and per-field VERIFIED/INFERRED labels.
+ * drilldown) the exact source lines, per-field VERIFIED/INFERRED labels,
+ * empirical validation evidence, promotion gate checks, and provenance chain.
  */
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -33,32 +34,147 @@ interface DossierShape {
   conflicts: { conflict_group_id: string; topic: string; variants: { label: string; statement: string }[] }[];
 }
 
+interface ValidationDossierShape {
+  ok: boolean;
+  strategy_id: string;
+  strategy_state: {
+    stage: string;
+    exists: boolean;
+    executable: boolean;
+    has_validation_evidence: boolean;
+    has_oos_evidence: boolean;
+    promotion_eligible: boolean;
+    live_eligible: boolean;
+  };
+  promotion_status: string;
+  decision: string;
+  evidenced_status: string;
+  runtime_status: string;
+  runtime_ceiling: string;
+  blocking: string[];
+  provenance_chain: {
+    strategy_id: string;
+    rule_ids: string[];
+    compiled_setup_id: string | null;
+    validation_run_id: string | null;
+    dataset_source: string;
+    dataset_fingerprint: string | null;
+    artifact_sha256: string | null;
+    fingerprint_recomputed: boolean;
+    sample_period: { from_ts: number; to_ts: number; bars: number } | null;
+    in_sample_period: { from_ts: number; to_ts: number; bars: number } | null;
+    out_of_sample_period: { from_ts: number; to_ts: number; bars: number } | null;
+    validation_methodology: string;
+    trade_count_is: number;
+    trade_count_oos: number;
+    metrics_computed: boolean;
+    promotion_decision: string;
+    failure_reason: string | null;
+    unknown_reason: string | null;
+    code_version: string;
+  };
+  checks: {
+    code: string;
+    name: string;
+    pass: boolean;
+    detail: string;
+    blocking: boolean;
+    severity: string;
+    unknown_blocking: boolean;
+    unknown_reason: string | null;
+  }[];
+  validation_status: string;
+  summary: {
+    experiments_count: number;
+    in_sample: { trade_count: number; avg_expectancy_r: number | null; avg_profit_factor: number | null; avg_win_rate: number | null };
+    oos: { trade_count: number; avg_expectancy_r: number | null; avg_profit_factor: number | null; avg_win_rate: number | null };
+    walk_forward: { total_windows: number; profitable_windows: number; avg_stability: number | null; status: string };
+  };
+}
+
 const C: Record<string, string> = {
   SOURCE_VERIFIED: "#3fb68b", VERIFIED: "#3fb68b", SOURCE_INFERRED: "#d6a24a", INFERRED: "#d6a24a",
   UNKNOWN: "#8b8f98", CONFLICT: "#d05f5f", CLAIM: "#d6a24a", PLAIN: "#8b8f98",
   DISABLED: "#8b8f98", CANDIDATE: "#d6a24a", PAPER: "#7bc47f", LIVE_ADVISORY_ONLY: "#3fb68b",
   UNTESTED: "#8b8f98", BACKTESTED: "#d6a24a", OOS_TESTED: "#7bc47f", WALK_FORWARD: "#3fb68b", ROBUST: "#3fb68b",
+  ELIGIBLE: "#3fb68b", NOT_ELIGIBLE: "#d05f5f", BLOCKED: "#d05f5f",
 };
 
 function Dossier({ id }: { id: string }) {
   const d = usePoll<DossierShape>(`/api/brain/explorer?strategy=${encodeURIComponent(id)}`, 0);
+  const v = usePoll<ValidationDossierShape>(`/api/brain/validation?strategy=${encodeURIComponent(id)}`, 0);
   const s = d.data?.strategy;
   if (!s) return <Panel title="strategy"><div className="text-[11.5px] text-muted">Loading {id}…</div></Panel>;
   const spec = d.data?.executable_spec;
+  const val = v.data;
+
+  const stages = [
+    { key: "A", label: "A: Exists", pass: val?.strategy_state.exists ?? true },
+    { key: "B", label: "B: Executable", pass: val?.strategy_state.executable ?? !!spec?.executable },
+    { key: "C", label: "C: Validation Evidence", pass: val?.strategy_state.has_validation_evidence ?? false },
+    { key: "D", label: "D: OOS Evidence", pass: val?.strategy_state.has_oos_evidence ?? false },
+    { key: "E", label: "E: Promotion Eligible", pass: val?.strategy_state.promotion_eligible ?? false },
+    { key: "F", label: "F: Live Eligible", pass: val?.strategy_state.live_eligible ?? false },
+  ];
 
   return (
     <div className="flex flex-col gap-2">
       <Panel
         title={s.canonical_name}
-        right={<div className="flex gap-1"><Badge color={C[s.runtime_status]}>{s.runtime_status}</Badge><Badge color={C[s.empirical_status]}>{s.empirical_status}</Badge></div>}
+        right={
+          <div className="flex flex-wrap gap-1">
+            {val && <Badge color={C[val.promotion_status] ?? "#8b8f98"}>PROMOTION: {val.promotion_status}</Badge>}
+            <Badge color={C[s.runtime_status]}>{s.runtime_status}</Badge>
+            <Badge color={C[val?.evidenced_status ?? s.empirical_status]}>{val?.evidenced_status ?? s.empirical_status}</Badge>
+          </div>
+        }
       >
         <div className="mono mb-2 text-[9.5px] text-muted">{s.strategy_id} · {s.family}</div>
+
+        {/* Lifecycle Stages A -> F */}
+        <div className="mb-2 panel-2 p-2">
+          <div className="eyebrow gold-text mb-1.5">Strategy Lifecycle & Promotion Pipeline (Stages A → F)</div>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
+            {stages.map((st) => (
+              <div
+                key={st.key}
+                className="flex flex-col gap-0.5 rounded border p-1.5"
+                style={{
+                  borderColor: st.pass ? "#3fb68b44" : "var(--color-line)",
+                  background: st.pass ? "#3fb68b0d" : "transparent",
+                }}
+              >
+                <span className="text-[10px] font-medium text-muted">{st.label}</span>
+                <span className="mono text-[11px] font-semibold" style={{ color: st.pass ? "#3fb68b" : "#8b8f98" }}>
+                  {st.pass ? "PASS" : "BLOCKED"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Runtime status reasoning */}
         <div className="panel-2 px-2 py-1.5">
           <div className="eyebrow gold-text mb-1">why this runtime status</div>
           <ul className="flex flex-col gap-0.5">
             {s.why_this_status.map((w, i) => <li key={i} className="text-[11px] text-muted">▸ {w}</li>)}
           </ul>
         </div>
+
+        {/* Gaps / Blocking Reasons */}
+        {val && val.blocking.length > 0 && (
+          <div className="mt-2 panel-2 px-2 py-1.5" style={{ borderColor: "#d05f5f44", background: "#d05f5f0d" }}>
+            <div className="eyebrow text-red mb-1" style={{ color: "#d05f5f" }}>Promotion Gate Gaps &amp; Blocking Reasons</div>
+            <ul className="flex flex-col gap-0.5">
+              {val.blocking.map((b, i) => (
+                <li key={i} className="text-[11px]" style={{ color: "#e08888" }}>
+                  ✗ {b}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {s.unknown_critical.length > 0 && (
           <div className="mt-2 text-[11px]">
             <span className="text-muted">critical fields never stated in source: </span>
@@ -69,6 +185,97 @@ function Dossier({ id }: { id: string }) {
           <div className="mt-2 text-[10px] text-muted">aliases: {s.aliases.slice(0, 4).join(" · ")}</div>
         )}
       </Panel>
+
+      {/* Validation & Empirical Evidence Panel */}
+      {val && val.summary && (
+        <Panel
+          title="Empirical Validation Evidence (TTT Market Replay / Sync)"
+          right={<span className="mono text-[10px] text-muted">{val.summary.experiments_count} experiments</span>}
+        >
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="panel-2 p-2">
+              <div className="eyebrow text-muted mb-1">In-Sample (70%)</div>
+              <div className="space-y-0.5 text-[11px]">
+                <div className="flex justify-between"><span className="text-muted">Trades:</span><span className="mono">{val.summary.in_sample.trade_count}</span></div>
+                <div className="flex justify-between"><span className="text-muted">Avg Exp (R):</span><span className="mono">{val.summary.in_sample.avg_expectancy_r !== null ? val.summary.in_sample.avg_expectancy_r.toFixed(3) : "—"}</span></div>
+                <div className="flex justify-between"><span className="text-muted">Avg PF:</span><span className="mono">{val.summary.in_sample.avg_profit_factor !== null ? val.summary.in_sample.avg_profit_factor.toFixed(2) : "—"}</span></div>
+                <div className="flex justify-between"><span className="text-muted">Avg Win Rate:</span><span className="mono">{val.summary.in_sample.avg_win_rate !== null ? `${(val.summary.in_sample.avg_win_rate * 100).toFixed(1)}%` : "—"}</span></div>
+              </div>
+            </div>
+            <div className="panel-2 p-2">
+              <div className="eyebrow text-muted mb-1">Out-of-Sample (30%)</div>
+              <div className="space-y-0.5 text-[11px]">
+                <div className="flex justify-between"><span className="text-muted">Trades:</span><span className="mono">{val.summary.oos.trade_count}</span></div>
+                <div className="flex justify-between"><span className="text-muted">Avg Exp (R):</span><span className="mono">{val.summary.oos.avg_expectancy_r !== null ? val.summary.oos.avg_expectancy_r.toFixed(3) : "—"}</span></div>
+                <div className="flex justify-between"><span className="text-muted">Avg PF:</span><span className="mono">{val.summary.oos.avg_profit_factor !== null ? val.summary.oos.avg_profit_factor.toFixed(2) : "—"}</span></div>
+                <div className="flex justify-between"><span className="text-muted">Avg Win Rate:</span><span className="mono">{val.summary.oos.avg_win_rate !== null ? `${(val.summary.oos.avg_win_rate * 100).toFixed(1)}%` : "—"}</span></div>
+              </div>
+            </div>
+            <div className="panel-2 p-2">
+              <div className="eyebrow text-muted mb-1">Walk-Forward (Rolling)</div>
+              <div className="space-y-0.5 text-[11px]">
+                <div className="flex justify-between"><span className="text-muted">Status:</span><span className="mono">{val.summary.walk_forward.status}</span></div>
+                <div className="flex justify-between"><span className="text-muted">Windows:</span><span className="mono">{val.summary.walk_forward.profitable_windows} / {val.summary.walk_forward.total_windows}</span></div>
+                <div className="flex justify-between"><span className="text-muted">Avg Stability:</span><span className="mono">{val.summary.walk_forward.avg_stability !== null ? val.summary.walk_forward.avg_stability.toFixed(2) : "—"}</span></div>
+              </div>
+            </div>
+          </div>
+        </Panel>
+      )}
+
+      {/* Promotion Gate Deterministic Checks Table */}
+      {val && val.checks && val.checks.length > 0 && (
+        <Panel title="Deterministic Promotion Gate Checks (15 Rules)">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="text-muted">
+                <th className="text-left font-medium">check</th>
+                <th className="text-left font-medium">description</th>
+                <th className="text-left font-medium">verdict</th>
+                <th className="text-left font-medium pl-2">audit detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {val.checks.map((chk) => (
+                <tr key={chk.code} className="border-t align-top" style={{ borderColor: "var(--color-line)" }}>
+                  <td className="py-1 mono text-[10px]">{chk.code}</td>
+                  <td className="text-muted">{chk.name}</td>
+                  <td>
+                    <Badge color={chk.pass ? "#3fb68b" : chk.unknown_blocking ? "#d6a24a" : "#d05f5f"}>
+                      {chk.pass ? "PASS" : chk.unknown_blocking ? "UNKNOWN" : "FAIL"}
+                    </Badge>
+                  </td>
+                  <td className="pl-2 text-[10px] text-muted">
+                    {chk.detail}
+                    {chk.unknown_reason && <span className="block text-gold">Unknown: {chk.unknown_reason}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+      )}
+
+      {/* Provenance Chain */}
+      {val && val.provenance_chain && (
+        <Panel title="Data & Execution Provenance Chain">
+          <div className="grid gap-2 sm:grid-cols-2 text-[11px]">
+            <div className="space-y-1">
+              <div><span className="text-muted">Strategy Source: </span><span className="mono">{val.provenance_chain.strategy_id}</span></div>
+              <div><span className="text-muted">Corpus Rules: </span><span className="mono">{val.provenance_chain.rule_ids.join(", ") || "none"}</span></div>
+              <div><span className="text-muted">Compiled Setup: </span><span className="mono">{val.provenance_chain.compiled_setup_id ?? "none"}</span></div>
+              <div><span className="text-muted">Validation Run ID: </span><span className="mono">{val.provenance_chain.validation_run_id ?? "not executed"}</span></div>
+            </div>
+            <div className="space-y-1">
+              <div><span className="text-muted">Dataset Source: </span><span className="mono">{val.provenance_chain.dataset_source}</span></div>
+              <div><span className="text-muted">Artifact SHA256: </span><span className="mono">{val.provenance_chain.artifact_sha256 ? `${val.provenance_chain.artifact_sha256.slice(0, 16)}…` : "—"}</span></div>
+              <div><span className="text-muted">Fingerprint: </span><span className="mono">{val.provenance_chain.dataset_fingerprint ?? "—"}</span></div>
+              <div><span className="text-muted">Fingerprint Recomputed: </span><span className="mono">{val.provenance_chain.fingerprint_recomputed ? "YES" : "NO"}</span></div>
+              <div><span className="text-muted">Code Version: </span><span className="mono">{val.provenance_chain.code_version.slice(0, 10)}</span></div>
+            </div>
+          </div>
+        </Panel>
+      )}
 
       {spec && (
         <Panel title="executable spec (from source)" right={<Badge color={spec.executable ? "#3fb68b" : "#8b8f98"}>{spec.executable ? "EXECUTABLE" : "NOT EXECUTABLE"}</Badge>}>
@@ -193,3 +400,4 @@ export default function StrategiesPage() {
     </Suspense>
   );
 }
+

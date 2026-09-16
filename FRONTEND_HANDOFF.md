@@ -32,7 +32,7 @@ production when `ASA_API_TOKEN` is unset.
 | `GET /api/brain/mining` | knowledge atoms, components, generated candidates |
 | `GET /api/brain/unknowns` | everything the corpus left unspecified |
 | `GET /api/brain/policies` | risk + psychology registries, conflict groups |
-| `GET /api/brain/validation` | empirical evidence · `?strategy=` for experiments |
+| `GET /api/brain/validation` | evidence + promotion decision (A→F state, failure/unknown reasons) · `?strategy=` for experiments |
 
 ### Decisions
 | Endpoint | Purpose |
