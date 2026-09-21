@@ -5,6 +5,11 @@
  */
 import { NextResponse } from "next/server";
 import { getBrain } from "@/lib/brain/store";
+import {
+  USER_PSYCHOLOGY_SECTIONS,
+  USER_PSYCHOLOGY_SOURCES,
+  USER_PSYCHOLOGY_SOURCE_RULES,
+} from "@/lib/psychology/user-source";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +20,11 @@ export async function GET(): Promise<NextResponse> {
       ok: true,
       risk_policies: b.riskPolicies(),
       psychology_policies: b.psychologyPolicies(),
+      psychology_source_pack: {
+        sources: USER_PSYCHOLOGY_SOURCES,
+        sections: USER_PSYCHOLOGY_SECTIONS,
+        source_only_rules: USER_PSYCHOLOGY_SOURCE_RULES,
+      },
       conflicts: b.conflicts(),
       note: "conflicting source risk percentages are preserved as separate CANDIDATE policies — never averaged, never silently chosen",
       ts: Date.now(),

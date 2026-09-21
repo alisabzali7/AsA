@@ -1,0 +1,232 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "USER_PSYCHOLOGY_SOURCE_MANIFEST",
+  "description": "Immutable source archive and conservative extraction map for the two user-supplied psychology text files. Source material is retained verbatim; source-only rules are not runtime-executable.",
+  "sources": [
+    {
+      "file_id": "USER-PSY-1",
+      "repository_filename": "USER_PSYCHOLOGY_1.txt",
+      "original_filename": "my phychology/1.txt",
+      "sha256": "31e52de9d6f6aa0c2ddd072b3986cbc4bb0fe64365ccc3dba852fbe0816eab25",
+      "total_lines": 2423,
+      "total_chars": 349991,
+      "truncated": true
+    },
+    {
+      "file_id": "USER-PSY-2",
+      "repository_filename": "USER_PSYCHOLOGY_2.txt",
+      "original_filename": "my phychology/2.txt",
+      "sha256": "485fa4f9afb49b43ba5fbe4a9b76fba72b157d1ab7a10c721638d5e18ec41e7a",
+      "total_lines": 640,
+      "total_chars": 90370,
+      "truncated": true
+    }
+  ],
+  "sections": [
+    {
+      "file_id": "USER-PSY-1",
+      "start_line": 1,
+      "end_line": 108,
+      "scope": "TABLE_OF_CONTENTS",
+      "title": "مقدمه/فهرست مطالب"
+    },
+    {
+      "file_id": "USER-PSY-1",
+      "start_line": 109,
+      "end_line": 351,
+      "scope": "MIXED",
+      "title": "فصل اول معامله گری"
+    },
+    {
+      "file_id": "USER-PSY-1",
+      "start_line": 352,
+      "end_line": 1029,
+      "scope": "PSYCHOLOGY",
+      "title": "فصل دوم مراحل تبدیل به یک معامله گر موفق"
+    },
+    {
+      "file_id": "USER-PSY-1",
+      "start_line": 1030,
+      "end_line": 1083,
+      "scope": "PSYCHOLOGY",
+      "title": "فصل سوم شکست در معامله"
+    },
+    {
+      "file_id": "USER-PSY-1",
+      "start_line": 1084,
+      "end_line": 1249,
+      "scope": "RISK_AND_PSYCHOLOGY",
+      "title": "فصل چهارم مدیریت ریسک در معامله گری"
+    },
+    {
+      "file_id": "USER-PSY-1",
+      "start_line": 1250,
+      "end_line": 2265,
+      "scope": "PSYCHOLOGY",
+      "title": "فصل پنجم روان شناسی محیط معاملات"
+    },
+    {
+      "file_id": "USER-PSY-1",
+      "start_line": 2266,
+      "end_line": 2422,
+      "scope": "MIXED_STRATEGY_MANAGEMENT",
+      "title": "فصل ششم مدیریت معاملات"
+    },
+    {
+      "file_id": "USER-PSY-2",
+      "start_line": 1,
+      "end_line": 640,
+      "scope": "MIXED_STRATEGY_MANAGEMENT",
+      "title": "ادامه مطالب/استراتژی و مدیریت معاملات"
+    }
+  ],
+  "source_only_rules": [
+    {
+      "id": "USER-PSY-PLAN-DISCIPLINE",
+      "category": "discipline",
+      "principle": "پایبندی به برنامه معاملاتی و تشخیص تفاوت میان پیروزی موجه و پیروزی ناموجه.",
+      "source_refs": [
+        {
+          "file": "USER_PSYCHOLOGY_1.txt",
+          "start_line": 396,
+          "end_line": 403
+        },
+        {
+          "file": "USER_PSYCHOLOGY_1.txt",
+          "start_line": 405,
+          "end_line": 424
+        }
+      ]
+    },
+    {
+      "id": "USER-PSY-PATIENCE-NO-CHASE",
+      "category": "patience",
+      "principle": "صبر برای فرصت مناسب و پرهیز از تعقیب معامله پس از از دست رفتن نقطه مناسب ورود.",
+      "source_refs": [
+        {
+          "file": "USER_PSYCHOLOGY_1.txt",
+          "start_line": 639,
+          "end_line": 647
+        }
+      ]
+    },
+    {
+      "id": "USER-PSY-DISCIPLINE-SELF-CONTROL",
+      "category": "self_control",
+      "principle": "نظم، انضباط، خودکنترلی، تمرکز و مدیریت هیجان بخشی از عملکرد معامله‌گر هستند.",
+      "source_refs": [
+        {
+          "file": "USER_PSYCHOLOGY_1.txt",
+          "start_line": 650,
+          "end_line": 659
+        }
+      ]
+    },
+    {
+      "id": "USER-PSY-REALISTIC-EXPECTATIONS",
+      "category": "expectations",
+      "principle": "اهداف معاملاتی باید روشن، واقع‌بینانه و با داده‌های عینی و مستند پشتیبانی شوند؛ نتایج یک معامله یا دوره کوتاه نباید مبنای اصلاح اهداف قرار گیرد.",
+      "source_refs": [
+        {
+          "file": "USER_PSYCHOLOGY_1.txt",
+          "start_line": 163,
+          "end_line": 183
+        }
+      ]
+    },
+    {
+      "id": "USER-PSY-ACCEPT-UNCERTAINTY",
+      "category": "probabilistic_thinking",
+      "principle": "تفکر احتمالاتی مستلزم پذیرش ریسک، پذیرش عدم‌قطعیت و رها کردن نیاز به دانستن آینده یا درست بودن در هر معامله است.",
+      "source_refs": [
+        {
+          "file": "USER_PSYCHOLOGY_2.txt",
+          "start_line": 327,
+          "end_line": 344
+        }
+      ]
+    },
+    {
+      "id": "USER-PSY-MARKET-AS-IS",
+      "category": "objectivity",
+      "principle": "بازار باید آن‌گونه که هست درک شود، نه آن‌گونه که معامله‌گر می‌خواهد باشد؛ منبع همچنین بر تمرکز در لحظه اکنون و معامله بدون ترس/خودشیفتگی تأکید می‌کند.",
+      "source_refs": [
+        {
+          "file": "USER_PSYCHOLOGY_2.txt",
+          "start_line": 636,
+          "end_line": 640
+        }
+      ]
+    },
+    {
+      "id": "USER-PSY-JOURNAL-REVIEW",
+      "category": "review",
+      "principle": "ژورنال و بازاندیشی برای ثبت معاملات، یادگیری از عملکرد و ارزیابی روند پیشرفت استفاده می‌شوند.",
+      "source_refs": [
+        {
+          "file": "USER_PSYCHOLOGY_1.txt",
+          "start_line": 284,
+          "end_line": 306
+        },
+        {
+          "file": "USER_PSYCHOLOGY_1.txt",
+          "start_line": 691,
+          "end_line": 713
+        }
+      ]
+    },
+    {
+      "id": "USER-PSY-MINDFULNESS",
+      "category": "mindfulness",
+      "principle": "ذهن‌آگاهی به‌عنوان توجه به لحظه حال، مشاهده افکار و احساسات بدون درگیرشدن با آنها و کاهش واکنش‌های شتاب‌زده توصیف شده است.",
+      "source_refs": [
+        {
+          "file": "USER_PSYCHOLOGY_1.txt",
+          "start_line": 2185,
+          "end_line": 2219
+        }
+      ]
+    },
+    {
+      "id": "USER-PSY-STRESS-AWARENESS",
+      "category": "stress",
+      "principle": "استرس و هیجان‌های قوی بر عملکرد معاملاتی و تصمیم‌گیری اثر می‌گذارند و منبع بر آگاهی از این اثر و مدیریت آن تأکید می‌کند.",
+      "source_refs": [
+        {
+          "file": "USER_PSYCHOLOGY_1.txt",
+          "start_line": 2020,
+          "end_line": 2096
+        }
+      ]
+    },
+    {
+      "id": "USER-PSY-PRESENT-FOCUS",
+      "category": "attention",
+      "principle": "تمرکز و حضور در لحظه در مواجهه با بازار بخشی از چارچوب روان‌شناختی منبع است.",
+      "source_refs": [
+        {
+          "file": "USER_PSYCHOLOGY_1.txt",
+          "start_line": 2191,
+          "end_line": 2208
+        },
+        {
+          "file": "USER_PSYCHOLOGY_2.txt",
+          "start_line": 636,
+          "end_line": 640
+        }
+      ]
+    },
+    {
+      "id": "USER-PSY-ERROR-LEARNING",
+      "category": "learning",
+      "principle": "اشتباهات به‌عنوان بخشی از روند یادگیری دیده می‌شوند و بازاندیشی برای جلوگیری از تکرار آنها توصیه شده است.",
+      "source_refs": [
+        {
+          "file": "USER_PSYCHOLOGY_1.txt",
+          "start_line": 2239,
+          "end_line": 2245
+        }
+      ]
+    }
+  ]
+}
