@@ -19,6 +19,7 @@ import { BrainStore } from "./store";
 import { classifyLine, parseStrategyBlocks, topicTags, unknownCriticalFields, type ParsedStrategyBlock } from "./classify";
 import { compileBlock, setupFromSpec, type CompiledSpec } from "./compile";
 import { evaluateGate } from "./gate";
+import { isConflictUnresolved } from "./conflicts";
 import { CORPUS_FILES, CANONICAL_PACK_FILE } from "./corpus-manifest";
 import { buildPrimitives, buildFeatures } from "./primitives";
 import { buildRiskPolicies, buildPsychologyPolicies, buildConflictGroups } from "./policies";
@@ -220,11 +221,15 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
       version: "1.0.0",
       disabled_reason: null,
     };
+    // Ingest carries the record's own conflict linkage into the gate through the
+    // canonical contract — never a hardcoded boolean. Strategy records hold
+    // no linkage today (null → NONE → false); a future linkage whose
+    // resolution is unreadable at gate time fails closed (true).
     const verdict = evaluateGate({
       source_status: rec.source_status,
       empirical_status: rec.empirical_status,
       unknown_critical: rec.unknown_critical,
-      conflict_unresolved: false,
+      conflict_unresolved: isConflictUnresolved(rec.conflict_group_id, null),
       has_implementation: false,
     });
     rec.runtime_status = verdict.allowed;
@@ -273,7 +278,7 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
     };
     const verdict = evaluateGate({
       source_status: rec.source_status, empirical_status: rec.empirical_status,
-      unknown_critical: rec.unknown_critical, conflict_unresolved: false, has_implementation: false,
+      unknown_critical: rec.unknown_critical, conflict_unresolved: isConflictUnresolved(rec.conflict_group_id, null), has_implementation: false,
     });
     rec.runtime_status = verdict.allowed;
     rec.disabled_reason = verdict.reasons.join("; ");
@@ -299,7 +304,7 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
         source_status: rec.source_status,
         empirical_status: rec.empirical_status,
         unknown_critical: rec.unknown_critical,
-        conflict_unresolved: false,
+        conflict_unresolved: isConflictUnresolved(rec.conflict_group_id, null),
         has_implementation: true,
       });
       rec.runtime_status = v2.allowed;
@@ -332,7 +337,7 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
       source_status: rec.source_status,
       empirical_status: rec.empirical_status,
       unknown_critical: rec.unknown_critical,
-      conflict_unresolved: false,
+      conflict_unresolved: isConflictUnresolved(rec.conflict_group_id, null),
       has_implementation: true,
     });
     rec.runtime_status = v3.allowed;

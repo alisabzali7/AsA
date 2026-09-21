@@ -7,12 +7,14 @@
  * Nothing else in the codebase may set runtime_status directly.
  */
 import type {
+  ConflictGroup,
   CriticalSpecField,
   EmpiricalStatus,
   RuntimeStatus,
   SourceStatus,
   StrategyRecord,
 } from "./types";
+import { conflictStateForRecord } from "./conflicts";
 
 export interface GateInput {
   source_status: SourceStatus;
@@ -106,13 +108,42 @@ export function evaluateGate(input: GateInput): GateVerdict {
   return { allowed: ceiling, ceiling, reasons };
 }
 
-/** Convenience wrapper for a full strategy record. */
-export function gateStrategy(s: StrategyRecord, conflictUnresolved = false): GateVerdict {
+/**
+ * Convenience wrapper for a full strategy record.
+ *
+ * Conflict state is interpreted through the canonical contract
+ * (`brain/conflicts.ts`), never by testing group presence alone:
+ *
+ * - pass the conflict-group rows (preferred): the linked group's `resolution`
+ *   decides — UNRESOLVED blocks, OPERATOR_CHOSEN / EMPIRICALLY_RESOLVED do
+ *   not, and unreadable/incomplete conflict data fails closed (blocks).
+ * - pass `true` (legacy explicit override): forces unresolved.
+ * - pass nothing/`false`/`null`: no registry available, so a linked group
+ *   fails closed (unresolved) — presence without a readable resolution is
+ *   UNKNOWN, and UNKNOWN is never a pass.
+ */
+export function gateStrategy(
+  s: StrategyRecord,
+  conflictsOrUnresolved: ConflictGroup[] | boolean | null = false,
+): GateVerdict {
+  let conflictUnresolved: boolean;
+  if (conflictsOrUnresolved === true) {
+    conflictUnresolved = true;
+  } else if (Array.isArray(conflictsOrUnresolved)) {
+    conflictUnresolved = conflictStateForRecord(
+      s.conflict_group_id,
+      conflictsOrUnresolved,
+    ).unresolved;
+  } else {
+    // No registry supplied: a linked group cannot be shown resolved.
+    conflictUnresolved =
+      s.conflict_group_id !== null && s.conflict_group_id !== undefined;
+  }
   return evaluateGate({
     source_status: s.source_status,
     empirical_status: s.empirical_status,
     unknown_critical: s.unknown_critical,
-    conflict_unresolved: conflictUnresolved || s.conflict_group_id !== null,
+    conflict_unresolved: conflictUnresolved,
     has_implementation: s.implementation !== null,
   });
 }

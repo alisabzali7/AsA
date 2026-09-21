@@ -1,6 +1,6 @@
 # AsA Brain — Self Audit
 
-Generated 2026-09-16T09:50:22.421Z from `./asa-data/brain.db`. Every number below is read from
+Generated 2026-09-21T07:24:16.440Z from `./asa-data/brain.db`. Every number below is read from
 stored evidence; nothing is asserted without a record behind it.
 
 ## 1. Corpus coverage
@@ -63,15 +63,51 @@ Executable specs (all five critical fields present in source): **6**
 - Claims held at UNTESTED: 553
 - Quarantined commentary (never executable): 46
 
-## 9. Empirical validation status
+## 9. Empirical validation status — two deliberate views, one contract
+
+**Registry view** (`empirical_validation`, view `strategy_registry`, source:
+`strategies.empirical_status`, governed state — changes only via the
+promotion path):
 {
+  "view": "strategy_registry",
+  "source": {
+    "table": "strategies",
+    "column": "empirical_status",
+    "scope": "every strategy registry row",
+    "aggregation": "count_by_status"
+  },
   "backtested": 0,
   "oos": 0,
   "walk_forward": 0,
   "robust": 0,
+  "rejected": 0,
   "untested": 104,
+  "total": 104,
+  "semantics": "GOVERNED registry state: the empirical_status STORED on each strategy row. It changes only through the governed promotion path — it is NEVER auto-copied from experiment rows and NEVER inferred from source_status. SOURCE_VERIFIED != EMPIRICALLY_VALIDATED.",
+  "relationship_to_phase2": "Deliberately different view from `phase2`: this section reports what the REGISTRY governs; `phase2.empirical_by_strategy` reports what EXPERIMENT rows observed. A divergence (registry UNTESTED while experiments show BACKTESTED) is expected, not a contradiction — see `empirical_semantics`.",
   "note": "empirical_status is never inferred from source_status"
 }
+
+**Experiment-store view** (`phase2`, view `experiment_store`, source:
+`experiments.empirical_status`, raw observed verdicts before governance,
+weakest of newest-per-symbol):
+- experiments stored: 57
+- `STR-RAW-4-2449`: BACKTESTED over 9 symbol(s) (AVAXUSDT, LINKUSDT, ADAUSDT, BNBUSDT, DOGEUSDT, XRPUSDT, SOLUSDT, ETHUSDT, BTCUSDT)
+- `STR-RAW-4-2425`: BACKTESTED over 9 symbol(s) (AVAXUSDT, LINKUSDT, ADAUSDT, BNBUSDT, DOGEUSDT, XRPUSDT, SOLUSDT, ETHUSDT, BTCUSDT)
+- `STR-RAW-2-1258`: UNTESTED over 9 symbol(s) (AVAXUSDT, LINKUSDT, ADAUSDT, BNBUSDT, DOGEUSDT, XRPUSDT, SOLUSDT, ETHUSDT, BTCUSDT)
+- `STR-RAW-2-926`: UNTESTED over 9 symbol(s) (AVAXUSDT, LINKUSDT, ADAUSDT, BNBUSDT, DOGEUSDT, XRPUSDT, SOLUSDT, ETHUSDT, BTCUSDT)
+- `STR-RAW-2-803`: UNTESTED over 9 symbol(s) (AVAXUSDT, LINKUSDT, ADAUSDT, BNBUSDT, DOGEUSDT, XRPUSDT, SOLUSDT, ETHUSDT, BTCUSDT)
+- `STR-RAW-2-581`: UNTESTED over 3 symbol(s) (SOLUSDT, ETHUSDT, BTCUSDT)
+- promoted to live (derived from registry): 0
+
+**Why the two views differ by design** (`empirical_semantics`, contract v1.0.0):
+- SOURCE_VERIFIED != EMPIRICALLY_VALIDATED: source strength never implies test evidence.
+- BACKTESTED != OOS_TESTED != WALK_FORWARD != ROBUST: each ladder step requires strictly stronger evidence; a weaker label never implies a stronger one.
+- UNKNOWN != PASS: missing evidence blocks promotion; it is never upgraded to a pass.
+- Experiment rows NEVER auto-promote the strategy registry; the registry changes only via the governed promotion path.
+- `phase2` statuses are raw RECORDED verdicts; the promotion gate (src/lib/backtest/promotion.ts) re-derives every row under the current criteria and may reach a weaker status.
+
+> EXPECTED divergence, not a contradiction: validation runs were observed (BACKTESTED evidence exists for those symbols) but no governed promotion has rewritten the registry row. Trust `phase2` for what was OBSERVED and `empirical_validation` for what the registry GOVERNS.
 
 ## 10. Disabled strategies — exact reasons
 - 2× critical spec fields are UNKNOWN in source: stop, target, invalidation

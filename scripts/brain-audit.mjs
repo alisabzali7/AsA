@@ -25,9 +25,12 @@ const one = (q, ...a) => db.prepare(q).get(...a);
 const count = (t, w = "") => one(`SELECT COUNT(*) c FROM ${t} ${w}`).c;
 
 const docs = all("SELECT * FROM source_documents ORDER BY file_id");
-// Phase 2: experiments table may not exist on an ingest-only brain
+// Phase 2: experiments table may not exist on an ingest-only brain.
+// Ordering matches ExperimentStore.evidenceFor (created_ms DESC, rowid DESC)
+// so "newest row per symbol" is deterministic even when rows share a
+// millisecond — the same database must always yield the same report.
 let experiments = [];
-try { experiments = all("SELECT * FROM experiments ORDER BY created_ms DESC"); } catch { experiments = []; }
+try { experiments = all("SELECT * FROM experiments ORDER BY created_ms DESC, rowid DESC"); } catch { experiments = []; }
 const strategies = all("SELECT * FROM strategies");
 const risk = all("SELECT * FROM risk_policies");
 const psych = all("SELECT * FROM psychology_policies");
@@ -117,12 +120,60 @@ const status = {
     disabled_reasons: disabledReasons,
   },
   empirical_validation: {
+    view: "strategy_registry",
+    source: {
+      table: "strategies",
+      column: "empirical_status",
+      scope: "every strategy registry row",
+      aggregation: "count_by_status",
+    },
     backtested: byEmpirical.BACKTESTED ?? 0,
     oos: byEmpirical.OOS_TESTED ?? 0,
     walk_forward: byEmpirical.WALK_FORWARD ?? 0,
     robust: byEmpirical.ROBUST ?? 0,
+    rejected: byEmpirical.REJECTED ?? 0,
     untested: byEmpirical.UNTESTED ?? 0,
+    total: strategies.length,
+    semantics: "GOVERNED registry state: the empirical_status STORED on each strategy row. It changes only through the governed promotion path — it is NEVER auto-copied from experiment rows and NEVER inferred from source_status. SOURCE_VERIFIED != EMPIRICALLY_VALIDATED.",
+    relationship_to_phase2: "Deliberately different view from `phase2`: this section reports what the REGISTRY governs; `phase2.empirical_by_strategy` reports what EXPERIMENT rows observed. A divergence (registry UNTESTED while experiments show BACKTESTED) is expected, not a contradiction — see `empirical_semantics`.",
     note: "empirical_status is never inferred from source_status",
+  },
+  // Semantic contract between the two empirical views. Machine-checkable:
+  // each view names its view id, its source table/column and its aggregation,
+  // so no consumer can mistake one for the other.
+  empirical_semantics: {
+    contract_version: "1.0.0",
+    views: {
+      empirical_validation: "strategy_registry",
+      phase2: "experiment_store",
+    },
+    sources_of_truth: {
+      strategy_registry: {
+        table: "strategies",
+        column: "empirical_status",
+        aggregation: "count_by_status",
+        meaning: "governed per-strategy state; changes only via the promotion path",
+      },
+      experiment_store: {
+        table: "experiments",
+        column: "empirical_status",
+        aggregation: "weakest_of_newest_per_symbol",
+        ordering: "created_ms DESC, rowid DESC",
+        meaning: "raw observed per-run verdicts as recorded, before governance",
+      },
+    },
+    invariants: [
+      "SOURCE_VERIFIED != EMPIRICALLY_VALIDATED: source strength never implies test evidence.",
+      "BACKTESTED != OOS_TESTED != WALK_FORWARD != ROBUST: each ladder step requires strictly stronger evidence; a weaker label never implies a stronger one.",
+      "UNKNOWN != PASS: missing evidence blocks promotion; it is never upgraded to a pass.",
+      "Experiment rows NEVER auto-promote the strategy registry; the registry changes only via the governed promotion path.",
+      "`phase2` statuses are raw RECORDED verdicts; the promotion gate (src/lib/backtest/promotion.ts) re-derives every row under the current criteria and may reach a weaker status.",
+    ],
+    interpretation: {
+      when_registry_says_untested_and_experiments_say_backtested:
+        "EXPECTED divergence, not a contradiction: validation runs were observed (BACKTESTED evidence exists for those symbols) but no governed promotion has rewritten the registry row. Trust `phase2` for what was OBSERVED and `empirical_validation` for what the registry GOVERNS.",
+    },
+    consistent_by_design: true,
   },
   ttt_capability_matrix: {
     measured: features.filter((f) => f.availability === "MEASURED").map((f) => f.feature_id),
@@ -151,6 +202,14 @@ const status = {
     unavailable_fields_declared: unavailableFeatures.length,
   },
   phase2: {
+    view: "experiment_store",
+    source: {
+      table: "experiments",
+      column: "empirical_status",
+      scope: "newest experiment row per (strategy_id, symbol), stored status as recorded",
+      aggregation: "weakest_of_newest_per_symbol",
+      ordering: "created_ms DESC, rowid DESC (deterministic newest-first, matching ExperimentStore.evidenceFor)",
+    },
     experiments: experiments.length,
     empirical_by_strategy: (() => {
       const ORDER = ["REJECTED","UNTESTED","BACKTESTED","OOS_TESTED","WALK_FORWARD","ROBUST"];
@@ -167,7 +226,11 @@ const status = {
       }
       return out;
     })(),
-    promoted_to_live: 0,
+    // Derived from the registry, never hardcoded: strategies the governed
+    // state actually holds at live advisory.
+    promoted_to_live: byRuntime.LIVE_ADVISORY_ONLY ?? 0,
+    semantics: "OBSERVED evidence view: raw per-run verdicts as RECORDED, before governance. Statuses here are NOT re-derived under the current criteria, NOT provenance-filtered, NOT version-checked and NOT OOS-gated — the promotion gate (src/lib/backtest/promotion.ts) re-derives every row and may reach a weaker status. BACKTESTED != OOS_TESTED != WALK_FORWARD != ROBUST.",
+    relationship_to_empirical_validation: "Deliberately different view from `empirical_validation`: this section reports what EXPERIMENTS observed; `empirical_validation` reports the GOVERNED registry state. An experiment observing BACKTESTED does not rewrite the registry row — see `empirical_semantics`.",
     note: "empirical status per strategy is the WEAKEST across all symbols tested",
   },
   missing_implementation: [
@@ -229,8 +292,24 @@ ${executable.map((s) => `- \`${s.strategy_id}\` ${s.canonical_name} (${s.family}
 - Claims held at UNTESTED: ${status.counts.claims}
 - Quarantined commentary (never executable): ${status.counts.quarantined}
 
-## 9. Empirical validation status
+## 9. Empirical validation status — two deliberate views, one contract
+
+**Registry view** (\`empirical_validation\`, view \`strategy_registry\`, source:
+\`strategies.empirical_status\`, governed state — changes only via the
+promotion path):
 ${JSON.stringify(status.empirical_validation, null, 2)}
+
+**Experiment-store view** (\`phase2\`, view \`experiment_store\`, source:
+\`experiments.empirical_status\`, raw observed verdicts before governance,
+weakest of newest-per-symbol):
+- experiments stored: ${status.phase2.experiments}
+${Object.entries(status.phase2.empirical_by_strategy).map(([sid, v]) => `- \`${sid}\`: ${v.status} over ${v.symbols.length} symbol(s) (${v.symbols.join(", ")})`).join("\n") || "- (no experiments stored — run `npm run brain:validate`)"}
+- promoted to live (derived from registry): ${status.phase2.promoted_to_live}
+
+**Why the two views differ by design** (\`empirical_semantics\`, contract v${status.empirical_semantics.contract_version}):
+${status.empirical_semantics.invariants.map((i) => `- ${i}`).join("\n")}
+
+> ${status.empirical_semantics.interpretation.when_registry_says_untested_and_experiments_say_backtested}
 
 ## 10. Disabled strategies — exact reasons
 ${Object.entries(disabledReasons).map(([k, v]) => `- ${v}× ${k}`).join("\n")}
