@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   USER_PSYCHOLOGY_SECTIONS,
@@ -29,5 +31,21 @@ describe("user psychology source pack", () => {
         expect(ref.end_line).toBeGreaterThanOrEqual(ref.start_line);
       }
     }
+  });
+
+  it("keeps the manifest in sync with the section map and never drops the last source line from provenance", () => {
+    // every source's final section must cover the file down to its real last line
+    for (const source of USER_PSYCHOLOGY_SOURCES) {
+      const sections = USER_PSYCHOLOGY_SECTIONS.filter((s) => s.file_id === source.file_id);
+      expect(sections.length).toBeGreaterThan(0);
+      const last = sections.reduce((a, b) => (b.start_line > a.start_line ? b : a));
+      expect(last.end_line).toBe(source.total_lines);
+    }
+
+    // the committed manifest must carry the exact same provenance section map
+    const manifest = JSON.parse(
+      readFileSync(path.join(process.cwd(), "knowledge", "psychology", "USER_PSYCHOLOGY_MANIFEST.json"), "utf8"),
+    ) as { sections: unknown };
+    expect(manifest.sections).toEqual(USER_PSYCHOLOGY_SECTIONS);
   });
 });
