@@ -26,11 +26,13 @@ const JSON_OUT = process.argv.includes("--json");
 const entry = `
 import { BrainStore } from "./src/lib/brain/store";
 import { ingestCorpus } from "./src/lib/brain/ingest";
+import { ingestUserPsychologySources } from "./src/lib/psychology/user-source";
 const store = new BrainStore();
 const report = ingestCorpus(store);
+const userPsychology = ingestUserPsychologySources(store);
 const stats = store.stats();
 store.close();
-process.stdout.write("\\n__ASA_JSON__" + JSON.stringify({ report, stats }));
+process.stdout.write("\\n__ASA_JSON__" + JSON.stringify({ report, stats, user_psychology: userPsychology }));
 `;
 
 // entry must live inside the project so relative imports resolve
@@ -69,10 +71,10 @@ if (marker < 0) {
   console.error(raw);
   throw new Error("ingest produced no report");
 }
-const { report, stats } = JSON.parse(raw.slice(marker + "__ASA_JSON__".length));
+const { report, stats, user_psychology: userPsychology } = JSON.parse(raw.slice(marker + "__ASA_JSON__".length));
 
 if (JSON_OUT) {
-  console.log(JSON.stringify({ report, stats }, null, 2));
+  console.log(JSON.stringify({ report, stats, user_psychology: userPsychology }, null, 2));
 } else {
   console.log("=== AsA Brain ingestion ===");
   for (const d of report.documents) {
@@ -92,10 +94,12 @@ if (JSON_OUT) {
   console.log(`features          : ${report.features}`);
   console.log(`risk policies     : ${report.risk_policies}`);
   console.log(`psych policies    : ${report.psychology_policies}`);
+  console.log(`user psych source : ${userPsychology.documents.length} files / ${userPsychology.fragments_written} fragments`);
   console.log(`duration          : ${report.duration_ms} ms`);
   if (report.errors.length) {
     console.log("\nERRORS:");
     for (const e of report.errors) console.log("  -", e);
   }
-  console.log("\nstats:", JSON.stringify(stats));
+  console.log("\nuser psychology:", JSON.stringify(userPsychology));
+  console.log("stats:", JSON.stringify(stats));
 }
