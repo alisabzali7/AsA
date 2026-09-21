@@ -75,7 +75,9 @@ export async function GET(req: Request): Promise<NextResponse> {
 
       const compiled: CompiledSpec[] = JSON.parse(brain.meta("compiled_specs_full") ?? "[]") as CompiledSpec[];
       const spec = compiled.find((c) => c.strategy_id === strategyId) ?? null;
-      const verdict = gateStrategy(s);
+      // Canonical conflict input: the linked group's RESOLUTION decides, never
+      // the mere presence of the link (see `brain/conflicts.ts`).
+      const verdict = gateStrategy(s, brain.conflicts());
 
       // attach the verbatim source line behind every referenced location
       const quotes = s.source_refs.slice(0, 12).flatMap((r) =>

@@ -30,8 +30,11 @@ export async function GET(req: Request): Promise<NextResponse> {
       );
     }
 
+    // Canonical conflict input: the linked group's RESOLUTION decides, never the
+    // mere presence of the link (see `brain/conflicts.ts`).
+    const conflictGroups = brain.conflicts();
     const out = rows.slice(0, limit).map((s) => {
-      const verdict = gateStrategy(s);
+      const verdict = gateStrategy(s, conflictGroups);
       return {
         strategy_id: s.strategy_id,
         canonical_name: s.canonical_name,

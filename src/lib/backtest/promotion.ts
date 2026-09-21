@@ -38,8 +38,9 @@
  * by tests with explicit inputs) and a thin resolution layer at the bottom that
  * feeds it the live stores (`promotionReport`, `promotionReports`).
  */
-import type { CriticalSpecField, EmpiricalStatus, RuntimeStatus, SourceRef, SourceStatus, StrategyRecord } from "../brain/types";
+import type { ConflictGroup, CriticalSpecField, EmpiricalStatus, RuntimeStatus, SourceRef, SourceStatus, StrategyRecord } from "../brain/types";
 import { clampRuntimeStatus, evaluateGate, type GateVerdict } from "../brain/gate";
+import { conflictStateForRecord, type ConflictState } from "../brain/conflicts";
 import {
   VALIDATION_METHODOLOGY, isPromotedStatus, weakestStatus,
   decidePromotion, type PromotionVerdict,
@@ -130,7 +131,26 @@ export interface GovernanceFacts {
   source_status: SourceStatus | null;
   unknown_critical: CriticalSpecField[] | string[];
   conflict_group_id: string | null;
+  /**
+   * Fail-closed conflict predicate from the canonical contract
+   * (`brain/conflicts.ts`): true when the linked group is UNRESOLVED *or*
+   * when its resolution cannot be established (UNKNOWN). Presence of a
+   * `conflict_group_id` alone never decides this — the group's `resolution`
+   * does.
+   */
   conflict_unresolved: boolean;
+  /**
+   * Canonical conflict state (NONE / UNRESOLVED / RESOLVED / UNKNOWN).
+   * Optional for backward compatibility with hand-built test inputs; when
+   * absent the gate falls back to `conflict_unresolved` alone.
+   */
+  conflict_state?: ConflictState;
+  /** the linked group's resolution as read back, or null when unreadable */
+  conflict_resolution?: string | null;
+  /** machine-readable derivation of the canonical conflict state */
+  conflict_detail?: string | null;
+  /** why the conflict registry could not be read, when that is the case */
+  conflict_resolve_error?: string | null;
   implementation_binding: string | null;
   /** why the governance record could not be read, when that is the case */
   resolve_error: string | null;
@@ -425,11 +445,22 @@ export function buildPromotionDecision(input: PromotionGateInput): PromotionDeci
       check(checks, "no_unknown_critical", "no critical UNKNOWN", "FAIL",
         `critical spec fields UNKNOWN in source: ${unknownCritical.join(", ")}`);
     }
-    if (gov.conflict_unresolved) {
+    if (gov.conflict_state === "UNKNOWN") {
+      // Fail closed: the linked group's resolution cannot be established, so
+      // the conflict question itself is UNKNOWN — never silently a PASS, and
+      // never silently a FAIL either (the group may in fact be resolved; we
+      // just cannot show it). Either way the gate stays shut.
+      const why = gov.conflict_resolve_error ? ` (${gov.conflict_resolve_error})` : "";
+      check(checks, "no_unresolved_conflict", "no unresolved conflict", "UNKNOWN",
+        `${gov.conflict_detail ?? `conflict group ${gov.conflict_group_id ?? "(unnamed)"} has an unreadable resolution — cannot establish resolved state`}${why}`);
+    } else if (gov.conflict_unresolved) {
       check(checks, "no_unresolved_conflict", "no unresolved conflict", "FAIL",
         `unresolved conflict group ${gov.conflict_group_id ?? "(unnamed)"} — competing source variants must be adjudicated, never averaged`);
     } else {
-      check(checks, "no_unresolved_conflict", "no unresolved conflict", "PASS", "no unresolved conflict group");
+      check(checks, "no_unresolved_conflict", "no unresolved conflict", "PASS",
+        gov.conflict_state === "RESOLVED"
+          ? `conflict group ${gov.conflict_group_id} resolved via ${gov.conflict_resolution ?? "recorded resolution"} — the conflict question itself no longer blocks (all other governance checks still apply)`
+          : "no unresolved conflict group");
     }
   }
 
@@ -822,6 +853,8 @@ export interface ProvenanceChain {
     source_status: SourceStatus | null;
     unknown_critical: string[];
     conflict_group_id: string | null;
+    conflict_resolution: string | null;
+    conflict_state: string | null;
     implementation_binding: string | null;
     ceiling: RuntimeStatus;
   };
@@ -948,6 +981,8 @@ export function buildProvenanceChain(
       source_status: input.governance.source_status,
       unknown_critical: input.governance.unknown_critical as string[],
       conflict_group_id: input.governance.conflict_group_id,
+      conflict_resolution: input.governance.conflict_resolution ?? null,
+      conflict_state: input.governance.conflict_state ?? null,
       implementation_binding: input.governance.implementation_binding,
       ceiling: decision.ceiling,
     },
@@ -1071,6 +1106,14 @@ export function resolvePromotionInput(
     versions?: CurrentVersions;
     brainRecord?: StrategyRecord | null;
     brainError?: string | null;
+    /**
+     * Conflict-group rows for the canonical conflict lookup. When omitted
+     * (and the record links a group) the live Brain store is read; pass an
+     * explicit array in tests, or `null` to simulate an unreadable registry
+     * (fail closed).
+     */
+    conflicts?: ConflictGroup[] | null;
+    conflictError?: string | null;
     now?: number;
   } = {},
 ): PromotionGateInput {
@@ -1117,6 +1160,38 @@ export function resolvePromotionInput(
     }
   }
 
+  // Canonical conflict state: the linked group's RESOLUTION decides, never the
+  // mere presence of the link (see `brain/conflicts.ts`). Unreadable or
+  // incomplete conflict data fails closed (UNKNOWN → unresolved).
+  const conflictGroupId = record?.conflict_group_id ?? null;
+  let conflictError: string | null = opts.conflictError ?? null;
+  let groupsForLookup: ConflictGroup[] | null;
+  if (!record) {
+    groupsForLookup = null;
+  } else if (!conflictGroupId) {
+    groupsForLookup = [];
+  } else if (opts.conflicts !== undefined) {
+    groupsForLookup = opts.conflicts;
+  } else {
+    try {
+      groupsForLookup = getBrain().conflicts();
+    } catch (err) {
+      groupsForLookup = null;
+      conflictError =
+        conflictError ??
+        `conflict registry unavailable: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+  const canon = record
+    ? conflictStateForRecord(conflictGroupId, groupsForLookup)
+    : {
+        state: "UNKNOWN" as const,
+        resolution: null as string | null,
+        unresolved: true,
+        detail:
+          "no Brain StrategyRecord — conflict state cannot be established (UNKNOWN, not eligible)",
+      };
+
   return {
     strategy_id: strategyId,
     runtime,
@@ -1124,8 +1199,12 @@ export function resolvePromotionInput(
       record_present: record !== null,
       source_status: record?.source_status ?? null,
       unknown_critical: record?.unknown_critical ?? [],
-      conflict_group_id: record?.conflict_group_id ?? null,
-      conflict_unresolved: record?.conflict_group_id !== null && record?.conflict_group_id !== undefined,
+      conflict_group_id: conflictGroupId,
+      conflict_unresolved: canon.unresolved,
+      conflict_state: canon.state,
+      conflict_resolution: canon.resolution,
+      conflict_detail: canon.detail,
+      conflict_resolve_error: conflictError,
       implementation_binding: record?.implementation ?? null,
       resolve_error: resolveError,
     },
