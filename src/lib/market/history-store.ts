@@ -8,6 +8,20 @@
  *
  * Incremental sync: once a range is stored, later syncs fetch only the newest
  * missing tail, and a fingerprint check short-circuits work when nothing moved.
+ *
+ * BOUNDARY PROOF vs DATASET COMPLETENESS (forensic task: no false boundary proof)
+ * These are two DIFFERENT facts and are never collapsed into one boolean:
+ *
+ *   boundary_proven_this_attempt — THIS sync attempt obtained explicit upstream
+ *     evidence (TTT answered `s:"no_data"` for a window strictly older than the
+ *     oldest bar known before the attempt). Only this may refresh the proof
+ *     record (`boundary_proof` / `boundary_proof_ms`).
+ *
+ *   completion_state === "COMPLETE_TO_TTT_BOUNDARY" — the STORED dataset still
+ *     reaches a previously verified boundary. A prior verified sync may be
+ *     RETAINED as historical evidence (the bars and the proof record are still
+ *     ours), but it can never manufacture a fresh proof, and it is invalidated
+ *     the moment the dataset grows OLDER than the extent that was verified.
  */
 import Database from "better-sqlite3";
 import fs from "node:fs";
@@ -37,6 +51,10 @@ CREATE TABLE IF NOT EXISTS history_sync (
   last_sync_ms INTEGER NOT NULL DEFAULT 0,
   last_attempt_ms INTEGER NOT NULL DEFAULT 0,
   last_successful_sync_ms INTEGER NOT NULL DEFAULT 0,
+  -- HOW the earliest boundary was proven for the stored extent ('TTT_NO_DATA'),
+  -- or NULL when no proof is recorded (legacy row, or never proven).
+  boundary_proof TEXT,
+  boundary_proof_ms INTEGER NOT NULL DEFAULT 0,
   last_error TEXT, retrieval_version TEXT NOT NULL DEFAULT '1.0.0',
   source TEXT NOT NULL DEFAULT 'ttt',
   PRIMARY KEY (symbol, timeframe)
@@ -60,12 +78,39 @@ export interface SyncRow {
   last_attempt_ms: number;
   /** AUDIT FIX (P0-6): only set when the sync actually SUCCEEDED */
   last_successful_sync_ms: number;
+  /**
+   * Evidence type of the recorded boundary proof, or NULL when none exists.
+   * Distinguishes "this dataset was proven complete by explicit upstream
+   * evidence" from "we merely inherited a completion flag".
+   */
+  boundary_proof: string | null;
+  /** epoch ms of the recorded boundary proof (0 = none recorded) */
+  boundary_proof_ms: number;
   last_error: string | null;
   retrieval_version: string;
   source: string;
 }
 
-export class HistoryStore {
+/**
+ * The persistence surface `syncHistory()` and the API routes depend on.
+ * Structural, so a deterministic in-memory double can be injected with
+ * `__setHistoryStore()` in tests (the real store needs SQLite). Production
+ * always uses `HistoryStore`.
+ */
+export interface HistoryStoreLike {
+  put(symbol: string, timeframe: TimeframeId, candles: Candle[]): number;
+  get(symbol: string, timeframe: TimeframeId, from?: number, to?: number, limit?: number): Candle[];
+  count(symbol: string, timeframe: TimeframeId): number;
+  bounds(symbol: string, timeframe: TimeframeId): { earliest: number | null; latest: number | null };
+  syncRow(symbol: string, timeframe: TimeframeId): SyncRow | null;
+  allSyncRows(): SyncRow[];
+  putSync(r: SyncRow): void;
+  touchSyncAttempt(symbol: string, timeframe: TimeframeId, atMs: number, error?: string | null): void;
+  totalBars(): number;
+  close(): void;
+}
+
+export class HistoryStore implements HistoryStoreLike {
   private db: Database.Database;
 
   constructor(filePath: string = ASA_HISTORY_DB_PATH) {
@@ -92,6 +137,14 @@ export class HistoryStore {
       // by one successful sync).
       this.db.exec("ALTER TABLE history_sync ADD COLUMN last_attempt_ms INTEGER NOT NULL DEFAULT 0");
       this.db.exec("UPDATE history_sync SET last_attempt_ms = last_sync_ms WHERE last_attempt_ms = 0");
+    }
+    if (!cols.has("boundary_proof")) {
+      // Additive: a pre-existing row keeps its completion flag but records NO
+      // evidence type — it can never be mistaken for a freshly proven boundary.
+      this.db.exec("ALTER TABLE history_sync ADD COLUMN boundary_proof TEXT");
+    }
+    if (!cols.has("boundary_proof_ms")) {
+      this.db.exec("ALTER TABLE history_sync ADD COLUMN boundary_proof_ms INTEGER NOT NULL DEFAULT 0");
     }
     if (!cols.has("last_successful_sync_ms")) {
       this.db.exec("ALTER TABLE history_sync ADD COLUMN last_successful_sync_ms INTEGER NOT NULL DEFAULT 0");
@@ -153,13 +206,14 @@ export class HistoryStore {
 
   putSync(r: SyncRow): void {
     this.db.prepare(
-      `INSERT INTO history_sync (symbol,timeframe,earliest_ts,latest_ts,bar_count,completion_state,gap_count,dataset_fingerprint,last_sync_ms,last_attempt_ms,last_successful_sync_ms,last_error,retrieval_version,source)
-       VALUES (@symbol,@timeframe,@earliest_ts,@latest_ts,@bar_count,@completion_state,@gap_count,@dataset_fingerprint,@last_sync_ms,@last_attempt_ms,@last_successful_sync_ms,@last_error,@retrieval_version,@source)
+      `INSERT INTO history_sync (symbol,timeframe,earliest_ts,latest_ts,bar_count,completion_state,gap_count,dataset_fingerprint,last_sync_ms,last_attempt_ms,last_successful_sync_ms,boundary_proof,boundary_proof_ms,last_error,retrieval_version,source)
+       VALUES (@symbol,@timeframe,@earliest_ts,@latest_ts,@bar_count,@completion_state,@gap_count,@dataset_fingerprint,@last_sync_ms,@last_attempt_ms,@last_successful_sync_ms,@boundary_proof,@boundary_proof_ms,@last_error,@retrieval_version,@source)
        ON CONFLICT(symbol,timeframe) DO UPDATE SET
          earliest_ts=excluded.earliest_ts, latest_ts=excluded.latest_ts, bar_count=excluded.bar_count,
          completion_state=excluded.completion_state, gap_count=excluded.gap_count,
          dataset_fingerprint=excluded.dataset_fingerprint, last_sync_ms=excluded.last_sync_ms,
          last_attempt_ms=excluded.last_attempt_ms, last_successful_sync_ms=excluded.last_successful_sync_ms,
+         boundary_proof=excluded.boundary_proof, boundary_proof_ms=excluded.boundary_proof_ms,
          last_error=excluded.last_error, retrieval_version=excluded.retrieval_version`,
     ).run(r);
   }
@@ -187,13 +241,33 @@ export class HistoryStore {
 }
 
 let inst: HistoryStore | null = null;
-export function getHistoryStore(): HistoryStore {
-  if (!inst) inst = new HistoryStore();
-  return inst;
+let override: HistoryStoreLike | null = null;
+
+/**
+ * The store currently backing history persistence (production: the SQLite
+ * `HistoryStore`).
+ */
+export function getHistoryStore(): HistoryStoreLike {
+  return override ?? (inst ??= new HistoryStore());
 }
+
 export function closeHistoryStore(): void {
+  if (override) {
+    override = null;
+    return;
+  }
   inst?.close();
   inst = null;
+}
+
+/** Test seam: inject a deterministic store. Production never calls this. */
+export function __setHistoryStore(store: HistoryStoreLike): void {
+  override = store;
+}
+
+/** Test seam: restore the production SQLite store. */
+export function __resetHistoryStore(): void {
+  override = null;
 }
 
 export interface SyncOptions {
@@ -215,6 +289,14 @@ export interface SyncResult {
   sync_succeeded: boolean;
   /** epoch ms of the last SUCCESSFUL sync (null when none ever succeeded) */
   last_successful_sync_ms: number | null;
+  /**
+   * Did THIS attempt obtain explicit upstream boundary evidence? A retained
+   * historical completion NEVER sets this flag — it answers a different
+   * question ("was the boundary proven NOW?").
+   */
+  boundary_proven_this_attempt: boolean;
+  /** Evidence type recorded for the stored extent ('TTT_NO_DATA'), or null. */
+  boundary_proof: string | null;
 }
 
 /**
@@ -252,6 +334,10 @@ export async function syncHistory(
         skipped_reason: "no new bar has closed since the last sync",
         sync_succeeded: true, // nothing was asked of the venue; stored data stands
         last_successful_sync_ms: prior?.last_successful_sync_ms ?? null,
+        // no request was made: the retained completion is historical evidence,
+        // never a fresh proof obtained by this attempt.
+        boundary_proven_this_attempt: false,
+        boundary_proof: prior?.boundary_proof ?? null,
         meta: {
           symbol, timeframe, ttt_resolution: spec.tttResolution,
           earliest_available: bounds.earliest, latest_available: bounds.latest,
@@ -263,6 +349,7 @@ export async function syncHistory(
           source: "ttt", native: true,
           dataset_fingerprint: prior?.dataset_fingerprint ?? fingerprint(stored),
           chunks_fetched: 0, last_sync_ms: Date.now(),
+          boundary_evidence: null, // this attempt observed nothing upstream
         },
       };
     }
@@ -273,23 +360,37 @@ export async function syncHistory(
     maxChunks: opts.maxChunks,
   });
 
+  // ---- FRESH PROOF (this attempt) -----------------------------------------
+  // The walk reports explicit evidence only when TTT itself answered
+  // `s:"no_data"` for a window strictly older than every bar the walk held.
+  // It proves OUR dataset's earliest edge only if the walk actually reached (or
+  // passed) the oldest bar we already knew — otherwise the no_data concerns a
+  // window above our stored extent and proves nothing about it.
+  const knownExtentBefore = bounds.earliest; // oldest bar held BEFORE this attempt
+  const walkOldest = res.meta.earliest_available;
+  const walkProvenBoundary =
+    res.meta.boundary_evidence === "TTT_NO_DATA" &&
+    walkOldest !== null &&
+    (knownExtentBefore === null || walkOldest <= knownExtentBefore);
+
   // A `full` sync must PROVE the earliest boundary even when the stored range
   // already covers it: probe one chunk older than the oldest stored bar. TTT
   // answering `no_data` is the only authoritative confirmation.
-  let boundaryProven = res.meta.completion_state === "COMPLETE_TO_TTT_BOUNDARY";
+  let boundaryProven = walkProvenBoundary;
   if (opts.full && !boundaryProven) {
     const merged = mergeCandles(store.get(symbol, timeframe), res.candles).merged;
     const oldest = merged.length ? merged[0].t : null;
     if (oldest !== null) {
       const probe = await fetchFullHistory(symbol, timeframe, {
+        // strictly older than EVERY bar we hold, so an explicit no_data here is
+        // a statement about the earliest edge and nothing else
         to: oldest - spec.minutes * 60,
         maxChunks: 1,
       });
-      // AUDIT FIX (mandate bug 5): zero candles alone do NOT prove the
-      // boundary — an s:"ok" empty-success would slip through. Only the
-      // explicit no-data signal (or a proven-boundary walk) counts.
-      if (probe.candles.length === 0 &&
-          (probe.meta.completion_state === "NO_DATA" || probe.meta.completion_state === "COMPLETE_TO_TTT_BOUNDARY")) {
+      // Only EXPLICIT upstream evidence counts. Zero candles alone never proves
+      // the boundary: an s:"ok" empty-success (AMBIGUOUS_EMPTY) and a stalled
+      // walk (NO_PROGRESS) are both refused here.
+      if (probe.meta.boundary_evidence === "TTT_NO_DATA") {
         boundaryProven = true;
       } else if (probe.candles.length > 0) {
         store.put(symbol, timeframe, probe.candles);
@@ -306,12 +407,18 @@ export async function syncHistory(
   const gaps = detectGaps(stored, spec.minutes);
 
   // Recompute completion from the CURRENT stored data. A previously GAPPED
-  // range whose holes were later backfilled must not stay GAPPED forever, and
-  // a range that reached the venue boundary keeps that fact across syncs.
-  const everReachedBoundary =
-    boundaryProven ||
-    res.meta.completion_state === "COMPLETE_TO_TTT_BOUNDARY" ||
-    prior?.completion_state === "COMPLETE_TO_TTT_BOUNDARY";
+  // range whose holes were later backfilled must not stay GAPPED forever.
+  //
+  // A prior verified completion IS retained — but only as HISTORICAL evidence
+  // about the bars we still hold, and only while it still covers their extent.
+  // The moment this attempt stores bars OLDER than the verified extent, the old
+  // proof no longer applies to the dataset and completeness must be re-earned
+  // with fresh explicit evidence.
+  const currentEarliest = stored.length ? stored[0].t : null;
+  const extendsOlderThanVerifiedExtent =
+    knownExtentBefore !== null && currentEarliest !== null && currentEarliest < knownExtentBefore;
+  const historicalCompleteRetained =
+    prior?.completion_state === "COMPLETE_TO_TTT_BOUNDARY" && !extendsOlderThanVerifiedExtent;
 
   let completion: CompletionState;
   if (stored.length === 0) {
@@ -322,11 +429,29 @@ export async function syncHistory(
     else completion = "NO_DATA";
   } else if (gaps.length > 0) {
     completion = "GAPPED";
-  } else if (everReachedBoundary) {
+  } else if (boundaryProven || historicalCompleteRetained) {
+    // COMPLETE requires either a FRESH explicit proof or retained historical
+    // evidence whose extent still covers every bar stored.
     completion = "COMPLETE_TO_TTT_BOUNDARY";
+  } else if (res.meta.completion_state === "NO_PROGRESS") {
+    // usable bars, unproven earliest edge (overlap / stalled walk)
+    completion = "NO_PROGRESS";
   } else {
     completion = "PARTIAL";
   }
+
+  // ---- proof record --------------------------------------------------------
+  // Refreshed ONLY by fresh explicit evidence. A retained/legacy completion
+  // keeps whatever evidence type it already recorded (NULL = none recorded),
+  // and loses even that the moment the dataset outgrows the verified extent.
+  const attemptMs = Date.now();
+  const priorProofStillApplies = !extendsOlderThanVerifiedExtent;
+  const boundaryProof = boundaryProven
+    ? "TTT_NO_DATA"
+    : priorProofStillApplies ? (prior?.boundary_proof ?? null) : null;
+  const boundaryProofMs = boundaryProven
+    ? attemptMs
+    : priorProofStillApplies ? (prior?.boundary_proof_ms ?? 0) : 0;
 
   const meta: HistoryMeta = {
     ...res.meta,
@@ -338,6 +463,8 @@ export async function syncHistory(
     gap_count: gaps.length,
     gaps: gaps.slice(0, 50),
     dataset_fingerprint: fingerprint(stored),
+    // evidence observed by THIS walk (never inherited from prior state)
+    boundary_evidence: res.meta.boundary_evidence,
   };
 
   // AUDIT FIX (P0-6): failure transparency. A sync SUCCEEDED only when the
@@ -347,7 +474,8 @@ export async function syncHistory(
   // AUDIT FIX (mandate bug 5): AMBIGUOUS_EMPTY (200 s:"ok", zero bars) is NOT
   // a successful sync either — an anomalous empty answer must never move the
   // success timestamp or clear the error channel.
-  const attemptMs = Date.now();
+  // FORENSIC TASK: a stalled walk (NO_PROGRESS) records a `reason` too, so a
+  // no-progress attempt can never be stamped as a fresh successful sync.
   const syncSucceeded =
     !res.meta.reason &&
     res.meta.completion_state !== "UNAVAILABLE" &&
@@ -362,6 +490,8 @@ export async function syncHistory(
     gap_count: meta.gap_count, dataset_fingerprint: meta.dataset_fingerprint,
     last_sync_ms: attemptMs, last_attempt_ms: attemptMs,
     last_successful_sync_ms: successMs,
+    boundary_proof: boundaryProof,
+    boundary_proof_ms: boundaryProofMs,
     last_error: res.meta.reason ?? null,
     retrieval_version: RETRIEVAL_VERSION, source: "ttt",
   });
@@ -371,6 +501,8 @@ export async function syncHistory(
     added: after - before, incremental: canIncrement, meta,
     sync_succeeded: syncSucceeded,
     last_successful_sync_ms: successMs > 0 ? successMs : null,
+    boundary_proven_this_attempt: boundaryProven,
+    boundary_proof: boundaryProof,
   };
 }
 
