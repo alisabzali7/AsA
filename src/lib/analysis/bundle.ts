@@ -2,6 +2,11 @@
  * Typed intelligence bundle for one symbol/timeframe — deterministic,
  * computed only from canonical candles + TTT stats with provenance ages.
  * This is the "evidence document" the strategy, psychology and AI consume.
+ *
+ * Hardened contract (Task 08):
+ * - last_close: number | null (finite number when candles exist and last close is finite; null when empty or non-finite).
+ * - Finite numeric invariant: no NaN or Infinity is ever emitted in any numeric field.
+ * - JSON-safe: serializes and deserializes without loss or unintended coercion.
  */
 import type { Candle, SymbolStats, Provenance } from "../domain/types";
 import { analyzeStructure, type StructureResult } from "./structure";
@@ -21,7 +26,7 @@ export interface AnalysisBundle {
   symbol: string;
   timeframe: string;
   bars: number;
-  last_close: number;
+  last_close: number | null;
   candle_window: { t_min: number; t_max: number; price_min: number; price_max: number };
   indicators: BundleIndicators;
   structure: StructureResult;
@@ -60,22 +65,25 @@ export function buildBundle(opts: {
     if (c.h > priceMax) priceMax = c.h;
     if (c.l < priceMin) priceMin = c.l;
   }
-  const windowValid = n > 0 && priceMin < Infinity;
+  const windowValid = n > 0 && priceMin < Infinity && Number.isFinite(priceMin) && Number.isFinite(priceMax);
   const last = n > 0 ? candles[n - 1] : null;
+  const lastClose = last && Number.isFinite(last.c) ? last.c : null;
 
   const rsiArr = rsi(closes, 14);
   const atrArr = atr(candles, 14);
   const vols = candles.map((c) => c.v);
-  const volAvg = vols.length >= 20 ? vols.slice(-20).reduce((a, b) => a + b, 0) / 20 : null;
+  const volAvg = vols.length >= 20 && vols.every(Number.isFinite)
+    ? vols.slice(-20).reduce((a, b) => a + b, 0) / 20
+    : null;
 
   const bundle: AnalysisBundle = {
     symbol,
     timeframe,
     bars: n,
-    last_close: last?.c ?? NaN,
+    last_close: lastClose,
     candle_window: {
-      t_min: n ? candles[0].t : 0,
-      t_max: n ? candles[n - 1].t : 0,
+      t_min: n && Number.isFinite(candles[0].t) ? candles[0].t : 0,
+      t_max: n && Number.isFinite(candles[n - 1].t) ? candles[n - 1].t : 0,
       price_min: windowValid ? priceMin : 0,
       price_max: windowValid ? priceMax : 0,
     },
@@ -84,16 +92,18 @@ export function buildBundle(opts: {
       ema50: lastEma(closes, 50),
       rsi14: rsiArr.length ? rsiArr[rsiArr.length - 1] : null,
       atr14: atrArr.length ? atrArr[atrArr.length - 1] : null,
-      atr14_pct: atrArr.length && last ? (atrArr[atrArr.length - 1] ?? null) !== null && last.c > 0 ? ((atrArr[atrArr.length - 1] as number) / last.c) * 100 : null : null,
+      atr14_pct: atrArr.length && last && lastClose !== null && lastClose > 0 && (atrArr[atrArr.length - 1] ?? null) !== null
+        ? ((atrArr[atrArr.length - 1] as number) / lastClose) * 100
+        : null,
       volume_avg20: volAvg,
-      last_volume_ratio: volAvg && volAvg > 0 && last ? last.v / volAvg : null,
+      last_volume_ratio: volAvg && volAvg > 0 && last && Number.isFinite(last.v) ? last.v / volAvg : null,
     },
     structure: n >= 20 ? analyzeStructure(candles) : { trend: "range", reason: "insufficient bars", last_bos: null, last_choch: null, sr_levels: [], fvgs: [], order_blocks: [], swing_points: [], last_swing_high: null, last_swing_low: null, fib: [] },
     stats: {
-      change24hPct: stats?.change24hPct ?? null,
-      volume24hQuote: stats?.volume24hQuote ?? null,
-      markPrice: stats?.markPrice ?? null,
-      fundingRate: stats?.fundingRate ?? null,
+      change24hPct: stats && Number.isFinite(stats.change24hPct) ? stats.change24hPct : null,
+      volume24hQuote: stats && Number.isFinite(stats.volume24hQuote) ? stats.volume24hQuote : null,
+      markPrice: stats && Number.isFinite(stats.markPrice) ? stats.markPrice : null,
+      fundingRate: stats && Number.isFinite(stats.fundingRate) ? stats.fundingRate : null,
     },
     provenance: {
       series_fetched_ms: seriesFetched ?? 0,

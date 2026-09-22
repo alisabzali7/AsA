@@ -2,6 +2,11 @@
  * Structure layer: swings, BOS/CHoCH, S/R clusters, FVGs, order blocks,
  * fibonacci retracement levels — all deterministic, annotation-ready,
  * and always bounded by the data window actually analyzed.
+ *
+ * Hardened contracts (Task 07):
+ * - Safe fractal bounds: left and right must be integers >= 1.
+ * - Non-finite input protection: malformed candle coordinates yield safe empty/fallback output.
+ * - Zero division protection in drift, S/R clustering, and Fib calculations.
  */
 import type { Candle } from "../domain/types";
 
@@ -12,7 +17,34 @@ export interface SwingPoint {
   kind: "high" | "low";
 }
 
+function hasNonFiniteCandles(candles: Candle[]): boolean {
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    if (
+      !c ||
+      !Number.isFinite(c.t) ||
+      !Number.isFinite(c.o) ||
+      !Number.isFinite(c.h) ||
+      !Number.isFinite(c.l) ||
+      !Number.isFinite(c.c)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function findSwings(candles: Candle[], left = 2, right = 2): SwingPoint[] {
+  if (
+    !Number.isInteger(left) ||
+    !Number.isInteger(right) ||
+    left < 1 ||
+    right < 1 ||
+    hasNonFiniteCandles(candles)
+  ) {
+    return [];
+  }
+
   const out: SwingPoint[] = [];
   for (let i = left; i < candles.length - right; i++) {
     const c = candles[i];
@@ -62,7 +94,7 @@ export function analyzeStructure(candles: Candle[]): StructureResult {
     last_swing_low: null,
     fib: [],
   };
-  if (n < 20) return empty;
+  if (n < 20 || hasNonFiniteCandles(candles)) return empty;
 
   const swings = findSwings(candles, 2, 2);
   const highs = swings.filter((s) => s.kind === "high");
@@ -88,7 +120,7 @@ export function analyzeStructure(candles: Candle[]): StructureResult {
   }
 
   // S/R clusters: pivot prices within ~0.3% band merge into levels
-  const tol = (p: number) => p * 0.003;
+  const tol = (p: number) => Math.max(p * 0.003, 1e-8);
   const levels: { price: number; count: number; kind: "support" | "resistance" }[] = [];
   for (const s of swings) {
     const kind = s.kind === "high" ? "resistance" : "support";
@@ -163,7 +195,8 @@ export function analyzeStructure(candles: Candle[]): StructureResult {
   let reason = "price between EMAs / no recent break";
   if (e20 !== null && e50 !== null) {
     const a = candles.slice(-10);
-    const drift = a.length ? (a[a.length - 1].c - a[0].c) / a[0].c : 0;
+    const firstClose = a[0].c;
+    const drift = firstClose !== 0 ? (a[a.length - 1].c - firstClose) / Math.abs(firstClose) : 0;
     if (last_bos?.direction === "up" && e20 > e50) { trend = "up"; reason = "BOS up + EMA20>EMA50"; }
     else if (last_bos?.direction === "down" && e20 < e50) { trend = "down"; reason = "BOS down + EMA20<EMA50"; }
     else if (drift > 0.01) { trend = "up"; reason = "EMA20>EMA50 and positive drift"; }

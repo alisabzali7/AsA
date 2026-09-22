@@ -29,7 +29,7 @@ interface AnalysisShape {
   ok: boolean;
   available?: boolean;
   bundle?: {
-    last_close: number;
+    last_close: number | null;
     structure: { trend: string; sr_levels: { price: number; strength: number; kind: string }[]; fvgs: { direction: string; top: number; bottom: number; t: number }[]; last_swing_high: number | null; last_swing_low: number | null };
     indicators: { rsi14: number | null; ema20: number | null; ema50: number | null; atr14_pct: number | null };
   };

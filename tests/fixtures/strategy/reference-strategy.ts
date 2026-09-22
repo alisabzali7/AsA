@@ -62,7 +62,7 @@ export const referenceStrategy: StrategyDefinition = {
     if (!macro || macro.bars < p.minMacroBars) failed.push(`macro bars ${macro?.bars ?? 0} < ${p.minMacroBars}`);
     else evidence.push(`macro bars=${macro.bars}`);
     if (!context || context.bars < p.minContextBars) failed.push(`context bars ${context?.bars ?? 0} < ${p.minContextBars}`);
-    if (!trigger || trigger.bars < 100) failed.push("trigger bars < 100");
+    if (!trigger || trigger.bars < 100 || trigger.last_close === null) failed.push("trigger bars < 100 or missing last_close");
 
     if (failed.length > 0) return fail(ctx, reasons, failed, evidence, "insufficient data on a core timeframe");
 
@@ -103,25 +103,26 @@ export const referenceStrategy: StrategyDefinition = {
 
     if (direction !== "flat") {
       const trigger = ctx.trigger!;
+      const triggerClose = trigger.last_close!;
       const st = trigger.structure;
       const stopRef = direction === "long" ? st.last_swing_low : st.last_swing_high;
       const atrPct = trigger.indicators.atr14_pct ?? 1;
-      const riskDist = trigger.last_close * (Math.max(atrPct / 100, 0.001) * 1.5);
+      const riskDist = triggerClose * (Math.max(atrPct / 100, 0.001) * 1.5);
       if (stopRef === null) {
         failed.push("no recent swing to place the stop against");
         direction = "flat";
       } else {
-        const stop = direction === "long" ? Math.min(stopRef * 0.999, trigger.last_close - riskDist) : Math.max(stopRef * 1.001, trigger.last_close + riskDist);
+        const stop = direction === "long" ? Math.min(stopRef * 0.999, triggerClose - riskDist) : Math.max(stopRef * 1.001, triggerClose + riskDist);
         levels.stop = r2(stop) as number;
-        levels.entry_zone = direction === "long" ? { bottom: trigger.last_close * 0.999, top: trigger.last_close * 1.001 } : { bottom: trigger.last_close * 0.999, top: trigger.last_close * 1.001 };
-        const risk = Math.abs(trigger.last_close - stop);
+        levels.entry_zone = direction === "long" ? { bottom: triggerClose * 0.999, top: triggerClose * 1.001 } : { bottom: triggerClose * 0.999, top: triggerClose * 1.001 };
+        const risk = Math.abs(triggerClose - stop);
         levels.targets = EXIT_POLICY.partials.map((m) => {
-          const t = direction === "long" ? trigger.last_close + m * risk : trigger.last_close - m * risk;
+          const t = direction === "long" ? triggerClose + m * risk : triggerClose - m * risk;
           return r2(t) as number;
         });
         levels.invalidation = direction === "long" ? st.last_swing_low : st.last_swing_high;
         evidence.push(`direction=${direction}`, `stop=${levels.stop} targets=${levels.targets.join("/")}`, `rsi14=${r2(trigRsi)} volRatio=${r2(trigVolRatio)}`, "trigger evaluated on CLOSED bar only — no intrabar lookahead");
-        const rr = risk > 0 ? (Math.abs(levels.targets[2] - trigger.last_close) / risk) : 0;
+        const rr = risk > 0 ? (Math.abs(levels.targets[2] - triggerClose) / risk) : 0;
         if (rr < 1.5) failed.push(`R:R ${r2(rr)} < 1.5`);
       }
     }
