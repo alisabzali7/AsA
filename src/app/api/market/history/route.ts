@@ -77,8 +77,14 @@ export async function GET(req: Request): Promise<NextResponse> {
 
   try {
     let syncNote: string | undefined;
+    // FORENSIC TASK (no false boundary proof): whether THIS attempt obtained
+    // explicit upstream boundary evidence is reported separately from the
+    // dataset-level completion flag, so a retained historical completion can
+    // never be read as a fresh proof.
+    let boundaryProvenThisAttempt: boolean | null = null;
     if (syncMode === "1" || syncMode === "full") {
       const r = await syncHistory(symbol, tf, { full: syncMode === "full" });
+      boundaryProvenThisAttempt = r.boundary_proven_this_attempt;
       syncNote = r.skipped_reason ?? `${r.added} bar(s) added (${r.incremental ? "incremental" : "full walk"})`;
     }
 
@@ -135,6 +141,12 @@ export async function GET(req: Request): Promise<NextResponse> {
         // progressive-loading hints for the chart
         has_more_history: candles.length > 0 && bounds.earliest !== null && candles[0].t > bounds.earliest,
         earliest_boundary_reached: row?.completion_state === "COMPLETE_TO_TTT_BOUNDARY",
+        // the EVIDENCE behind the completion flag: 'TTT_NO_DATA' when the
+        // boundary was proven by an explicit upstream answer, null when no
+        // proof is recorded (legacy row / never proven)
+        boundary_proof: row?.boundary_proof ?? null,
+        boundary_proof_ms: row && row.boundary_proof_ms > 0 ? row.boundary_proof_ms : null,
+        boundary_proven_this_attempt: boundaryProvenThisAttempt,
         transport_window_applied: limit !== undefined,
         note: "limit is a TRANSPORT window only; the backend retains and can serve the full TTT-available range",
         sync: syncNote ?? null,

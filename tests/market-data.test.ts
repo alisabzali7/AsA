@@ -255,8 +255,8 @@ describe("§26 STATIC AUDIT: no hardcoded historical ceiling", () => {
 
   it("the history manager has no fixed-N cap on total retrieved bars", () => {
     const src = fs.readFileSync("src/lib/market/history.ts", "utf8");
-    // the walk terminates on the TTT boundary, not on a bar count
-    expect(src).toMatch(/reachedBoundary/);
+    // the walk terminates on the TTT boundary evidence, not on a bar count
+    expect(src).toMatch(/boundaryEvidence/);
     expect(src).not.toMatch(/candles\.slice\(-\d+\)/);
   });
 
@@ -334,14 +334,21 @@ describe("§7 completion-state semantics (recomputed, never stale)", () => {
 
   it("COMPLETE_TO_TTT_BOUNDARY is only reachable via a real no_data response", () => {
     const src = fs.readFileSync("src/lib/market/history.ts", "utf8");
-    // AUDIT UPDATE (mandate bug 5): the walk sets reachedBoundary ONLY on the
-    // explicit no_data signal or no-new-bars overlap — an s:"ok" response
-    // with zero candles is tracked as AMBIGUOUS_EMPTY and can NEVER set
-    // reachedBoundary.
-    expect(src).toMatch(/if \(res\.noData\) \{ reachedBoundary = true; break; \}/);
+    // AUDIT UPDATE (mandate bug 5): an s:"ok" response with zero candles is
+    // tracked as AMBIGUOUS_EMPTY and can NEVER set the boundary.
     expect(src).toMatch(/if \(res\.candles\.length === 0\) \{ ambiguousEmpty = true; break; \}/);
-    // the old conflation must not come back
+    // FORENSIC UPDATE (no false boundary proof): ONLY an explicit, authoritative
+    // s:"no_data" for a window strictly older than the bars already held may
+    // record boundary evidence — and it is the only input to COMPLETE.
+    expect(src).toMatch(/boundaryEvidence = "TTT_NO_DATA"/);
+    expect(src).toMatch(/probeIsOlderThanKnownData/);
+    expect(src).toMatch(/else if \(boundaryEvidence === "TTT_NO_DATA"\) \{/);
+    // the removed false-proof shortcuts must never return: overlap and a
+    // stalled cursor are NOT boundaries
+    expect(src).not.toMatch(/all\.length === before\) \{ reachedBoundary/);
+    expect(src).not.toMatch(/nextTo >= cursorTo\) \{ reachedBoundary/);
     expect(src).not.toMatch(/res\.noData \|\| res\.candles\.length === 0\) \{ reachedBoundary/);
+    expect(src).not.toMatch(/\breachedBoundary\b/);
   });
 });
 

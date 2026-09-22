@@ -69,8 +69,8 @@ describe("P0-4 history sync failure transparency", () => {
         earliest_ts: 1, latest_ts: 2, bar_count: 10,
         completion_state: "COMPLETE_TO_TTT_BOUNDARY", gap_count: 0,
         dataset_fingerprint: "seed", last_sync_ms: t0, last_attempt_ms: t0,
-        last_successful_sync_ms: t0, last_error: null,
-        retrieval_version: "1.1.0", source: "ttt",
+        last_successful_sync_ms: t0, boundary_proof: "TTT_NO_DATA", boundary_proof_ms: t0,
+        last_error: null, retrieval_version: "1.1.0", source: "ttt",
       });
 
       const before = store.syncRow("TESTUSDT", "1h")!;

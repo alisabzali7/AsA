@@ -10,6 +10,20 @@
  * Measured on 2026-09-09: one BTCUSDT 1h request returns 5000 bars, while
  * chunked traversal reaches 6730 bars back to the true venue boundary.
  *
+ * BOUNDARY PROOF RULE (forensic task: no false boundary proof):
+ *
+ *   NO PROGRESS != NO DATA != TTT BOUNDARY
+ *
+ * The ONLY evidence that may prove the earliest boundary is an EXPLICIT
+ * upstream `s:"no_data"` for a probe window strictly older than every bar the
+ * walk already holds. Everything else is a stall, not a proof:
+ *   - a chunk that adds no new bar (pure overlap / identical window)
+ *   - a successful chunk whose timestamps do not advance
+ *   - an `s:"ok"` response carrying zero bars
+ *   - duplicates, or a venue that ignores the requested window
+ * Those outcomes stop the walk honestly (NO_PROGRESS / AMBIGUOUS_EMPTY) and
+ * leave the boundary UNPROVEN.
+ *
  * Nothing is ever fabricated: a missing interval is reported as a gap, never
  * filled with a synthetic candle.
  */
@@ -18,6 +32,7 @@ import type { Candle } from "../domain/types";
 import { getTimeframe, type TimeframeId } from "../domain/timeframes";
 import { parseUdfHistory } from "../ttt/udf";
 import { tttRequest } from "../ttt/http";
+import { PRIORITY } from "../ttt/scheduler";
 
 /** Venue response cap. A TRANSPORT constant, never a retention limit. */
 export const TTT_MAX_BARS_PER_REQUEST = 5000;
@@ -25,15 +40,25 @@ export const TTT_MAX_BARS_PER_REQUEST = 5000;
 export const MAX_CHUNKS_PER_SYNC = 40;
 
 export type CompletionState =
+  /** the walk obtained explicit upstream evidence (TTT s:"no_data") */
   | "COMPLETE_TO_TTT_BOUNDARY"
+  /** walked, holds usable bars, but NO explicit boundary evidence was obtained */
   | "PARTIAL"
+  /** the venue explicitly answered s:"no_data" */
   | "NO_DATA"
+  /** the walk could not reach the venue (transport/HTTP failure) */
   | "UNAVAILABLE"
+  /** usable bars with genuine missing intervals (quality fact, not traversal) */
   | "GAPPED"
   // AUDIT FIX (mandate bug 5): HTTP 200 s:"ok" with zero bars is NOT the
   // explicit no-data boundary. It gets its own state so it can never be
   // conflated with a proven complete walk.
-  | "AMBIGUOUS_EMPTY";
+  | "AMBIGUOUS_EMPTY"
+  // FORENSIC TASK (no false boundary proof): the walk stopped because the venue
+  // made no progress — a chunk added no new bar, or the cursor could not advance
+  // strictly backwards. NO-PROGRESS IS NOT A BOUNDARY: the dataset is usable but
+  // the earliest edge is UNPROVEN, so this state can never mean "complete".
+  | "NO_PROGRESS";
 
 export interface HistoryGap {
   from_ts: number;
@@ -61,6 +86,13 @@ export interface HistoryMeta {
   dataset_fingerprint: string;
   chunks_fetched: number;
   last_sync_ms: number;
+  /**
+   * The EXPLICIT upstream boundary evidence observed by THIS walk, or null when
+   * none was observed. `"TTT_NO_DATA"` is the only value that may ever back a
+   * COMPLETE_TO_TTT_BOUNDARY claim — it is never inferred from an absence of
+   * bars, an overlap, or a stall.
+   */
+  boundary_evidence: "TTT_NO_DATA" | null;
   reason?: string;
 }
 
@@ -130,7 +162,14 @@ async function fetchChunk(
 ): Promise<{ candles: Candle[]; noData: boolean; ok: boolean; reason?: string }> {
   const path = `/futures/udf/history?symbol=${encodeURIComponent(symbol)}&resolution=${encodeURIComponent(resolution)}&from=${from}&to=${to}`;
   try {
-    const res = await tttRequest<unknown>(path, { timeoutMs: 30_000, retries: 2 });
+    // Background backfill lane (3): a long chunk walk must never outrank focus
+    // or sweep traffic. Admission is charged by the transport per attempt — the
+    // walk does not pre-acquire anything.
+    const res = await tttRequest<unknown>(path, {
+      timeoutMs: 30_000,
+      retries: 2,
+      priority: PRIORITY.BACKFILL,
+    });
     const parsed = parseUdfHistory(res.data, tfMinutes);
     return { candles: parsed.candles, noData: parsed.meta.no_data === true, ok: parsed.meta.ok };
   } catch (err) {
@@ -153,9 +192,11 @@ export interface FetchHistoryOptions {
  * Retrieve history for one symbol/timeframe.
  *
  * Walks BACKWARDS from `to` in venue-sized chunks until either:
- *   - TTT returns `no_data` (the true boundary -> COMPLETE_TO_TTT_BOUNDARY), or
- *   - an explicit `from` is satisfied, or
- *   - the chunk safety bound is hit (-> PARTIAL, reported honestly).
+ *   - TTT returns an EXPLICIT `no_data` for a window strictly older than every
+ *     bar already held (the only authoritative boundary -> COMPLETE_TO_TTT_BOUNDARY), or
+ *   - an explicit `from` is satisfied (-> PARTIAL), or
+ *   - the chunk safety bound is hit (-> PARTIAL, reported honestly), or
+ *   - the venue makes no progress (-> NO_PROGRESS: no proof of any kind).
  */
 export async function fetchFullHistory(
   symbol: string,
@@ -176,7 +217,7 @@ export async function fetchFullHistory(
     completion_state: "UNAVAILABLE", gap_count: 0, gaps: [],
     duplicate_count: 0, invalid_bar_count: 0, data_quality: "UNAVAILABLE",
     source: "ttt", native: true, dataset_fingerprint: "", chunks_fetched: 0,
-    last_sync_ms: Date.now(), ...over,
+    last_sync_ms: Date.now(), boundary_evidence: null, ...over,
   });
 
   if (!spec) {
@@ -190,9 +231,10 @@ export async function fetchFullHistory(
   let duplicates = 0;
   let cursorTo = to;
   let chunks = 0;
-  let reachedBoundary = false;
+  let boundaryEvidence: "TTT_NO_DATA" | null = null;
   let lastError: string | undefined;
   let ambiguousEmpty = false;
+  let noProgress = false;
 
   while (chunks < maxChunks) {
     const chunkFrom = opts.from !== undefined
@@ -202,12 +244,25 @@ export async function fetchFullHistory(
     const res = await fetchChunk(symbol, spec.tttResolution, chunkFrom, cursorTo, spec.minutes);
     chunks++;
 
-    if (!res.ok && !res.noData) { lastError = res.reason; break; }
-    // AUDIT FIX (mandate bug 5): only the EXPLICIT s:"no_data" signal is an
-    // authoritative boundary. An s:"ok" response with zero candles is an
+    if (res.noData) {
+      // EXPLICIT, AUTHORITATIVE boundary signal — the ONE admissible evidence.
+      // It only counts when the probe asked for a window strictly OLDER than
+      // every bar this walk already holds ("there is nothing below what you
+      // have"). A no_data for a window that overlaps bars we hold is not a
+      // statement about the earliest edge, so it is refused.
+      const probeIsOlderThanKnownData = all.length === 0 || cursorTo < all[0].t;
+      if (probeIsOlderThanKnownData) {
+        boundaryEvidence = "TTT_NO_DATA";
+      } else {
+        noProgress = true;
+        lastError = `TTT answered s:"no_data" for a window that overlaps already-held bars; earliest boundary not proven`;
+      }
+      break;
+    }
+    if (!res.ok) { lastError = res.reason; break; }
+    // AUDIT FIX (mandate bug 5): an s:"ok" response with zero candles is an
     // ambiguous empty-success: it stops the walk (there is nothing to merge)
     // but it must NOT be recorded as COMPLETE_TO_TTT_BOUNDARY.
-    if (res.noData) { reachedBoundary = true; break; }
     if (res.candles.length === 0) { ambiguousEmpty = true; break; }
 
     const before = all.length;
@@ -215,15 +270,28 @@ export async function fetchFullHistory(
     all = m.merged;
     duplicates += m.duplicates;
 
-    // no NEW bars means we are at the boundary, regardless of what was returned
-    if (all.length === before) { reachedBoundary = true; break; }
+    // FORENSIC FIX (no false boundary proof): a chunk that adds NO new bar is
+    // pure OVERLAP / a repeated window. It says nothing about where the venue's
+    // history ends, so it can never be a boundary. Stop, unproven.
+    if (all.length === before) {
+      noProgress = true;
+      lastError = `TTT chunk added no new bar (overlap/no-progress); earliest boundary not proven`;
+      break;
+    }
 
     const oldest = all[0].t;
     if (opts.from !== undefined && oldest <= opts.from) break;
 
     // step the cursor strictly before the oldest bar we now hold
     const nextTo = oldest - stepSec;
-    if (nextTo >= cursorTo) { reachedBoundary = true; break; }
+    if (nextTo >= cursorTo) {
+      // FORENSIC FIX: the cursor cannot advance strictly backwards (the venue
+      // returned no bar older than the current cursor). A stalled cursor is NOT
+      // a boundary — the earliest edge remains UNPROVEN.
+      noProgress = true;
+      lastError = `TTT chunk returned no bar older than the cursor (stalled walk); earliest boundary not proven`;
+      break;
+    }
     cursorTo = nextTo;
   }
 
@@ -250,8 +318,13 @@ export async function fetchFullHistory(
     // walk reached the venue boundary so a later backfill can clear it.
     completion = "GAPPED";
     quality = "GAPPED";
-  } else if (reachedBoundary || opts.from !== undefined) {
-    completion = reachedBoundary ? "COMPLETE_TO_TTT_BOUNDARY" : "PARTIAL";
+  } else if (boundaryEvidence === "TTT_NO_DATA") {
+    // the ONLY path to a boundary claim: explicit upstream evidence
+    completion = "COMPLETE_TO_TTT_BOUNDARY";
+    quality = "OK";
+  } else if (noProgress) {
+    // overlap / stall: usable bars, UNPROVEN earliest edge
+    completion = "NO_PROGRESS";
     quality = "OK";
   } else {
     // AUDIT FIX (mandate bug 5): an empty-success stopped the walk after bars
@@ -279,6 +352,7 @@ export async function fetchFullHistory(
       data_quality: quality,
       dataset_fingerprint: fingerprint(valid),
       chunks_fetched: chunks,
+      boundary_evidence: boundaryEvidence,
       reason: lastError,
     }),
   };
