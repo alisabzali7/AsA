@@ -23,7 +23,7 @@ npm run dev       # boot -> http://localhost:3000 (zero env needed: public-only 
 npm run probe     # optional live TTT probe (see scripts/probe-ttt.mjs; private routes stay unconfigured)
 ```
 
-Environment: copy `.env.example` → `.env.local`. Defaults: TTT public base `https://apiv2.thetruetrade.io`, 24 req/min shared budget, SQLite at `./asa-data/asa.db` (gitignored). No API key is required; when `TTT_API_KEY`/`TTT_API_SECRET` are absent the app is restricted to public endpoints by construction and the UI says so ([S] `src/lib/ttt/http.ts`, `src/lib/env.ts`).
+Environment: copy `.env.example` → `.env.local`. Defaults: TTT public base `https://apiv2.thetruetrade.io`, 24 req/min shared budget, SQLite at `./asa-data/asa.db` (gitignored). No API key is required. Market data is always unsigned: attaching `TTT_API_KEY` / `TTT_API_SECRET` does not unlock extra reads (the venue edge answers 403 to `X-API-Key`, including on public routes) ([S] `src/lib/ttt/http.ts`, `src/lib/ttt/client.ts`, `src/lib/env.ts`).
 
 ---
 

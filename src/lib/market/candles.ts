@@ -77,7 +77,18 @@ export class CandleManager {
 
   private push(item: QueueItem): void {
     const key = item.symbol + item.tf;
-    if (this.queue.some((q) => q.symbol + q.tf === key)) return;
+    const existing = this.queue.find((q) => q.symbol + q.tf === key);
+    if (existing) {
+      // A later, more urgent intent for the same series must not stay stuck
+      // behind the priority it was first queued at (focus refresh vs backfill).
+      // Lower number = higher priority. Never downgrade.
+      if (item.priority < existing.priority) {
+        existing.priority = item.priority;
+        existing.why = item.why;
+        this.queue.sort((a, b) => a.priority - b.priority);
+      }
+      return;
+    }
     this.queue.push(item);
     this.queue.sort((a, b) => a.priority - b.priority);
   }
@@ -172,16 +183,29 @@ export class CandleManager {
     // PERSIST EVERYTHING FETCHED BEFORE TRIMMING (remediation §5, §9, §18).
     // The in-memory series is a hot working window; the durable history store
     // is the retention layer. Trimming the RAM copy must never lose history.
-    try {
-      if (series.candles.length > 0) {
+    //
+    // Derived candles are a labeled live-window fallback only. Writing them
+    // into the durable store would make a later /api/market/history read serve
+    // synthetic bars as native TTT history (that route has no derived flag).
+    let persisted = false;
+    if (series.native && series.candles.length > 0) {
+      try {
         getHistoryStore().put(symbol, tf, series.candles);
+        persisted = true;
+      } catch (err) {
+        this.store.recordError(
+          "candle",
+          `history ${symbol}@${tf}`,
+          err instanceof Error ? err.message : String(err),
+        );
       }
-    } catch {
-      /* persistence is best-effort here; syncHistory() is the authoritative path */
     }
-    // Trim the IN-MEMORY window only (bounded RAM). This is NOT a historical
-    // limit: /api/market/history serves the full stored range from disk.
-    if (series.candles.length > target) {
+    // Trim the IN-MEMORY window only after a successful durable write, or when
+    // the series is derived (it is not the retention copy). A failed persist
+    // keeps the full fetched window in RAM so a memory cap cannot become the
+    // only copy of bars the disk does not have. This is NOT a historical limit:
+    // /api/market/history serves the full stored range from disk.
+    if ((persisted || !series.native) && series.candles.length > target) {
       series.candles = series.candles.slice(-target);
     }
     series.timeframe = tf; // canonical id

@@ -158,7 +158,7 @@ export class MarketStore {
   computeCoverage(symbol: string, tf: string, series: CandleSeries | undefined, fetchedAt: number | null): SeriesCoverage {
     const key = this.seriesKey(symbol, tf);
     if (!series || series.candles.length === 0) {
-      return { symbol, timeframe: tf, first_ts_ms: null, last_ts_ms: null, bar_count: 0, gap_count: 0, duplicates: 0, native_or_derived: "NATIVE", source: "ttt", last_fetch_ms: fetchedAt, status: "PENDING", target_bars: 0, reason: "no bars yet" };
+      return { symbol, timeframe: tf, first_ts_ms: null, last_ts_ms: null, bar_count: 0, gap_count: 0, duplicates: 0, native_or_derived: series && series.native === false ? "DERIVED" : "NATIVE", derivation_source_tf: series?.derived_source_tf, source: "ttt", last_fetch_ms: fetchedAt, status: "PENDING", target_bars: 0, reason: "no bars yet" };
     }
     const candles = series.candles;
     let gaps = 0;

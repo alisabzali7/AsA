@@ -266,6 +266,15 @@ describe("P0-4 an outage can never be masked as derived 1D data", () => {
     expect(isUnsupportedResolution(new TttHttpError("client", "bad request"))).toBe(false);
   });
 
+  it("a corrupt or non-client payload cannot authorise derivation even if the text matches", () => {
+    for (const kind of ["invalid_response", "http", "server"] as const) {
+      expect(
+        isUnsupportedResolution(new TttHttpError(kind, "unsupported resolution 1D", 200, "unsupported resolution")),
+        kind,
+      ).toBe(false);
+    }
+  });
+
   it("a non-TTT error never authorises a fallback", () => {
     expect(isUnsupportedResolution(new Error("kaboom"))).toBe(false);
     expect(isUnsupportedResolution(null)).toBe(false);

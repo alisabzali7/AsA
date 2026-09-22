@@ -59,7 +59,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
   const INITIAL_VIEWPORT_BARS = tf === "1m" ? 400 : 700;
   const PAGE_BARS = 1000;
   type Bar = { t: number; o: number; h: number; l: number; c: number };
-  interface HistoryBucket { bars: Bar[]; exhausted: boolean; earliest: number | null }
+  interface HistoryBucket { bars: Bar[]; exhausted: boolean; boundary: boolean; earliest: number | null }
   const [historyBySeries, setHistoryBySeries] = useState<Record<string, HistoryBucket>>({});
   const [loadingOlder, setLoadingOlder] = useState(false);
   const loadingRef = useRef(false);
@@ -132,14 +132,20 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
       };
       const page = j.candles ?? [];
       const earliest = j.metadata?.earliest_available ?? null;
+      // An empty page means the durable store has nothing older to serve. That
+      // is NOT a venue boundary — only explicit completion evidence is. An
+      // empty page used to be painted as "TTT boundary reached" for a
+      // never-synced series.
+      const venueBoundary = j.metadata?.earliest_boundary_reached === true;
       setHistoryBySeries((prev) => {
-        const cur = prev[key] ?? { bars: [], exhausted: false, earliest: null };
+        const cur = prev[key] ?? { bars: [], exhausted: false, boundary: false, earliest: null };
         const seen = new Set(cur.bars.map((c) => c.t));
         const bars = [...cur.bars];
         for (const c of page) if (!seen.has(c.t)) bars.push(c);
         bars.sort((a, b) => a.t - b.t);
-        const exhausted = page.length === 0 || (earliest !== null && bars.length > 0 && bars[0].t <= earliest);
-        return { ...prev, [key]: { bars, exhausted, earliest: earliest ?? cur.earliest } };
+        const reachedStored = earliest !== null && bars.length > 0 && bars[0].t <= earliest;
+        const noMoreStored = page.length === 0 || reachedStored;
+        return { ...prev, [key]: { bars, exhausted: noMoreStored, boundary: venueBoundary, earliest: earliest ?? cur.earliest } };
       });
     } catch {
       /* transient; the user can scroll again */
@@ -237,7 +243,10 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
               </span>
             )}
             {loadingOlder && <Badge color="#5f8fd0">loading older…</Badge>}
-            {historyBySeries[seriesKey]?.exhausted && <Badge color="#3fb68b">TTT boundary reached</Badge>}
+            {historyBySeries[seriesKey]?.boundary && <Badge color="#3fb68b">TTT boundary reached</Badge>}
+            {historyBySeries[seriesKey]?.exhausted && !historyBySeries[seriesKey]?.boundary && (
+              <Badge color="#8b8f98">no older stored history</Badge>
+            )}
             {!historyBySeries[seriesKey]?.exhausted && !loadingOlder && (historyBySeries[seriesKey]?.bars.length ?? 0) > 0 && (
               <Badge color="#8b8f98">scroll left for more</Badge>
             )}

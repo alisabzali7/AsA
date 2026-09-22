@@ -2,8 +2,11 @@
  * Shared strict HTTP layer for TTT (and only TTT; auxiliary sources like
  * news use their own bounded helpers). GET/HEAD only — the entire transport
  * refuses non-safe methods, which is one of the execution-safety proofs.
- * Behaviour: explicit timeout, bounded retries with jitter, 429 backoff,
- * response validation, structured error mapping, provenance capture.
+ * Behaviour: explicit timeout covering headers AND body, bounded retries with
+ * jitter, 429 backoff, response validation, structured error mapping,
+ * provenance capture. Redirects are not followed (the host allow-list would
+ * otherwise be bypassed). Credentials are never attached: the venue edge
+ * answers 403 to any X-API-Key, including on public routes.
  *
  * TASK 1 — CANONICAL ADMISSION BOUNDARY. The rate budget is consumed HERE and
  * nowhere else:
@@ -15,6 +18,13 @@
  *   - a request that never reaches fetch() consumes ZERO tokens, and
  *   - every retry is a NEW attempt that pays a NEW admission.
  * Callers may only supply lane intent (`priority`).
+ *
+ * Retry policy (locked):
+ *   - network / timeout: retried, each attempt pays
+ *   - 429: retried, each observed 429 calls note429() exactly once, each attempt pays
+ *   - 5xx: classified `server`, NOT retried (one admission; do not multiply
+ *     load against a failing venue)
+ *   - auth / ordinary 4xx / invalid_response / refused redirect: NOT retried
  */
 import { TTT_BASE_URL } from "../env";
 import { randomInt } from "node:crypto";
@@ -32,16 +42,30 @@ export type HttpMethod = "GET" | "HEAD";
  */
 export const TTT_ALLOWED_HOSTS = ["apiv2.thetruetrade.io", "thetruetrade.io"] as const;
 
+const CREDENTIAL_HEADERS = /^(x-api-key|x-signature|x-timestamp)$/i;
+
 export function assertAllowedHost(baseUrl: string): void {
-  let host: string;
+  let url: URL;
   try {
-    host = new URL(baseUrl).hostname;
+    url = new URL(baseUrl);
   } catch {
     throw new TttHttpError("client", `[ttt-http] invalid base URL '${baseUrl}'`);
   }
+  if (url.username || url.password) {
+    throw new TttHttpError("client", "[ttt-http] base URL must not embed credentials");
+  }
+  const host = url.hostname;
   const allowed = (TTT_ALLOWED_HOSTS as readonly string[]).includes(host);
-  const localTestHost = host === "127.0.0.1" || host === "localhost";
-  if (allowed) return;
+  const localTestHost = host === "127.0.0.1" || host === "localhost" || host === "::1";
+  if (allowed) {
+    if (url.protocol !== "https:") {
+      throw new TttHttpError(
+        "client",
+        `[ttt-http] host '${host}' must be requested over https — cleartext market data is refused`,
+      );
+    }
+    return;
+  }
   if (localTestHost && process.env.NODE_ENV !== "production") return;
   throw new TttHttpError(
     "client",
@@ -87,6 +111,10 @@ export interface TttHttpOptions {
   timeoutMs?: number;
   /** bounded retries for SAFE requests; never called with unsafe methods */
   retries?: number;
+  /**
+   * Ignored and refused. Market-data transport never signs: attaching
+   * X-API-Key makes the venue edge answer 403 on public routes.
+   */
   apiKey?: string;
   apiSecret?: string;
   headers?: Record<string, string>;
@@ -114,7 +142,28 @@ function parseErrorBody(text: string): string | null {
 }
 
 const DEFAULT_TIMEOUT = 10_000;
-const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+/**
+ * 5xx classified as `server`. Membership does NOT mean "retry": see the retry
+ * policy in the file header. 429 is handled before this set is consulted.
+ */
+const SERVER_STATUS = new Set([500, 502, 503, 504]);
+
+function refuseCredentials(opts: TttHttpOptions): void {
+  if (opts.apiKey || opts.apiSecret) {
+    throw new TttHttpError(
+      "client",
+      "[ttt-http] refusing to attach TTT credentials to a market-data request (X-API-Key breaks public routes)",
+    );
+  }
+  for (const key of Object.keys(opts.headers ?? {})) {
+    if (CREDENTIAL_HEADERS.test(key)) {
+      throw new TttHttpError(
+        "client",
+        `[ttt-http] refusing credential header '${key}' on the market-data transport`,
+      );
+    }
+  }
+}
 
 export async function tttRequest<T>(
   uri: string, // path + query, e.g. "/futures/markets/stats?symbol=BTCUSDT"
@@ -126,8 +175,19 @@ export async function tttRequest<T>(
     throw new TttHttpError("client", `[ttt-http] unsafe method ${method} is not allowed`);
   }
   const source = marketSource(); // central guard crossed on every request
-  assertAllowedHost(opts.baseUrl ?? TTT_BASE_URL); // no fallback venue, ever
-  const endpoint = `${opts.baseUrl ?? TTT_BASE_URL}${uri}`;
+  const baseUrl = opts.baseUrl ?? TTT_BASE_URL;
+  try {
+    assertAllowedHost(baseUrl); // no fallback venue, ever
+  } catch (err) {
+    if (err instanceof TttHttpError && /allow-list/.test(err.message)) {
+      activeScheduler().noteRejectedNonTtt();
+    }
+    throw err;
+  }
+  // Credential refusal is pre-admission: a request that never reaches fetch()
+  // consumes zero tokens. Signing is not a feature of this transport.
+  refuseCredentials(opts);
+  const endpoint = `${baseUrl}${uri}`;
   const retries = Math.max(0, Math.min(3, opts.retries ?? 2));
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT;
   // Lane intent is resolved once; the budget itself is charged per attempt below.
@@ -142,46 +202,70 @@ export async function tttRequest<T>(
         Accept: "application/json",
         ...(opts.headers ?? {}),
       };
-      if (opts.apiKey && opts.apiSecret) {
-        const { buildSignedHeaders } = await import("./signer");
-        Object.assign(headers, buildSignedHeaders(opts.apiKey, opts.apiSecret, Date.now(), method, uri));
-      }
       // ── TASK 1: THE single admission point ───────────────────────────────
       // Reached only when the request is about to hit the network: unsafe
-      // methods, a forbidden host/source and local failures consume zero
-      // tokens, while every attempt (including every retry) pays exactly one.
+      // methods, a forbidden host/source, credential refusal and local failures
+      // consume zero tokens, while every attempt (including every retry) pays
+      // exactly one.
       await scheduler.acquire(lane);
       const started = Date.now();
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       let res: Response;
+      let text = "";
       try {
-        res = await fetch(endpoint, { method, headers, signal: ctrl.signal, cache: "no-store" });
+        // redirect:"manual" — a 3xx must not be followed. The default "follow"
+        // would connect to whatever Location says, including another venue,
+        // after the allow-list had already been passed.
+        res = await fetch(endpoint, {
+          method,
+          headers,
+          signal: ctrl.signal,
+          cache: "no-store",
+          redirect: "manual",
+        });
+        if (res.status === 429) {
+          // 429 accounting is TRANSPORT-OWNED: exactly one note429() per observed
+          // HTTP 429, even if the body cannot be read. Callers must never record
+          // rate-limit pressure themselves.
+          scheduler.note429();
+          text = await res.text().catch(() => "");
+          throw new TttHttpError("rate_limited", "TTT 429 rate limit", 429, text);
+        }
+        if (res.status >= 300 && res.status < 400) {
+          throw new TttHttpError(
+            "client",
+            `[ttt-http] redirect ${res.status} refused — the host allow-list is not re-checked on follow`,
+            res.status,
+            res.headers.get("location"),
+          );
+        }
+        // Body read is inside the timeout. A failure here must propagate
+        // (timeout / network), never collapse into a successful empty payload.
+        text = await res.text();
       } finally {
         clearTimeout(timer);
       }
       const latency_ms = Date.now() - started;
-      const text = await res.text().catch(() => "");
-      if (res.status === 429) {
-        // 429 accounting is TRANSPORT-OWNED: exactly one note429() per observed
-        // HTTP 429. Callers must never record rate-limit pressure themselves.
-        scheduler.note429();
-        throw new TttHttpError("rate_limited", "TTT 429 rate limit", 429, text);
-      }
       if (res.status === 401 || res.status === 403) {
         const detail = (parseErrorBody(text) ?? text.slice(0, 160)) || res.statusText;
         // never retry auth failures
         throw new TttHttpError("auth", `TTT auth error ${res.status}: ${detail}`, res.status, text);
       }
       if (!res.ok) {
-        if (RETRYABLE_STATUS.has(res.status)) {
+        if (SERVER_STATUS.has(res.status)) {
           throw new TttHttpError("server", `TTT HTTP ${res.status}`, res.status, text);
         }
         const detail = parseErrorBody(text) ?? text.slice(0, 160);
         throw new TttHttpError("client", `TTT HTTP ${res.status}: ${detail || res.statusText}`, res.status, text);
       }
-      if (method === "HEAD" || text.length === 0) {
+      if (method === "HEAD") {
         return { ok: true, status: res.status, data: undefined as T, fetched_at_ms: started, latency_ms, endpoint: uri, source_name: source.id };
+      }
+      if (text.length === 0) {
+        // A valid empty success is a parsed JSON value (e.g. [] or s:"ok" with
+        // empty arrays), not a missing body. An empty GET body is invalid.
+        throw new TttHttpError("invalid_response", "empty body on GET where a JSON payload is required", res.status, "");
       }
       const ct = res.headers.get("content-type") ?? "";
       if (!ct.includes("application/json") && !ct.includes("text/json")) {
@@ -218,7 +302,8 @@ export async function tttRequest<T>(
         }
         throw e;
       }
-      // AbortError -> timeout; TypeError -> network
+      // AbortError -> timeout; TypeError -> network. A body-read abort is a
+      // timeout too: the timer covers the body, and we do not swallow it.
       if (e.name === "AbortError" || /abort/i.test(e.message)) {
         lastErr = new TttHttpError("timeout", `TTT timeout after ${timeoutMs}ms (${uri})`);
       } else if (e instanceof TypeError) {

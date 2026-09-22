@@ -50,13 +50,16 @@ export const DEFAULT_LANE: PriorityLane = PRIORITY.SWEEP;
 
 /**
  * Clamp arbitrary lane intent onto the supported lanes.
- * Malformed intent (nullish, NaN, non-numeric) falls back to the DEFAULT lane —
- * never to FOCUS: a broken label must not silently buy top-priority service.
+ * Malformed intent (nullish, NaN, non-number, numeric strings) falls back to the
+ * DEFAULT lane — never to FOCUS: a broken label must not silently buy
+ * top-priority service. Number("") === 0, so a typeof check is required.
  */
 export function laneOf(priority: number | undefined | null): PriorityLane {
-  if (priority === undefined || priority === null) return DEFAULT_LANE;
-  const n = Math.floor(Number(priority));
-  if (!Number.isFinite(n)) return DEFAULT_LANE;
+  // Only a real finite number is lane intent. Strings (including "" and "0"),
+  // booleans and objects coerce through Number() into 0, which is FOCUS — a
+  // malformed label must not buy the highest lane.
+  if (typeof priority !== "number" || !Number.isFinite(priority)) return DEFAULT_LANE;
+  const n = Math.floor(priority);
   if (n <= PRIORITY.FOCUS) return PRIORITY.FOCUS;
   if (n >= PRIORITY.BACKFILL) return PRIORITY.BACKFILL;
   return n as PriorityLane;
@@ -155,6 +158,7 @@ export class TttScheduler {
   private lastRefillMs: number;
   private wake: unknown = null;
   private wakeAtMs: number | null = null;
+  private rejectedNonTtt = 0;
 
   constructor(ratePerMinOrOptions: number | TttSchedulerOptions = {}) {
     const opts: TttSchedulerOptions =
@@ -207,6 +211,15 @@ export class TttScheduler {
     this.pump();
   }
 
+  /**
+   * A request was refused because its host is not an approved TTT host.
+   * Observability only: this does NOT consume a token (the request never
+   * reached the network).
+   */
+  noteRejectedNonTtt(): void {
+    this.rejectedNonTtt++;
+  }
+
   /** Health hook (call-site stability). Progress never depends on it. */
   recover(): void {
     this.refill();
@@ -249,7 +262,7 @@ export class TttScheduler {
       paused_until_ms: this.pausedUntilMs,
       paused: now < this.pausedUntilMs,
       last_429_ms: this.last429Ms,
-      rejected_non_ttt: 0,
+      rejected_non_ttt: this.rejectedNonTtt,
       lanes: {
         focus: { ...this.lanes.focus },
         refresh: { ...this.lanes.refresh },

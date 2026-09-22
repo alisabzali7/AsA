@@ -11,7 +11,7 @@
  * Eligibility is layered (§3). A market is never hidden because a feature is
  * missing; the FEATURE is marked unavailable instead.
  */
-import { tttRequest } from "../ttt/http";
+import { tttRequest, TttHttpError } from "../ttt/http";
 import { PRIORITY } from "../ttt/scheduler";
 import { registerDiscoveredSymbols } from "../domain/universe";
 
@@ -264,9 +264,12 @@ export async function discoverMarkets(force = false): Promise<DiscoveryOutcome> 
         priority: PRIORITY.SWEEP,
       });
     } catch (err) {
-      // transport/timeout/5xx/auth — NOT a statement about the venue's listings
+      // A corrupt body / wrong content-type / empty body is an invalid
+      // response, not "the venue is unreachable". Transport, timeout, 5xx and
+      // auth stay NETWORK_FAILURE — none of them is a statement about listings.
+      const invalid = err instanceof TttHttpError && err.kind === "invalid_response";
       return {
-        status: "NETWORK_FAILURE",
+        status: invalid ? "INVALID_RESPONSE" : "NETWORK_FAILURE",
         snapshot: cache ?? emptySnapshot(now),
         error: err instanceof Error ? err.message : String(err),
       };

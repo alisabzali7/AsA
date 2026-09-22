@@ -60,9 +60,11 @@ function isObject(v: unknown): v is Record<string, unknown> {
  */
 export function isUnsupportedResolution(err: unknown): boolean {
   if (!(err instanceof TttHttpError)) return false;
-  // transport/availability failures are never "unsupported"
-  if (err.kind === "timeout" || err.kind === "network" || err.kind === "server" ||
-      err.kind === "rate_limited" || err.kind === "auth") return false;
+  // ONLY an explicit 4xx rejection may carry an unsupported-resolution signal.
+  // invalid_response (wrong content-type, corrupt JSON, empty body), timeouts,
+  // 5xx, auth, rate limits and transport errors must never authorise derivation
+  // — even when their text happens to contain the words "unsupported resolution".
+  if (err.kind !== "client") return false;
   const msg = `${err.message} ${typeof err.body === "string" ? err.body : JSON.stringify(err.body ?? "")}`.toLowerCase();
   return /unsupported[_ ]?resolution|invalid[_ ]?resolution|resolution not supported/.test(msg);
 }
@@ -212,7 +214,15 @@ export class TttClient {
   private async derive1DFallback(symbol: string, targetBars: number, toSec: number, priority: LaneIntent = PRIORITY.SWEEP): Promise<CandleSeries> {
     const spanSec = targetBars * 3 * 28800 + 2 * 28800;
     const res = await this.getUdfHistory({ symbol, resolution: "480", fromSec: toSec - spanSec, toSec, countback: targetBars * 3 + 6, tfMinutes: 480, priority });
+    if (res.no_data || res.series.candles.length === 0) {
+      throw new Error(
+        `TTT 1D ${symbol}: 8h fallback has no usable bars (${res.no_data ? "explicit no_data" : "empty"}); refusing to emit a derived series`,
+      );
+    }
     const { candles } = derive1DFrom8h(res.series.candles);
+    if (candles.length === 0) {
+      throw new Error(`TTT 1D ${symbol}: 8h bars did not form a complete UTC day; refusing to derive`);
+    }
     return {
       symbol,
       timeframe: "1d",

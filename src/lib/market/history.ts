@@ -31,7 +31,7 @@ import { createHash } from "node:crypto";
 import type { Candle } from "../domain/types";
 import { getTimeframe, type TimeframeId } from "../domain/timeframes";
 import { parseUdfHistory } from "../ttt/udf";
-import { tttRequest } from "../ttt/http";
+import { tttRequest, TttHttpError } from "../ttt/http";
 import { PRIORITY } from "../ttt/scheduler";
 
 /** Venue response cap. A TRANSPORT constant, never a retention limit. */
@@ -58,7 +58,28 @@ export type CompletionState =
   // made no progress — a chunk added no new bar, or the cursor could not advance
   // strictly backwards. NO-PROGRESS IS NOT A BOUNDARY: the dataset is usable but
   // the earliest edge is UNPROVEN, so this state can never mean "complete".
-  | "NO_PROGRESS";
+  | "NO_PROGRESS"
+  // A response was received but is not a usable UDF payload (structurally
+  // invalid JSON, wrong content-type, empty body, s other than ok/no_data).
+  // This is NOT transport failure and NOT an explicit no_data.
+  | "INVALID_RESPONSE";
+
+/**
+ * Why a walk stopped. Distinct from completion_state: PARTIAL covers both
+ * "the caller asked us to stop at `from`" and "the safety chunk limit fired",
+ * and those are different facts.
+ */
+export type HistoryStopCause =
+  | "explicit_no_data"
+  | "explicit_lower_bound"
+  | "chunk_limit"
+  | "ambiguous_empty"
+  | "overlap"
+  | "stalled_cursor"
+  | "transport_failure"
+  | "invalid_response"
+  | "unsupported_timeframe"
+  | "no_evidence";
 
 export interface HistoryGap {
   from_ts: number;
@@ -93,6 +114,11 @@ export interface HistoryMeta {
    * bars, an overlap, or a stall.
    */
   boundary_evidence: "TTT_NO_DATA" | null;
+  /**
+   * Why THIS walk stopped. Never inferred as a boundary. `null` only on a
+   * constructed meta that did not walk (the skip path fills its own value).
+   */
+  stop_cause: HistoryStopCause | null;
   reason?: string;
 }
 
@@ -159,7 +185,7 @@ async function fetchChunk(
   from: number,
   to: number,
   tfMinutes: number,
-): Promise<{ candles: Candle[]; noData: boolean; ok: boolean; reason?: string }> {
+): Promise<{ candles: Candle[]; noData: boolean; ok: boolean; invalid: boolean; reason?: string }> {
   const path = `/futures/udf/history?symbol=${encodeURIComponent(symbol)}&resolution=${encodeURIComponent(resolution)}&from=${from}&to=${to}`;
   try {
     // Background backfill lane (3): a long chunk walk must never outrank focus
@@ -171,9 +197,29 @@ async function fetchChunk(
       priority: PRIORITY.BACKFILL,
     });
     const parsed = parseUdfHistory(res.data, tfMinutes);
-    return { candles: parsed.candles, noData: parsed.meta.no_data === true, ok: parsed.meta.ok };
+    if (!parsed.meta.ok) {
+      // HTTP 200 with a body that is not a usable UDF payload. Dropping
+      // `meta.reason` here used to leave lastError unset, and the walk then
+      // classified the chunk as NO_DATA — an explicit venue boundary the
+      // venue never stated.
+      return {
+        candles: [],
+        noData: false,
+        ok: false,
+        invalid: true,
+        reason: parsed.meta.reason ?? "structurally invalid UDF payload",
+      };
+    }
+    return { candles: parsed.candles, noData: parsed.meta.no_data === true, ok: true, invalid: false };
   } catch (err) {
-    return { candles: [], noData: false, ok: false, reason: err instanceof Error ? err.message : String(err) };
+    const invalid = err instanceof TttHttpError && err.kind === "invalid_response";
+    return {
+      candles: [],
+      noData: false,
+      ok: false,
+      invalid,
+      reason: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -217,11 +263,11 @@ export async function fetchFullHistory(
     completion_state: "UNAVAILABLE", gap_count: 0, gaps: [],
     duplicate_count: 0, invalid_bar_count: 0, data_quality: "UNAVAILABLE",
     source: "ttt", native: true, dataset_fingerprint: "", chunks_fetched: 0,
-    last_sync_ms: Date.now(), boundary_evidence: null, ...over,
+    last_sync_ms: Date.now(), boundary_evidence: null, stop_cause: null, ...over,
   });
 
   if (!spec) {
-    return { candles: [], meta: baseMeta({ reason: `unsupported timeframe '${timeframe}'` }) };
+    return { candles: [], meta: baseMeta({ reason: `unsupported timeframe '${timeframe}'`, stop_cause: "unsupported_timeframe" }) };
   }
 
   const stepSec = spec.minutes * 60;
@@ -235,6 +281,8 @@ export async function fetchFullHistory(
   let lastError: string | undefined;
   let ambiguousEmpty = false;
   let noProgress = false;
+  let invalidResponse = false;
+  let stopCause: HistoryStopCause | null = null;
 
   while (chunks < maxChunks) {
     const chunkFrom = opts.from !== undefined
@@ -253,13 +301,24 @@ export async function fetchFullHistory(
       const probeIsOlderThanKnownData = all.length === 0 || cursorTo < all[0].t;
       if (probeIsOlderThanKnownData) {
         boundaryEvidence = "TTT_NO_DATA";
+        stopCause = "explicit_no_data";
       } else {
         noProgress = true;
+        stopCause = "overlap";
         lastError = `TTT answered s:"no_data" for a window that overlaps already-held bars; earliest boundary not proven`;
       }
       break;
     }
-    if (!res.ok) { lastError = res.reason; break; }
+    if (!res.ok) {
+      lastError = res.reason ?? (res.invalid ? "invalid response" : "upstream request failed");
+      if (res.invalid) {
+        invalidResponse = true;
+        stopCause = "invalid_response";
+      } else {
+        stopCause = "transport_failure";
+      }
+      break;
+    }
     // AUDIT FIX (mandate bug 5): an s:"ok" response with zero candles is an
     // ambiguous empty-success: it stops the walk (there is nothing to merge)
     // but it must NOT be recorded as COMPLETE_TO_TTT_BOUNDARY.
@@ -275,12 +334,16 @@ export async function fetchFullHistory(
     // history ends, so it can never be a boundary. Stop, unproven.
     if (all.length === before) {
       noProgress = true;
+      stopCause = "overlap";
       lastError = `TTT chunk added no new bar (overlap/no-progress); earliest boundary not proven`;
       break;
     }
 
     const oldest = all[0].t;
-    if (opts.from !== undefined && oldest <= opts.from) break;
+    if (opts.from !== undefined && oldest <= opts.from) {
+      stopCause = "explicit_lower_bound";
+      break;
+    }
 
     // step the cursor strictly before the oldest bar we now hold
     const nextTo = oldest - stepSec;
@@ -289,11 +352,15 @@ export async function fetchFullHistory(
       // returned no bar older than the current cursor). A stalled cursor is NOT
       // a boundary — the earliest edge remains UNPROVEN.
       noProgress = true;
+      stopCause = "stalled_cursor";
       lastError = `TTT chunk returned no bar older than the cursor (stalled walk); earliest boundary not proven`;
       break;
     }
     cursorTo = nextTo;
   }
+
+  if (stopCause === null && ambiguousEmpty) stopCause = "ambiguous_empty";
+  if (stopCause === null && chunks >= maxChunks) stopCause = "chunk_limit";
 
   const { valid, invalid } = validateCandles(all);
   const gaps = detectGaps(valid, spec.minutes);
@@ -301,7 +368,12 @@ export async function fetchFullHistory(
   let completion: CompletionState;
   let quality: HistoryMeta["data_quality"];
   if (valid.length === 0) {
-    if (lastError) {
+    if (invalidResponse) {
+      // Corrupt / structurally invalid payload. Never NO_DATA (that claims the
+      // venue said s:"no_data") and never a silent success.
+      completion = "INVALID_RESPONSE";
+      quality = "UNAVAILABLE";
+    } else if (lastError) {
       completion = "UNAVAILABLE";
       quality = "UNAVAILABLE";
     } else if (ambiguousEmpty) {
@@ -309,9 +381,15 @@ export async function fetchFullHistory(
       // NOT the same as the explicit no-data boundary.
       completion = "AMBIGUOUS_EMPTY";
       quality = "INSUFFICIENT";
-    } else {
+    } else if (boundaryEvidence === "TTT_NO_DATA") {
       completion = "NO_DATA";
       quality = "NO_DATA";
+    } else {
+      // Never asked, or stopped with no evidence. Do not invent no_data.
+      completion = "UNAVAILABLE";
+      quality = "UNAVAILABLE";
+      if (!lastError) lastError = "history walk produced no venue evidence";
+      if (!stopCause) stopCause = "no_evidence";
     }
   } else if (gaps.length > 0) {
     // GAPPED describes DATA QUALITY, not traversal. We still record whether the
@@ -353,6 +431,7 @@ export async function fetchFullHistory(
       dataset_fingerprint: fingerprint(valid),
       chunks_fetched: chunks,
       boundary_evidence: boundaryEvidence,
+      stop_cause: stopCause,
       reason: lastError,
     }),
   };
