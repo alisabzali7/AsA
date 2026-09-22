@@ -289,7 +289,7 @@ describe("transport is the single admission point", () => {
     expect(scheduler.stats().total_429).toBe(0);
   });
 
-  it("K2b. a malformed response is NOT retried and costs exactly one admission", async () => {
+  it("K2b. a non-JSON content-type is NOT retried and costs exactly one admission", async () => {
     let calls = 0;
     vi.stubGlobal(
       "fetch",
@@ -304,6 +304,31 @@ describe("transport is the single admission point", () => {
     );
 
     expect(calls).toBe(1);
+    expect(scheduler.stats().total_requests).toBe(1);
+    expect(scheduler.stats().total_grants).toBe(1);
+  });
+
+  it("K2c. malformed JSON under a JSON content-type is invalid_response: one attempt, one admission, no retry", async () => {
+    // AUDIT DEFECT: `JSON.parse` on a well-labelled but corrupt body throws a
+    // native SyntaxError. The outer catch classified every non-TttHttpError as
+    // `network`, so a corrupt payload was retried (3 fetches / 3 admissions at
+    // retries:2) and surfaced as a transport outage instead of a bad response.
+    // The content-type here IS application/json, so parsing is actually reached —
+    // the case a text/html body never exercises.
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (): Promise<Response> => {
+        calls++;
+        return new Response('{"s":"ok","t":[1,2,', { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+
+    await expect(tttRequest("/broken-json", { baseUrl: LOCAL, retries: 2 })).rejects.toSatisfy(
+      (e: unknown) => e instanceof TttHttpError && e.kind === "invalid_response",
+    );
+
+    expect(calls).toBe(1); // no retry: a corrupt body is not a transport failure
     expect(scheduler.stats().total_requests).toBe(1);
     expect(scheduler.stats().total_grants).toBe(1);
   });

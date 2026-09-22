@@ -187,7 +187,24 @@ export async function tttRequest<T>(
       if (!ct.includes("application/json") && !ct.includes("text/json")) {
         throw new TttHttpError("invalid_response", `unexpected content-type '${ct}'`, res.status, text.slice(0, 200));
       }
-      const data = JSON.parse(text) as T;
+      let data: T;
+      try {
+        data = JSON.parse(text) as T;
+      } catch (err) {
+        // A well-labelled but corrupt body (`content-type: application/json`
+        // with unparseable JSON) is a BAD RESPONSE, not a transport failure.
+        // JSON.parse raises a native SyntaxError, which the outer catch would
+        // otherwise classify as `network` and retry — turning a corrupt payload
+        // into three requests and three admissions. `invalid_response` is
+        // non-retryable in the outer catch, so a malformed body costs exactly
+        // one attempt, one fetch and one admission.
+        throw new TttHttpError(
+          "invalid_response",
+          `malformed JSON response: ${err instanceof Error ? err.message : String(err)}`,
+          res.status,
+          text.slice(0, 200),
+        );
+      }
       return { ok: true, status: res.status, data, fetched_at_ms: started, latency_ms, endpoint: uri, source_name: source.id };
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
