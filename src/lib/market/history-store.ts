@@ -350,6 +350,7 @@ export async function syncHistory(
           dataset_fingerprint: prior?.dataset_fingerprint ?? fingerprint(stored),
           chunks_fetched: 0, last_sync_ms: Date.now(),
           boundary_evidence: null, // this attempt observed nothing upstream
+          stop_cause: null, // no request was made
         },
       };
     }
@@ -422,11 +423,19 @@ export async function syncHistory(
 
   let completion: CompletionState;
   if (stored.length === 0) {
-    if (res.meta.completion_state === "UNAVAILABLE") completion = "UNAVAILABLE";
-    // AUDIT FIX (mandate bug 5): keep the empty-success state instead of
-    // collapsing it to NO_DATA — they mean different things upstream.
-    else if (res.meta.completion_state === "AMBIGUOUS_EMPTY") completion = "AMBIGUOUS_EMPTY";
-    else completion = "NO_DATA";
+    // Preserve the walk's own empty classification. The previous else-branch
+    // stamped NO_DATA on every other empty result, which claimed an explicit
+    // venue no_data the walk had not observed.
+    if (
+      res.meta.completion_state === "UNAVAILABLE" ||
+      res.meta.completion_state === "AMBIGUOUS_EMPTY" ||
+      res.meta.completion_state === "INVALID_RESPONSE" ||
+      res.meta.completion_state === "NO_DATA"
+    ) {
+      completion = res.meta.completion_state;
+    } else {
+      completion = "UNAVAILABLE";
+    }
   } else if (gaps.length > 0) {
     completion = "GAPPED";
   } else if (boundaryProven || historicalCompleteRetained) {
@@ -479,7 +488,9 @@ export async function syncHistory(
   const syncSucceeded =
     !res.meta.reason &&
     res.meta.completion_state !== "UNAVAILABLE" &&
-    res.meta.completion_state !== "AMBIGUOUS_EMPTY";
+    res.meta.completion_state !== "AMBIGUOUS_EMPTY" &&
+    res.meta.completion_state !== "INVALID_RESPONSE" &&
+    res.meta.completion_state !== "NO_PROGRESS";
   const priorSuccessMs = prior?.last_successful_sync_ms ?? 0;
   const successMs = syncSucceeded ? attemptMs : priorSuccessMs;
 

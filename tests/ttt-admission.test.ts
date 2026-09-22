@@ -425,6 +425,12 @@ describe("D. caller-side scheduler consumption is absent from production paths",
     expect(laneOf(Number.POSITIVE_INFINITY)).toBe(PRIORITY.SWEEP);
     expect(laneOf(Number.NEGATIVE_INFINITY)).toBe(PRIORITY.SWEEP);
     expect(laneOf("focus" as unknown as number)).toBe(PRIORITY.SWEEP);
+    // Number("") === 0 and Number("0") === 0, which is FOCUS. A string is not
+    // lane intent — coercing it would buy the highest lane.
+    expect(laneOf("" as unknown as number)).toBe(PRIORITY.SWEEP);
+    expect(laneOf("0" as unknown as number)).toBe(PRIORITY.SWEEP);
+    expect(laneOf(true as unknown as number)).toBe(PRIORITY.SWEEP);
+    expect(laneOf(0)).toBe(PRIORITY.FOCUS); // a real numeric 0 stays FOCUS
   });
 });
 

@@ -4,7 +4,7 @@
 
 1. **TTT gateway** (`src/lib/ttt/`) — the ONLY path to the venue.
    - `client.ts`: typed fetchers for documented public endpoints (markets, stats, trades, orderbook, funding-history, udf/history, quote-rates); UDF normalization (validation, timestamp alignment, sort, dedupe with duplicated-final-timestamp workaround, historical chunking, derived-TF synthesis labeled DERIVED).
-   - `signer.ts`: `tttSign(secret, ms, METHOD, uri)` — lowercase hex HMAC-SHA256, body never signed. Unit-tested against an independently computed vector. Used only when `TTT_API_KEY/SECRET` exist; AsA never implements trading endpoints.
+   - `signer.ts`: `tttSign(secret, ms, METHOD, uri)` — lowercase hex HMAC-SHA256, body never signed. Unit-tested against an independently computed vector. The market-data path never calls it: attaching `X-API-Key` makes the venue edge answer 403 on public routes, so configured keys do not unlock extra reads. AsA never implements trading endpoints.
    - `client.ts/Scheduler`: token-bucket (`TTT_RATE_PER_MIN`, default 24 — measured practical ceiling ≈30 req/min/IP, shared across endpoints), priority classes P0 focus → P1 closes/on-demand → P2 sweeps → P3 backfill, request coalescing, adaptive budget on 429 with 12s circuit pause and recovery.
 2. **MarketEngine** (`src/lib/market/engine.ts`) — stats-driven polling:
    - Universe stats loop (~7s, 1 request for 48 prices + funding + OI + mark/index + 24h stats).

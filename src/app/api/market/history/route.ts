@@ -95,13 +95,28 @@ export async function GET(req: Request): Promise<NextResponse> {
     const spec = getTimeframe(tf)!;
 
     if (candles.length === 0 && bounds.earliest === null) {
+      // Absence of a local row is NOT a venue no_data. A sync that just failed
+      // (invalid payload, transport, ambiguous empty) must be reported as that
+      // state — the previous hard-coded NO_DATA claimed a boundary the venue
+      // never proved, and the chart treated an empty page as "boundary reached".
+      const state = row?.completion_state ?? "NOT_SYNCED";
       return NextResponse.json({
         ok: true, symbol, timeframe: tf, candles: [], count: 0,
+        source: "ttt",
+        native: true,
         metadata: {
-          completion_state: "NO_DATA",
-          data_quality: "NO_DATA",
-          reason: "no history stored yet — call with sync=full to backfill to the TTT boundary",
-          earliest_available: null, latest_available: null,
+          completion_state: state,
+          data_quality: state === "NO_DATA" ? "NO_DATA" : "INSUFFICIENT",
+          reason: row?.last_error
+            ?? (row
+              ? `no candles stored (completion ${state})`
+              : "no history stored yet — call with sync=full to backfill to the TTT boundary"),
+          earliest_available: null,
+          latest_available: null,
+          earliest_boundary_reached: false,
+          boundary_proof: row?.boundary_proof ?? null,
+          boundary_proven_this_attempt: boundaryProvenThisAttempt,
+          last_error: row?.last_error ?? null,
         },
         ts: Date.now(),
       });
