@@ -222,16 +222,19 @@ describe("P1-2 outbox retries FAILED rows", () => {
         r.state = state;
         r.error = error;
         if (state === "SENT") r.sent_ms = Date.now();
-        else r.attempts++;
+        // T05 T3 honest accounting: outboxMark NEVER touches attempts — the
+        // counter is spent only by outboxCountAttempt at the transport phase.
       },
     };
     const { drainOutbox } = await import("../src/lib/notify/telegram");
     const r = await drainOutbox(repo as never);
-    // telegram is NOT configured in tests -> the retry is attempted and fails again
+    // telegram is NOT configured in tests -> the preflight note is recorded and the row stays retryable
     expect(r.attempted).toBe(1); // only the FAILED row, NOT the DEAD one
     expect(r.retried_failed).toBe(1);
     expect(rows[1].state).toBe("FAILED");
-    expect(rows[1].attempts).toBe(2); // retried
+    // T05 T3: preflight "not configured" makes NO provider request, so it
+    // must not consume the retry budget — attempts counts TRANSPORT attempts
+    expect(rows[1].attempts).toBe(1); // unchanged: no delivery attempt happened
     expect(rows[2].state).toBe("DEAD"); // untouched
     expect(rows[2].attempts).toBe(5);
   });
@@ -429,7 +432,7 @@ describe("audit D: signal idempotency is enforced by the database", () => {
         positive_factors: [], negative_factors: [], blocked_factors: [], unknown_factors: [],
         source_refs: [], data_quality: { bars: 1, stale: false, age_ms: 0, state: "FRESH" },
         psychology: null, portfolio: null, setup_id: null, score_semantics: "s",
-        chart_evidence: null, risk: null, ai: null,
+        chart_evidence: null, risk: { verdict: "pass", reasons: ["risk checks passed"], numbers: {} }, ai: null,
         provenance: { generated_at_ms: 0, data: { series_fetched_ms: 0, stats_fetched_ms: null, native_1d: true, candles: { macro: 0, context: 0, trigger: 0 } } },
       } as never;
       publishSignal(opp);
