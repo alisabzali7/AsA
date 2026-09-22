@@ -13,7 +13,9 @@ export async function GET(req: Request): Promise<NextResponse> {
   const items = rows.map((r) => {
     let payload: Record<string, unknown> = {};
     try { payload = JSON.parse(r.payload_json) as Record<string, unknown>; } catch { /* ignore */ }
-    const fresh = opportunityFreshness((payload.anchor_close_ms as number | null) ?? null, now);
+    // INTERFACE (Task 3): freshness is timeframe-aware — pass the row's own
+    // timeframe so the 4-bar window matches the strategy that produced it.
+    const fresh = opportunityFreshness((payload.anchor_close_ms as number | null) ?? null, now, r.timeframe);
     return {
       ...payload,
       id: r.id,

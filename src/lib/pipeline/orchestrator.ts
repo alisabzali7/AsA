@@ -78,11 +78,25 @@ export interface OpportunityPayload {
   };
 }
 
-/** Freshness rule: anchor (15m trigger close) older than 4 bars -> EXPIRED. */
-export function opportunityFreshness(anchor_close_ms: number | null, nowMs: number): { state: "READY" | "EXPIRED"; age_ms: number | null } {
+/**
+ * Freshness rule: anchor older than 4 closed bars of the OPPORTUNITY'S OWN
+ * timeframe -> EXPIRED. The timeframe is REQUIRED (typed data, not a hidden
+ * default): anchors are the strategy's own tf close — never a 15m trigger —
+ * so measuring them against a hardcoded 15-minute bar would wrongly expire
+ * 1h/1d opportunities while their own bars are still inside the admission
+ * staleness contract (`tfStalenessMs`). Bars come from the SAME table
+ * (`tfBarMs`), keeping freshness and staleness one authority.
+ */
+export function opportunityFreshness(
+  anchor_close_ms: number | null,
+  nowMs: number,
+  timeframe: string,
+): { state: "READY" | "EXPIRED"; age_ms: number | null } {
   if (anchor_close_ms === null) return { state: "EXPIRED", age_ms: null };
   const age = nowMs - anchor_close_ms;
-  return age <= 4 * 15 * 60_000 ? { state: "READY", age_ms: age } : { state: "EXPIRED", age_ms: age };
+  return age <= 4 * tfBarMs(timeframe)
+    ? { state: "READY", age_ms: age }
+    : { state: "EXPIRED", age_ms: age };
 }
 
 export function idFor(symbol: string, tf: string, direction: string, strategyId: string, anchorSec: number): string {
@@ -302,13 +316,23 @@ export async function scanSymbol(
   return { opportunity: payload, evaluated: true };
 }
 
-/** Staleness budget = 2 closed bars of the strategy's own timeframe. */
-export function tfStalenessMs(tf: string): number {
+/**
+ * Closed-bar duration for a timeframe. ONE table, shared by `tfStalenessMs`
+ * (admission data quality) and `opportunityFreshness` (READY/EXPIRED) so the
+ * two contracts can never drift apart. 15m is only the unknown-tf fallback —
+ * strategies declare their own timeframe and it is never hard-coded.
+ */
+export function tfBarMs(tf: string): number {
   const map: Record<string, number> = {
     "1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000, "45m": 2_700_000,
     "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000, "8h": 28_800_000, "1d": 86_400_000,
   };
-  return (map[tf] ?? 900_000) * 2;
+  return map[tf] ?? 900_000;
+}
+
+/** Staleness budget = 2 closed bars of the strategy's own timeframe. */
+export function tfStalenessMs(tf: string): number {
+  return tfBarMs(tf) * 2;
 }
 
 /** Admission threshold. Decision score, NOT a probability. */
