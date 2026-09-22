@@ -7,8 +7,29 @@
  *
  * Provenance: series built this way are DERIVED, never NATIVE. Callers must
  * label them accordingly so the UI never presents an aggregate as venue data.
+ *
+ * Hardened contract (Task 08):
+ * - Minutes parameter must be an integer >= 1. Invalid minutes yield [].
+ * - Non-finite candle fields yield [].
  */
 import type { Candle } from "../domain/types";
+
+function hasNonFiniteCandles(candles: Candle[]): boolean {
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    if (
+      !c ||
+      !Number.isFinite(c.t) ||
+      !Number.isFinite(c.o) ||
+      !Number.isFinite(c.h) ||
+      !Number.isFinite(c.l) ||
+      !Number.isFinite(c.c)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Aggregate ascending closed candles into `minutes`-sized buckets.
@@ -16,7 +37,15 @@ import type { Candle } from "../domain/types";
  * which guarantees the forming bucket is never returned.
  */
 export function aggregateClosed(candles: Candle[], minutes: number): Candle[] {
-  if (candles.length === 0) return [];
+  if (
+    candles.length === 0 ||
+    !Number.isInteger(minutes) ||
+    minutes < 1 ||
+    hasNonFiniteCandles(candles)
+  ) {
+    return [];
+  }
+
   const step = minutes * 60;
   const out: Candle[] = [];
   let bucketStart = Math.floor(candles[0].t / step) * step;
