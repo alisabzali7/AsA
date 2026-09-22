@@ -260,6 +260,9 @@ export function runStrategyBacktest(
       bars: window.length, stale: false, contradictions,
     });
     const admission = admitOpportunity({
+      // HARD GATE: shared contract requires setup PASS (the loop already
+      // skipped non-PASS setups above; this keeps the contract explicit).
+      setup_verdict: ev.setup.outcome,
       score: score.score, threshold,
       data_quality_ok: true, stale: false,
       risk_verdict: "pass", portfolio_verdict: "pass",

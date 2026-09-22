@@ -195,6 +195,9 @@ export async function scanSymbol(
   if (ev.levels.targets.length === 0) unknownFields.push("target");
 
   const admission = admitOpportunity({
+    // HARD GATE: shared contract requires setup PASS (kept in lockstep with
+    // the explicit `ev.setup.outcome !== "PASS"` early return below).
+    setup_verdict: ev.setup.outcome,
     score: score.score,
     threshold: getScoreThreshold(),
     data_quality_ok: !stale && candles.length >= strategy.min_bars,
