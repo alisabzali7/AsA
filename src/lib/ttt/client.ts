@@ -5,6 +5,7 @@
  * safe-methods-only transport (http.ts).
  */
 import { tttRequest, TttHttpError, type TttRequestResult } from "./http";
+import { PRIORITY } from "./scheduler";
 import { TTT_HAS_KEY } from "../env";
 import { parseUdfHistory, derive1DFrom8h } from "./udf";
 import { sourceName } from "./guard";
@@ -66,46 +67,56 @@ export function isUnsupportedResolution(err: unknown): boolean {
   return /unsupported[_ ]?resolution|invalid[_ ]?resolution|resolution not supported/.test(msg);
 }
 
+/**
+ * LANE INTENT (Task 1).
+ *
+ * Every method below accepts an optional `priority`. It is INTENT ONLY: the
+ * shared transport (http.ts) performs the single scheduler admission, once per
+ * network attempt. The client never consumes budget itself, and a caller that
+ * omits the lane simply gets the default background lane.
+ */
+export type LaneIntent = number | undefined;
+
 export class TttClient {
-  async getMarkets(): Promise<TttMarketRaw[]> {
-    const res = await tttRequest<TttMarketRaw[]>("/futures/markets", { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret });
+  async getMarkets(priority: LaneIntent = PRIORITY.SWEEP): Promise<TttMarketRaw[]> {
+    const res = await tttRequest<TttMarketRaw[]>("/futures/markets", { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, priority });
     if (!Array.isArray(res.data)) throw new Error("TTT /markets: expected array");
     return res.data.filter((m) => isObject(m) && typeof m.symbol === "string");
   }
 
-  async getStats(): Promise<{ rows: TttStatsRaw[]; provenance: Provenance }> {
-    const res = await tttRequest<TttStatsRaw[]>("/futures/markets/stats", { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret });
+  async getStats(priority: LaneIntent = PRIORITY.SWEEP): Promise<{ rows: TttStatsRaw[]; provenance: Provenance }> {
+    const res = await tttRequest<TttStatsRaw[]>("/futures/markets/stats", { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, priority });
     if (!Array.isArray(res.data)) throw new Error("TTT /markets/stats: expected array");
     const rows = res.data.filter((r) => isObject(r) && typeof r.symbol === "string");
     const srcTs = parseIsoMs(rows[0]?.timestamp);
     return { rows, provenance: prov("/futures/markets/stats", res as TttRequestResult<unknown>, srcTs) };
   }
 
-  async getTrades(symbol: string): Promise<{ book: TttTradeRaw; provenance: Provenance }> {
-    const res = await tttRequest<TttTradeRaw>(`/futures/markets/trades?symbol=${encodeURIComponent(symbol)}`, { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, retries: 1 });
+  async getTrades(symbol: string, priority: LaneIntent = PRIORITY.REFRESH): Promise<{ book: TttTradeRaw; provenance: Provenance }> {
+    const res = await tttRequest<TttTradeRaw>(`/futures/markets/trades?symbol=${encodeURIComponent(symbol)}`, { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, retries: 1, priority });
     if (!isObject(res.data) || !Array.isArray((res.data as TttTradeRaw).trades)) throw new Error("TTT trades: unexpected shape");
     return { book: res.data, provenance: prov("/futures/markets/trades", res as TttRequestResult<unknown>) };
   }
 
-  async getOrderBook(symbol: string, precision?: number): Promise<{ book: TttOrderBookRaw; provenance: Provenance }> {
+  async getOrderBook(symbol: string, precision?: number, priority: LaneIntent = PRIORITY.REFRESH): Promise<{ book: TttOrderBookRaw; provenance: Provenance }> {
     let uri = `/futures/markets/orderbook?symbol=${encodeURIComponent(symbol)}`;
     if (precision !== undefined && Number.isInteger(precision)) uri += `&precision=${precision}`;
-    const res = await tttRequest<TttOrderBookRaw>(uri, { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, retries: 1 });
+    const res = await tttRequest<TttOrderBookRaw>(uri, { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, retries: 1, priority });
     if (!isObject(res.data) || !Array.isArray((res.data as TttOrderBookRaw).asks) || !Array.isArray((res.data as TttOrderBookRaw).bids)) {
       throw new Error("TTT orderbook: unexpected shape");
     }
     return { book: res.data, provenance: prov(uri, res as TttRequestResult<unknown>) };
   }
 
-  async getFundingHistory(symbol: string, page = 1): Promise<{ page: TttFundingPageRaw; provenance: Provenance }> {
+  async getFundingHistory(symbol: string, page = 1, priority: LaneIntent = PRIORITY.SWEEP): Promise<{ page: TttFundingPageRaw; provenance: Provenance }> {
     const uri = `/futures/markets/funding-history?symbol=${encodeURIComponent(symbol)}&page=${page}`;
-    const res = await tttRequest<TttFundingPageRaw>(uri, { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, retries: 1 });
+    const res = await tttRequest<TttFundingPageRaw>(uri, { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, retries: 1, priority });
     if (!isObject(res.data) || !Array.isArray((res.data as TttFundingPageRaw).items)) throw new Error("TTT funding-history: unexpected shape");
     return { page: res.data, provenance: prov(uri, res as TttRequestResult<unknown>) };
   }
 
-  async getQuoteRates(): Promise<{ rates: TttQuoteRateRaw[]; provenance: Provenance }> {
-    const res = await tttRequest<TttQuoteRateRaw[]>("/futures/quote-rates", { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, retries: 1 });
+  async getQuoteRates(priority: LaneIntent = PRIORITY.SWEEP): Promise<{ rates: TttQuoteRateRaw[]; provenance: Provenance }> {
+    const res = await tttRequest<TttQuoteRateRaw[]>("/futures/quote-rates", { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, retries: 1, priority });
     if (!Array.isArray(res.data)) throw new Error("TTT quote-rates: expected array");
     return { rates: res.data, provenance: prov("/futures/quote-rates", res as TttRequestResult<unknown>) };
   }
@@ -121,8 +132,10 @@ export class TttClient {
     toSec: number;
     countback?: number;
     tfMinutes: number;
+    /** lane intent only — the transport charges the admission per attempt */
+    priority?: number;
   }): Promise<{ series: CandleSeries; fetched_at_ms: number; no_data: boolean }> {
-    const { symbol, resolution, fromSec, toSec, countback, tfMinutes } = opts;
+    const { symbol, resolution, fromSec, toSec, countback, tfMinutes, priority = PRIORITY.SWEEP } = opts;
     const q = [
       `symbol=${encodeURIComponent(symbol)}`,
       `resolution=${encodeURIComponent(resolution)}`,
@@ -131,7 +144,7 @@ export class TttClient {
       countback ? `countback=${Math.max(1, Math.floor(countback))}` : null,
     ].filter(Boolean).join("&");
     const uri = `/futures/udf/history?${q}`;
-    const res = await tttRequest<TttUdfRaw | { s: "no_data" }>(uri, { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, timeoutMs: 20_000, retries: 2 });
+    const res = await tttRequest<TttUdfRaw | { s: "no_data" }>(uri, { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, timeoutMs: 20_000, retries: 2, priority });
     const parsed = parseUdfHistory(res.data, tfMinutes);
     if (!parsed.meta.ok) {
       throw new Error(`TTT UDF ${symbol}@${resolution}: ${parsed.meta.reason ?? "invalid payload"}`);
@@ -159,7 +172,7 @@ export class TttClient {
    * 1D resolver: NATIVE first (documented TTT resolution '1D', live-verified),
    * labeled 8H-derivation only if the native request returns nothing.
    */
-  async getDailyCandles(symbol: string, targetBars: number): Promise<CandleSeries> {
+  async getDailyCandles(symbol: string, targetBars: number, priority: LaneIntent = PRIORITY.SWEEP): Promise<CandleSeries> {
     const toSec = Math.floor(Date.now() / 1000);
     const spanSec = targetBars * 86400 + 86400;
     // FALLBACK POLICY (remediation P0-4).
@@ -174,11 +187,11 @@ export class TttClient {
     //   * an explicit unsupported-resolution rejection
     // Every other error is PROPAGATED so callers see an outage as an outage.
     try {
-      const native = await this.getUdfHistory({ symbol, resolution: "1D", fromSec: toSec - spanSec, toSec, countback: targetBars + 5, tfMinutes: 1440 });
+      const native = await this.getUdfHistory({ symbol, resolution: "1D", fromSec: toSec - spanSec, toSec, countback: targetBars + 5, tfMinutes: 1440, priority });
       if (native.series.candles.length > 0) return native.series;
       if (native.no_data) {
         // explicit no-data -> labeled derivation is allowed
-        return await this.derive1DFallback(symbol, targetBars, toSec);
+        return await this.derive1DFallback(symbol, targetBars, toSec, priority);
       }
       // AUDIT FIX (mandate bug 5): HTTP 200 s:"ok" with ZERO bars is an
       // ambiguous empty-success. It is NOT proof that the venue lacks native
@@ -188,7 +201,7 @@ export class TttClient {
     } catch (err) {
       if (isUnsupportedResolution(err)) {
         // explicit unsupported-resolution -> labeled derivation is allowed
-        return await this.derive1DFallback(symbol, targetBars, toSec);
+        return await this.derive1DFallback(symbol, targetBars, toSec, priority);
       }
       // timeout / 5xx / auth / rate limit / transport / malformed payload:
       // NEVER silently synthesise candles from an outage.
@@ -196,9 +209,9 @@ export class TttClient {
     }
   }
 
-  private async derive1DFallback(symbol: string, targetBars: number, toSec: number): Promise<CandleSeries> {
+  private async derive1DFallback(symbol: string, targetBars: number, toSec: number, priority: LaneIntent = PRIORITY.SWEEP): Promise<CandleSeries> {
     const spanSec = targetBars * 3 * 28800 + 2 * 28800;
-    const res = await this.getUdfHistory({ symbol, resolution: "480", fromSec: toSec - spanSec, toSec, countback: targetBars * 3 + 6, tfMinutes: 480 });
+    const res = await this.getUdfHistory({ symbol, resolution: "480", fromSec: toSec - spanSec, toSec, countback: targetBars * 3 + 6, tfMinutes: 480, priority });
     const { candles } = derive1DFrom8h(res.series.candles);
     return {
       symbol,

@@ -4,14 +4,19 @@
  *  - universe stats sweep (~7s, ONE request for the dynamic TTT universe)
  *  - focus lanes: trades (~8s), orderbook (~20s), funding-history (30min)
  *  - candle backfill (144 core series) + per-close refresh
- *  - scheduler recovery, OI snapshot ring, health aggregation
- * All TTT traffic flows through the shared scheduler token bucket.
+ *  - scheduler health hook, OI snapshot ring, health aggregation
+ *
+ * TASK 1: every loop below is a pure CALLER. It states LANE INTENT on the client
+ * call and nothing else — the shared TTT transport (ttt/http.ts) performs the
+ * single scheduler admission, once per network attempt (retries included), and
+ * owns all 429 accounting. The engine no longer acquires budget or calls
+ * note429() itself, so there is exactly one admission point for TTT traffic.
  */
 import { sharedStore } from "./store";
 import { candleManager } from "./candles";
 import { tttClient } from "../ttt/client";
 import { cachedCatalog } from "./catalog";
-import { sharedScheduler } from "../ttt/scheduler";
+import { PRIORITY, activeScheduler, schedulerStats, type SchedulerStats } from "../ttt/scheduler";
 import { eventBus } from "../events";
 import { operationalUniverse, refreshOperationalUniverse, universeSource, universeState } from "./operational-universe";
 import { CORE_TFS, type TimeframeId } from "../domain/timeframes";
@@ -41,7 +46,7 @@ export interface EngineStatus {
   last_stats_sweep_ms: number | null;
   stats_age_ms: number | null;
   live: { live: number; total: number };
-  scheduler: ReturnType<TttSchedulerStats>;
+  scheduler: SchedulerStats;
   candles: { queueDepth: number; fetchedTotal: number };
   catalog_symbols: number;
   ai: unknown;
@@ -52,8 +57,6 @@ export interface EngineStatus {
   ttt_errors: number;
   errors_recent: unknown[];
 }
-
-type TttSchedulerStats = () => ReturnType<typeof sharedScheduler.stats>;
 
 const STATS_INTERVAL_MS = 7_000;
 const TAPE_INTERVAL_MS = 8_000;
@@ -126,7 +129,9 @@ export class MarketEngine {
       this.interval("stats", STATS_INTERVAL_MS, () => this.sweepStats());
       this.interval("tape", TAPE_INTERVAL_MS, () => this.sweepTape());
       this.interval("book", BOOK_INTERVAL_MS, () => this.sweepBook());
-      this.interval("recover", RECOVER_INTERVAL_MS, () => sharedScheduler.recover());
+      // health hook only: the scheduler is timer/event driven and never needs
+      // this tick to make progress (no polling loop anywhere)
+      this.interval("recover", RECOVER_INTERVAL_MS, () => activeScheduler().recover());
       // probe the notifier before draining so state is measured, never assumed
       this.interval("outbox", OUTBOX_INTERVAL_MS, () => void probeTelegram().then(() => drainOutbox()));
       this.interval("signals", 10 * 60_000, () => { void expireStaleSignals(); });
@@ -179,8 +184,8 @@ export class MarketEngine {
     if (this.statsLoop.running) return;
     this.statsLoop.running = true;
     try {
-      await sharedScheduler.acquire(2);
-      const { rows, provenance } = await tttClient.getStats();
+      // lane intent only (Task 1): admission is charged by the transport
+      const { rows, provenance } = await tttClient.getStats(PRIORITY.SWEEP);
       const now = Date.now();
       let updated = 0;
       for (const r of rows) {
@@ -217,7 +222,7 @@ export class MarketEngine {
       this.scheduleCloseRefreshes();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/429|rate_limited/.test(msg)) sharedScheduler.note429();
+      // 429 accounting belongs to the transport (http.ts); the loop only reports.
       sharedStore.recordError("stats", "/futures/markets/stats", msg);
       this.markLoop(this.statsLoop, false, msg);
     }
@@ -246,8 +251,7 @@ export class MarketEngine {
     this.tapeLoop.running = true;
     const symbol = sharedStore.focusSymbol;
     try {
-      await sharedScheduler.acquire(1);
-      const { book, provenance } = await tttClient.getTrades(symbol);
+      const { book, provenance } = await tttClient.getTrades(symbol, PRIORITY.REFRESH);
       const prints = (book.trades ?? []).map((tr) => ({
         symbol,
         price: num(tr.price),
@@ -272,7 +276,6 @@ export class MarketEngine {
       this.markLoop(this.tapeLoop, true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/429|rate_limited/.test(msg)) sharedScheduler.note429();
       sharedStore.recordError("tape", "/futures/markets/trades", msg);
       this.markLoop(this.tapeLoop, false, msg);
     }
@@ -284,8 +287,7 @@ export class MarketEngine {
     this.bookLoop.running = true;
     const symbol = sharedStore.focusSymbol;
     try {
-      await sharedScheduler.acquire(1);
-      const { book, provenance } = await tttClient.getOrderBook(symbol);
+      const { book, provenance } = await tttClient.getOrderBook(symbol, undefined, PRIORITY.REFRESH);
       const bids = (book.bids ?? []).slice(0, 25).map((b) => ({ price: num(b.price), size: num(b.size) })).filter((b) => fin(b.price));
       const asks = (book.asks ?? []).slice(0, 25).map((a) => ({ price: num(a.price), size: num(a.size) })).filter((a) => fin(a.price));
       const bestBid = bids.length ? bids[bids.length - 1].price : null; // ascending
@@ -304,7 +306,6 @@ export class MarketEngine {
       this.markLoop(this.bookLoop, true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/429|rate_limited/.test(msg)) sharedScheduler.note429();
       sharedStore.recordError("book", "/futures/markets/orderbook", msg);
       this.markLoop(this.bookLoop, false, msg);
     }
@@ -315,8 +316,7 @@ export class MarketEngine {
     if (Date.now() - this.lastFundingLaneAtMs < FUNDING_INTERVAL_MS - 30_000) return;
     const symbol = sharedStore.focusSymbol;
     try {
-      await sharedScheduler.acquire(2);
-      const { page, provenance } = await tttClient.getFundingHistory(symbol, 1);
+      const { page, provenance } = await tttClient.getFundingHistory(symbol, 1, PRIORITY.SWEEP);
       sharedStore.fundingHistory = { symbol, page, provenance };
       const stats = sharedStore.getStats(symbol);
       eventBus.emit("funding.updated", { symbol, rate: stats?.fundingRate ?? null });
@@ -358,7 +358,7 @@ export class MarketEngine {
       last_stats_sweep_ms: sharedStore.lastStatsSweepAtMs,
       stats_age_ms: sharedStore.lastStatsSweepAtMs === null ? null : Date.now() - sharedStore.lastStatsSweepAtMs,
       live: sharedStore.liveSymbolCount(),
-      scheduler: sharedScheduler.stats(),
+      scheduler: schedulerStats(),
       candles: { queueDepth: candleStats.queueDepth, fetchedTotal: candleStats.fetchedTotal },
       catalog_symbols: sharedStore.catalog.size,
       ai: await providerStatuses(),
