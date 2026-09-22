@@ -770,3 +770,166 @@ describe("live registry integration — resolution is read, not assumed", () => 
     }
   });
 });
+
+describe("re-ingest / refresh must not silently erase prior adjudication (Case F)", () => {
+  const CORPUS_DIR = path.resolve("knowledge/raw");
+  let dbSeq = 0;
+
+  /** Fresh isolated BrainStore per test — shared-DB test order cannot interfere. */
+  function freshStore(): import("../src/lib/brain/store").BrainStore {
+    dbSeq += 1;
+    return new BRAIN.BrainStore(path.join(TMP, `reingest-${dbSeq}.db`));
+  }
+
+  function adjudicate(
+    store: import("../src/lib/brain/store").BrainStore,
+    groupId: string,
+    over: Partial<ConflictGroup>,
+  ): ConflictGroup {
+    const rows = store.conflicts();
+    const target = rows.find((g) => g.conflict_group_id === groupId);
+    if (!target) throw new Error(`group ${groupId} not present after ingest`);
+    const updated: ConflictGroup = {
+      ...target,
+      resolution: over.resolution ?? target.resolution,
+      chosen_variant: over.chosen_variant ?? target.chosen_variant,
+      resolved_by: over.resolved_by ?? target.resolved_by,
+      resolved_at_ms: over.resolved_at_ms ?? target.resolved_at_ms,
+    };
+    store.putConflicts(rows.map((g) => (g.conflict_group_id === groupId ? updated : g)));
+    return updated;
+  }
+
+  it("an OPERATOR_CHOSEN adjudication survives a full re-ingest", () => {
+    const store = freshStore();
+    try {
+      INGEST.ingestCorpus(store, CORPUS_DIR);
+      const before = store.conflicts();
+      expect(before.length).toBeGreaterThan(0);
+      const target = before[0];
+      const adjudicated = adjudicate(store, target.conflict_group_id, {
+        resolution: "OPERATOR_CHOSEN",
+        chosen_variant: target.variants[0]?.label ?? "variant-0",
+        resolved_by: "operator:case-f",
+        resolved_at_ms: 1_788_000_111_000,
+      });
+
+      // The documented refresh path: re-running the same ingest command.
+      INGEST.ingestCorpus(store, CORPUS_DIR);
+
+      const after = store
+        .conflicts()
+        .find((g) => g.conflict_group_id === target.conflict_group_id);
+      expect(after, "group must still exist after re-ingest").toBeDefined();
+      expect(after!.resolution).toBe("OPERATOR_CHOSEN");
+      expect(after!.chosen_variant).toBe(adjudicated.chosen_variant);
+      expect(after!.resolved_by).toBe("operator:case-f");
+      expect(after!.resolved_at_ms).toBe(1_788_000_111_000);
+      // Source-derived fields are rebuilt fresh from the immutable corpus.
+      expect(after!.topic).toBe(target.topic);
+      expect(after!.variants).toEqual(target.variants);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("an EMPIRICALLY_RESOLVED adjudication survives a full re-ingest", () => {
+    const store = freshStore();
+    try {
+      INGEST.ingestCorpus(store, CORPUS_DIR);
+      const target = store.conflicts()[0];
+      adjudicate(store, target.conflict_group_id, {
+        resolution: "EMPIRICALLY_RESOLVED",
+        chosen_variant: target.variants[1]?.label ?? target.variants[0]?.label ?? "v",
+        resolved_by: "experiment:case-f",
+        resolved_at_ms: 1_788_000_222_000,
+      });
+
+      INGEST.ingestCorpus(store, CORPUS_DIR);
+
+      const after = store
+        .conflicts()
+        .find((g) => g.conflict_group_id === target.conflict_group_id)!;
+      expect(after.resolution).toBe("EMPIRICALLY_RESOLVED");
+      expect(after.resolved_by).toBe("experiment:case-f");
+      expect(after.resolved_at_ms).toBe(1_788_000_222_000);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("adjudicated state is deterministic across repeated re-ingests", () => {
+    const store = freshStore();
+    try {
+      INGEST.ingestCorpus(store, CORPUS_DIR);
+      const target = store.conflicts()[0];
+      adjudicate(store, target.conflict_group_id, {
+        resolution: "OPERATOR_CHOSEN",
+        chosen_variant: target.variants[0]?.label ?? "v",
+        resolved_by: "operator:determinism",
+        resolved_at_ms: 1_788_000_333_000,
+      });
+
+      // Snapshot the adjudicated state BEFORE any refresh, then require the
+      // refresh to reproduce it exactly (identical inputs → identical output).
+      const adjudicated = JSON.stringify(store.conflicts());
+      INGEST.ingestCorpus(store, CORPUS_DIR);
+      const pass1 = JSON.stringify(store.conflicts());
+      INGEST.ingestCorpus(store, CORPUS_DIR);
+      const pass2 = JSON.stringify(store.conflicts());
+      expect(pass1).toBe(adjudicated);
+      expect(pass2).toBe(adjudicated);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("promotion reads RESOLVED (not UNRESOLVED) for a linked record after re-ingest", () => {
+    const store = freshStore();
+    try {
+      INGEST.ingestCorpus(store, CORPUS_DIR);
+      const target = store.conflicts()[0];
+      adjudicate(store, target.conflict_group_id, {
+        resolution: "OPERATOR_CHOSEN",
+        chosen_variant: target.variants[0]?.label ?? "v",
+        resolved_by: "operator:promotion-path",
+        resolved_at_ms: 1_788_000_444_000,
+      });
+      INGEST.ingestCorpus(store, CORPUS_DIR);
+
+      // Feed the EXACT post-refresh registry rows into the canonical resolver:
+      // this is what `getBrain().conflicts()` would return for a process whose
+      // brain DB is the one that just re-ingested.
+      const input = P.resolvePromotionInput("STR-REFRESHED-LINKED", {
+        evidence: [],
+        brainRecord: strategyRecord({
+          strategy_id: "STR-REFRESHED-LINKED",
+          conflict_group_id: target.conflict_group_id,
+        }),
+        conflicts: store.conflicts(),
+      });
+      expect(input.governance.conflict_state).toBe("RESOLVED");
+      expect(input.governance.conflict_unresolved).toBe(false);
+      expect(input.governance.conflict_resolution).toBe("OPERATOR_CHOSEN");
+      const d = P.buildPromotionDecision(input);
+      expect(checkOf(d, "no_unresolved_conflict").verdict).toBe("PASS");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("a pristine store still rebuilds every group UNRESOLVED — preservation invents nothing", () => {
+    const store = freshStore();
+    try {
+      INGEST.ingestCorpus(store, CORPUS_DIR);
+      INGEST.ingestCorpus(store, CORPUS_DIR); // refresh with no prior adjudication
+      const rows = store.conflicts();
+      expect(rows.length).toBeGreaterThan(0);
+      for (const g of rows) expect(g.resolution).toBe("UNRESOLVED");
+      for (const g of rows) expect(g.chosen_variant).toBeNull();
+      for (const g of rows) expect(g.resolved_by).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+});

@@ -180,6 +180,9 @@ export function scanForOpportunities(input: ScanInput): ScanResult {
       if (ev.levels.targets.length === 0) unknownFields.push("target");
 
       const admission = admitOpportunity({
+        // HARD GATE: the shared admission contract refuses any setup verdict
+        // other than PASS — the scanner never admits around it.
+        setup_verdict: ev.setup.outcome,
         score: score.score,
         threshold: input.scoreThreshold,
         data_quality_ok: candles.length >= strat.min_bars && !stale,

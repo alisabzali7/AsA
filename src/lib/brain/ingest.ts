@@ -83,6 +83,21 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
   let unknownFragments = 0;
   let quarantined = 0;
 
+  // REFRESH CONTRACT: rebuilding knowledge from the immutable corpus must not
+  // silently erase prior conflict ADJUDICATION (operator or empirical). The
+  // reset below DELETEs every conflict row — and `buildConflictGroups` would
+  // re-insert them all as UNRESOLVED — so snapshot the non-UNRESOLVED
+  // adjudication state first and re-apply it onto the rebuilt groups before
+  // they are written back. Source-derived fields (topic/variants) always come
+  // fresh from the corpus; adjudication fields are operator/evidence state
+  // that only an explicit putConflicts write may change.
+  const priorAdjudications = new Map(
+    store
+      .conflicts()
+      .filter((c) => c.resolution !== "UNRESOLVED")
+      .map((c) => [c.conflict_group_id, c]),
+  );
+
   store.resetKnowledge();
 
   const allBlocks: ParsedStrategyBlock[] = [];
@@ -440,6 +455,19 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
   store.putFeatures(features);
 
   const conflicts = buildConflictGroups(conflictLines);
+  // Re-apply preserved adjudications (see snapshot before resetKnowledge):
+  // only groups that still exist in the rebuilt set inherit their prior
+  // resolution/chosen_variant/resolved_by/resolved_at_ms. A pristine store
+  // (no snapshot) rebuilds every group exactly as before — UNRESOLVED.
+  for (const c of conflicts) {
+    const prior = priorAdjudications.get(c.conflict_group_id);
+    if (prior) {
+      c.resolution = prior.resolution;
+      c.chosen_variant = prior.chosen_variant;
+      c.resolved_by = prior.resolved_by;
+      c.resolved_at_ms = prior.resolved_at_ms;
+    }
+  }
   store.putConflicts(conflicts);
 
   const riskPolicies = buildRiskPolicies();

@@ -9,6 +9,8 @@
  * Every component is itemized so a user can see exactly which evidence earned
  * or lost points, including which factors could not be evaluated at all.
  */
+import type { RuleOutcome } from "../rules/engine";
+
 export const SCORE_DISCLAIMER =
   "Score is a deterministic evidence sum (0-100), NOT a probability or win rate.";
 
@@ -138,8 +140,24 @@ export function computeScore(input: ScoreInput): ScoreResult {
 /**
  * Opportunity admission. A candidate is only an opportunity when EVERY gate
  * passes — a high score alone is never sufficient.
+ *
+ * THE SETUP HARD GATE (Cognitive Core invariant): the deterministic setup
+ * verdict is a REQUIRED input and `admitOpportunity` refuses anything other
+ * than `PASS`. This makes the RULES → SETUP → ADMISSION boundary
+ * machine-enforced at the ONE shared chokepoint, so no consumer (scanner,
+ * orchestrator, backtester, future callers) can forget it: the type system
+ * forces every admission path to state the setup verdict it admits under.
+ * FAIL / UNKNOWN / BLOCKED each produce their own distinguishable rejection
+ * reason — `UNKNOWN != FAIL != PASS` is preserved in the explanation.
  */
 export interface AdmissionInput {
+  /**
+   * Deterministic outcome of the setup evaluation (`evaluateSetup`). ONLY
+   * `PASS` may be admitted; `FAIL`, `UNKNOWN` and `BLOCKED` are hard
+   * rejections regardless of score, risk, portfolio, psychology or runtime
+   * status. Required by type — a caller cannot omit setup validity.
+   */
+  setup_verdict: RuleOutcome;
   score: number;
   threshold: number;
   data_quality_ok: boolean;
@@ -170,6 +188,11 @@ export interface AdmissionResult {
 
 export function admitOpportunity(a: AdmissionInput): AdmissionResult {
   const reasons: string[] = [];
+  // SETUP HARD GATE — first and unconditional. The setup verdict names itself
+  // in the reason so UNKNOWN stays explainably distinct from FAIL and BLOCKED.
+  if (a.setup_verdict !== "PASS") {
+    reasons.push(`setup outcome ${a.setup_verdict} — only a PASS setup may be admitted`);
+  }
   if (!a.data_quality_ok) reasons.push("data quality insufficient");
   if (a.stale) reasons.push("market data is stale");
   if (a.risk_verdict === "block") reasons.push("risk engine BLOCK");

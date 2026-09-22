@@ -123,6 +123,7 @@ describe("score is not a probability", () => {
 
 describe("opportunity admission gates", () => {
   const base = {
+    setup_verdict: "PASS" as const,
     score: 90, threshold: 85, data_quality_ok: true, stale: false,
     risk_verdict: "pass" as const, portfolio_verdict: "pass" as const,
     psychology_verdict: "pass" as const, strategy_runtime_status: "LIVE_ADVISORY_ONLY",

@@ -634,6 +634,7 @@ describe("store round-trip: provenance is verifiable, not decorative", () => {
 describe("live eligibility is unreachable without the gate", () => {
   it("admission refuses a non-live runtime status in live mode", () => {
     const base = {
+      setup_verdict: "PASS" as const,
       score: 95, threshold: 85, data_quality_ok: true, stale: false,
       risk_verdict: "pass" as const, portfolio_verdict: "pass" as const,
       psychology_verdict: "pass" as const,
@@ -651,6 +652,7 @@ describe("live eligibility is unreachable without the gate", () => {
 
   it("research mode keeps working without the live gate", () => {
     const r = SCORE.admitOpportunity({
+      setup_verdict: "PASS",
       score: 95, threshold: 85, data_quality_ok: true, stale: false,
       risk_verdict: "pass", portfolio_verdict: "pass", psychology_verdict: "pass",
       strategy_runtime_status: "CANDIDATE", unresolved_contradiction: false, unknown_required_fields: [],

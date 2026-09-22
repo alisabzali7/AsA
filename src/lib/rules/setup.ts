@@ -99,11 +99,16 @@ export function evaluateSetup(def: SetupDefinition, bag: FeatureBag, now = Date.
   const outcomes: RuleOutcome[] = [];
   const reasons: string[] = [];
 
-  // filters are exclusions: a FAILED filter means the source forbids this trade
+  // filters are exclusions: a FAILED filter means the source forbids this trade.
+  // UNKNOWN must also fold — an unevaluated exclusion is never evidence of
+  // "no exclusion matched" (rule-engine contract: UNKNOWN never becomes positive).
   const filterOutcome = evalStage("filter");
   if (filterOutcome === "FAIL") {
     outcomes.push("BLOCKED");
     reasons.push("an exclusion filter matched — the source forbids trading in this condition");
+  } else if (filterOutcome === "UNKNOWN") {
+    outcomes.push("UNKNOWN");
+    reasons.push("filter stage lacks data to decide — the unevaluated exclusion is not treated as clear");
   }
 
   for (const stage of REQUIRED_ORDER) {
@@ -113,11 +118,16 @@ export function evaluateSetup(def: SetupDefinition, bag: FeatureBag, now = Date.
     else if (o === "FAIL") { outcomes.push("FAIL"); reasons.push(`${stage} condition not met`); }
   }
 
-  // invalidation evaluated last: if its condition is currently TRUE the setup is void
+  // invalidation evaluated last: if its condition is currently TRUE the setup is void.
+  // UNKNOWN must also fold — an unevaluated void-guard is never evidence the
+  // setup is still valid (same rule-engine contract as above).
   const invalidation = evalStage("invalidation");
   if (invalidation === "PASS" && (byStage.get("invalidation")?.length ?? 0) > 0) {
     outcomes.push("BLOCKED");
     reasons.push("invalidation condition is currently TRUE — the setup is void");
+  } else if (invalidation === "UNKNOWN") {
+    outcomes.push("UNKNOWN");
+    reasons.push("invalidation stage lacks data to decide — the unevaluated void-guard is not treated as clear");
   }
 
   const final: RuleOutcome = outcomes.includes("BLOCKED") ? "BLOCKED"
