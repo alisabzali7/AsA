@@ -14,7 +14,8 @@ import { cachedCatalog } from "./catalog";
 import { sharedScheduler } from "../ttt/scheduler";
 import { eventBus } from "../events";
 import { operationalUniverse, refreshOperationalUniverse, universeSource, universeState } from "./operational-universe";
-import { CORE_TFS, type TimeframeId } from "../domain/timeframes";
+import { CORE_TFS, getTimeframe, isTimeframe, type TimeframeId } from "../domain/timeframes";
+import { executableStrategies } from "../strategy/runtime";
 import { getRepo } from "../../db/sqlite";
 import { recordOiSnapshot } from "../psychology/engine";
 import { startNewsPolling, newsState } from "../fundamental/engine";
@@ -22,6 +23,7 @@ import { startRetentionJob, runRetention } from "../retention";
 import { telegramStateLive, probeTelegram, drainOutbox } from "../notify/telegram";
 import { providerStatuses } from "../ai";
 import { expireStaleSignals } from "../pipeline/orchestrator";
+import { startLiveSignalScanner, stopLiveSignalScanner, liveScanState, type LiveScanState } from "../pipeline/live-scan";
 import type { AppState, SymbolStats } from "../domain/types";
 import { num } from "./store";
 import { TTT_RATE_PER_MIN } from "../env";
@@ -46,6 +48,8 @@ export interface EngineStatus {
   catalog_symbols: number;
   ai: unknown;
   telegram: unknown;
+  /** T05 T4: live scanner (candle.closed → scanSymbol → publishSignal) */
+  live_scan: LiveScanState;
   news: unknown;
   storage: string;
   uptime_ms: number;
@@ -121,7 +125,7 @@ export class MarketEngine {
       // 3) kick background candle backfill (144 core series) — non-blocking
       for (const tf of CORE_TFS) candleManager.setTarget(tf, tf === "15m" ? 700 : tf === "1h" ? 800 : 900);
       candleManager.setTarget("1d", 320);
-      candleManager.enqueueBackfill([...CORE_TFS, "1d"]);
+      candleManager.enqueueBackfill(closeWatchTimeframes());
       // 4) periodic loops
       this.interval("stats", STATS_INTERVAL_MS, () => this.sweepStats());
       this.interval("tape", TAPE_INTERVAL_MS, () => this.sweepTape());
@@ -130,6 +134,10 @@ export class MarketEngine {
       // probe the notifier before draining so state is measured, never assumed
       this.interval("outbox", OUTBOX_INTERVAL_MS, () => void probeTelegram().then(() => drainOutbox()));
       this.interval("signals", 10 * 60_000, () => { void expireStaleSignals(); });
+      // T05 T4: the live signal path. Event-driven off the SAME candle-close
+      // detection this engine already runs (scheduleCloseRefreshes → fetch →
+      // candle.closed); no extra polling loop. Idempotent to attach.
+      startLiveSignalScanner();
       this.interval("health", HEALTH_INTERVAL_MS, () => this.publishHealth());
       // periodic re-discovery: a contract listed after boot joins the
       // operational universe without a code change or a restart
@@ -223,11 +231,24 @@ export class MarketEngine {
     }
   }
 
-  /** Detect closed core-TF candles per symbol and schedule refreshes. */
+  /**
+   * Detect closed candles per symbol and schedule refreshes.
+   *
+   * T05 T5: the watched set is `closeWatchTimeframes()` — the core hierarchy
+   * PLUS every timeframe an executable strategy declares (today that adds
+   * "1d"). Before, only CORE_TFS were watched, so the 1d series (backfilled at
+   * boot) never produced a `candle.closed` and the 1d strategy could never be
+   * scanned live. Boundary math is unchanged: `floor((now-grace)/tfMs)` is the
+   * open time of the CURRENT bar in UTC-aligned venue time (1d bars are
+   * UTC-midnight aligned — pinned by tests/universe-tf `tfStartMs("1d")`), so
+   * a refresh is requested only once a new bar must exist and the event fires
+   * once per new bar (the candle manager compares newest-bar open times).
+   */
   private scheduleCloseRefreshes(): void {
     const nowMs = Date.now();
+    const watch = closeWatchTimeframes();
     for (const symbol of operationalUniverse()) {
-      for (const tf of CORE_TFS) {
+      for (const tf of watch) {
         const series = sharedStore.getSeries(symbol, tf);
         if (!series || series.candles.length === 0) continue;
         const tfMs = tfMsOf(tf);
@@ -363,6 +384,7 @@ export class MarketEngine {
       catalog_symbols: sharedStore.catalog.size,
       ai: await providerStatuses(),
       telegram: await telegramStateLive(),
+      live_scan: liveScanState(),
       news: newsState(),
       storage: storageOk ? "OK" : "ERROR",
       uptime_ms: this.bootedAtMs ? Date.now() - this.bootedAtMs : 0,
@@ -374,15 +396,28 @@ export class MarketEngine {
   stop(): void {
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
+    stopLiveSignalScanner();
   }
 }
 
 function fin(v: number): boolean {
   return Number.isFinite(v) && v !== null;
 }
-function tfMsOf(tf: string): number {
-  const m: Record<string, number> = { "15m": 15 * 60_000, "1h": 60 * 60_000, "4h": 4 * 60 * 60_000, "1d": 24 * 60 * 60_000 };
-  return m[tf] ?? 60_000;
+/** Bar period from the ONE timeframe registry (no second table of periods). */
+function tfMsOf(tf: TimeframeId): number {
+  return getTimeframe(tf)!.minutes * 60_000;
+}
+
+/**
+ * Timeframes whose bar closes the engine watches: the core hierarchy plus the
+ * declared timeframe of every EXECUTABLE strategy (T05 T5). Deterministic,
+ * de-duplicated, derived from the strategy registry — never a hand-kept list.
+ * Exported for tests; the strategy registry is read-only here.
+ */
+export function closeWatchTimeframes(): TimeframeId[] {
+  const set = new Set<TimeframeId>(CORE_TFS);
+  for (const s of executableStrategies()) if (isTimeframe(s.timeframe)) set.add(s.timeframe);
+  return [...set];
 }
 
 export const marketEngine = new MarketEngine();

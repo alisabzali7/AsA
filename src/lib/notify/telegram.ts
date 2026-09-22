@@ -7,9 +7,11 @@
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_CONFIGURED, TELEGRAM_DRY_RUN } from "../env";
 import { getRepo } from "../../db/sqlite";
 import type { ChartEvidence } from "../chart/evidence";
-import type { OutboxRow, Repo } from "../../db/repo";
+import type { OutboxRow, OutboxClaim, Repo } from "../../db/repo";
+import { OUTBOX_CLAIM_LEASE_MS, OUTBOX_MAX_ATTEMPTS } from "../../db/repo";
 import { eventBus } from "../events";
 import type { AppState } from "../domain/types";
+import { randomUUID } from "node:crypto";
 
 export interface TelegramSignalPayload {
   kind: "signal" | "opportunity" | "system";
@@ -38,6 +40,28 @@ export interface TelegramSignalPayload {
   opportunity_id?: string | null;
   chart_json_url?: string | null;
   generated_at_ms: number;
+  /** sub-step delivery progress (persisted on the row by the outbox consumer) */
+  delivery_progress?: DeliveryProgress;
+}
+
+/**
+ * Sub-step delivery progress for ONE logical outbox item (closure §L: the
+ * annotated chart image AND the full advisory text are two transport steps of
+ * one delivery). Persisted inside the row's payload_json after each provider
+ * acceptance so a retry of the SAME row resumes instead of repeating an
+ * already-accepted sub-step.
+ */
+export interface DeliveryProgress {
+  /**
+   * Set the first time an annotated chart image was produced for this item.
+   * From then on the photo is a REQUIRED sub-step until delivered — a
+   * chart-bearing advisory is not complete until its chart actually went out.
+   * Items that can never produce a picture ("we never invent a picture") stay
+   * text-only, matching the historical fallback contract.
+   */
+  photo_required: boolean;
+  photo_sent: boolean;
+  text_sent: boolean;
 }
 
 export type TelegramHealth =
@@ -214,8 +238,23 @@ async function renderAdvisoryPng(payload: TelegramSignalPayload): Promise<Uint8A
   }
 }
 
+/** Internal sentinel: the row's claim was reclaimed elsewhere — stop, write nothing. */
+class ClaimLostError extends Error {
+  constructor() {
+    super("outbox claim lost mid-delivery");
+  }
+}
+
 /** Deliver ONE outbox row through the Telegram provider. */
 export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): Promise<{ ok: boolean; error?: string }> {
+  // Terminal/idempotent short-circuits (read-only — no claim, no attempt).
+  if (row.state === "SENT") return { ok: true };
+  if (row.state === "DEAD") return { ok: false, error: "row is DEAD (terminal) — never delivered again" };
+
+  // PREFLIGHT (T05 T3): preconditions only — NO claim and NO attempt is
+  // consumed ("attempts" counts TRANSPORT attempts; these paths never reach a
+  // provider request). State notes keep the repository's existing contract:
+  // both paths stay retryable.
   if (!TELEGRAM_CONFIGURED) {
     repo.outboxMark(row.id, "FAILED", "telegram not configured");
     return { ok: false, error: "telegram not configured" };
@@ -224,46 +263,162 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
     repo.outboxMark(row.id, "QUEUED", "dry-run — no send attempted");
     return { ok: false, error: "dry-run mode" };
   }
+
+  // CLAIM (T05 T3): atomic persistence-layer ownership of THIS delivery
+  // cycle. The winner sends; every loser returns before any provider call.
+  // This closes the "read row -> two workers both send" race at the shared
+  // storage boundary — effective across processes, timers and API drains.
+  const claim: OutboxClaim = {
+    token: randomUUID(),
+    claimed_at_ms: Date.now(),
+    expires_at_ms: Date.now() + OUTBOX_CLAIM_LEASE_MS,
+  };
+  if (!repo.outboxClaim(row.id, claim)) {
+    return { ok: false, error: `outbox row ${row.id} is claimed by another active consumer — no send attempted` };
+  }
+
+  // THE attempts counter: one increment per logical delivery cycle, at the
+  // moment the cycle ENTERS the transport phase (before the first provider
+  // request of the cycle). A crash after this point truthfully keeps the
+  // attempt — at-least-once transport semantics (Telegram offers no
+  // idempotency keys; exactly-once is NOT claimed).
+  let attemptsAfterCount: number | null = null;
+  const recordAttempt = (): void => {
+    if (attemptsAfterCount !== null) return; // exactly once per cycle
+    const n = repo.outboxCountAttempt(row.id, claim);
+    if (n === null) throw new ClaimLostError();
+    attemptsAfterCount = n;
+  };
+
   try {
     let payload: TelegramSignalPayload;
     try {
       payload = JSON.parse(row.payload_json) as TelegramSignalPayload;
     } catch {
-      repo.outboxMark(row.id, "DEAD", "unparseable payload");
+      // poison content: zero provider requests ever possible — DEAD without
+      // consuming the transport budget (budget = real delivery attempts only)
+      repo.outboxMark(row.id, "DEAD", "unparseable payload", claim);
       return { ok: false, error: "unparseable payload" };
     }
-    // GATE 20: send the ANNOTATED CHART IMAGE rendered from the same
-    // ChartEvidence the web chart uses, then the full advisory text.
-    const caption = formatSignalText(payload);
-    let ok = false;
-    const png = await renderAdvisoryPng(payload);
-    if (png) {
-      const photoOk = await sendTelegramPhoto(png, caption);
-      // the text message always follows so nothing is truncated by the caption cap
-      const textOk = await sendTelegram(caption);
-      ok = photoOk && textOk;
-    } else {
-      ok = await sendTelegram(caption);
+    // GATE 20 / FIX (T05 T2): ONE logical delivery = [annotated chart photo]
+    // + [full advisory text] as separate transport sub-steps. Sub-step
+    // provider acceptances are persisted on the row (payload.delivery_progress)
+    // IMMEDIATELY, so a retry of the SAME row resumes where it stopped. The
+    // old code re-sent the photo whenever the text failed after it (and the
+    // text whenever the photo failed before it) — duplicate messages for one
+    // logical item.
+    // T05 T5: formatting is a PURE function of the persisted payload. A throw
+    // here (parseable JSON but malformed shape — non-array targets, invalid
+    // timestamp, JSON null, ...) would recur identically on every retry: a
+    // deterministic poison condition, not a transient failure. It is
+    // dead-lettered like an unparseable payload — zero provider requests were
+    // ever possible, so the transport budget is untouched (attempts stay 0).
+    let caption: string;
+    try {
+      if (payload === null || typeof payload !== "object") throw new Error("payload is not an object");
+      caption = formatSignalText(payload);
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      repo.outboxMark(row.id, "DEAD", `poison payload: advisory text cannot be formatted (${why})`, claim);
+      eventBus.emit("system", { message: `telegram outbox row ${row.id} DEAD: poison payload — ${why}`, level: "error" });
+      return { ok: false, error: `poison payload: ${why}` };
     }
-    if (ok) {
-      repo.outboxMark(row.id, "SENT");
-      eventBus.emit("system", { message: `telegram outbox row ${row.id} sent`, level: "info" });
+    const prev = payload.delivery_progress;
+    const progress: DeliveryProgress = {
+      photo_required: prev?.photo_required === true,
+      photo_sent: prev?.photo_sent === true,
+      text_sent: prev?.text_sent === true,
+    };
+    const persistProgress = (): void => {
+      // owner-conditional write (T05 T3): a stale worker can never overwrite
+      // the reclaimed row's delivery progress
+      if (!repo.outboxSetPayload(row.id, JSON.stringify({ ...payload, delivery_progress: progress }), claim)) {
+        throw new ClaimLostError();
+      }
+    };
+    const failures: string[] = [];
+
+    // SUB-STEP 1: annotated chart image rendered from the SAME ChartEvidence
+    // the web chart uses. Skipped entirely once delivered. If no picture can
+    // be produced the photo is not part of this item's contract — unless one
+    // WAS produced earlier, in which case it stays required until delivered.
+    if (!progress.photo_sent) {
+      const png = await renderAdvisoryPng(payload);
+      if (png) {
+        progress.photo_required = true;
+        recordAttempt(); // entering transport: the provider request follows
+        if (await sendTelegramPhoto(png, caption)) {
+          progress.photo_sent = true;
+        } else {
+          failures.push("photo not accepted");
+        }
+        persistProgress();
+      }
+    }
+
+    // SUB-STEP 2: the full advisory text (always follows the photo so nothing
+    // is truncated by the caption cap). Skipped once delivered.
+    if (!progress.text_sent) {
+      recordAttempt(); // entering transport: the provider request follows
+      if (await sendTelegram(caption)) {
+        progress.text_sent = true;
+      } else {
+        failures.push("text not accepted");
+      }
+      persistProgress();
+    }
+
+    // COMPLETE only when the FULL logical contract is satisfied — never
+    // "SENT" merely because an attempt (or a claim) was made.
+    const complete = progress.text_sent && (!progress.photo_required || progress.photo_sent);
+    if (complete) {
+      if (!repo.outboxMark(row.id, "SENT", null, claim)) throw new ClaimLostError();
+      eventBus.emit("system", {
+        message: `telegram outbox row ${row.id} sent (photo ${progress.photo_required ? "delivered" : "n/a"}, text delivered)`,
+        level: "info",
+      });
       return { ok: true };
     }
-    const attempts = row.attempts + 1;
-    if (attempts >= 5) {
-      repo.outboxMark(row.id, "DEAD", "max attempts reached");
+    const missing = [progress.photo_required && !progress.photo_sent ? "photo" : "", !progress.text_sent ? "text" : ""]
+      .filter(Boolean)
+      .join("+");
+    const error = `${missing} not delivered${failures.length ? ` (${failures.join("; ")})` : ""}`;
+    // DEAD is reachable ONLY through the exhausted TRANSPORT-attempt budget
+    if (attemptsAfterCount !== null && attemptsAfterCount >= OUTBOX_MAX_ATTEMPTS) {
+      if (!repo.outboxMark(row.id, "DEAD", error, claim)) throw new ClaimLostError();
       // AUDIT FIX (observability mandate): a permanently lost delivery is a
       // DEGRADED event, not silence.
-      eventBus.emit("system", { message: `telegram outbox row ${row.id} DEAD after ${attempts} attempts (delivery permanently failed)`, level: "error" });
-      return { ok: false, error: "max attempts reached" };
+      eventBus.emit("system", {
+        message: `telegram outbox row ${row.id} DEAD after ${attemptsAfterCount} transport attempts — ${error}`,
+        level: "error",
+      });
+      return { ok: false, error: `max attempts reached: ${error}` };
     }
-    repo.outboxMark(row.id, "FAILED", "provider did not accept");
-    eventBus.emit("system", { message: `telegram outbox row ${row.id} FAILED (attempt ${attempts}/5): provider did not accept — will retry`, level: "warn" });
-    return { ok: false, error: "provider did not accept" };
+    if (!repo.outboxMark(row.id, "FAILED", error, claim)) throw new ClaimLostError();
+    eventBus.emit("system", {
+      message: `telegram outbox row ${row.id} FAILED (transport attempt ${attemptsAfterCount ?? "0 (preflight)"}/${OUTBOX_MAX_ATTEMPTS}): ${error} — will retry`,
+      level: "warn",
+    });
+    return { ok: false, error };
   } catch (err) {
+    if (err instanceof ClaimLostError) {
+      // ownership was legitimately reclaimed — write NOTHING (the new owner's
+      // row must stay intact) and leave the retry accounting as it is
+      return { ok: false, error: `outbox row ${row.id}: claim lost mid-delivery — another consumer owns it (at-least-once transport semantics apply)` };
+    }
     const msg = err instanceof Error ? err.message : String(err);
-    repo.outboxMark(row.id, row.attempts + 1 >= 5 ? "DEAD" : "FAILED", msg);
+    // Unexpected failure. Everything deterministic about the payload was
+    // classified above (parse / format → DEAD); what can still throw here is
+    // infrastructure (repository write errors, rendering seam) — transient by
+    // nature, so the row stays retryable (FAILED) and is NOT dead-lettered on
+    // a budget it never spent. DEAD only if the TRANSPORT budget is genuinely
+    // exhausted. Retries are bounded by the drain cadence and made visible.
+    const dead = attemptsAfterCount !== null && attemptsAfterCount >= OUTBOX_MAX_ATTEMPTS;
+    repo.outboxMark(row.id, dead ? "DEAD" : "FAILED", msg, claim);
+    eventBus.emit("system", {
+      message: `telegram outbox row ${row.id} ${dead ? "DEAD" : "FAILED (transient, will retry)"}: unexpected error — ${msg}`,
+      level: dead ? "error" : "warn",
+    });
     return { ok: false, error: msg };
   }
 }
@@ -274,7 +429,10 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
  * AUDIT FIX (P1): the drain used to select ONLY QUEUED rows, so any row marked
  * FAILED by a transient Telegram outage was stranded forever — the "durable
  * outbox" silently lost delivery. The drain now retries FAILED rows that have
- * attempts left; DEAD (5 failures) stays terminal.
+ * TRANSPORT attempts left; DEAD (budget exhausted after real attempts, or
+ * poison content) stays terminal. Concurrent drains (timer + manual API, or
+ * overlapping timers) are safe: each row is guarded by the atomic claim, so
+ * at most one consumer per row enters the transport phase.
  */
 export async function drainOutbox(repo: Repo = getRepo()): Promise<{ attempted: number; sent: number; retried_failed: number }> {
   const retryable = repo.outboxRetryable(50);

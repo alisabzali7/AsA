@@ -93,6 +93,12 @@ export interface ScanOutcome {
   opportunity: OpportunityPayload | null;
   evaluated: boolean;
   reason?: string;
+  /**
+   * Publication result when this scan reached the publication boundary (live
+   * mode, READY decision). Absent = the boundary was never reached (no
+   * opportunity, not READY, or research mode) — NOT a refusal.
+   */
+  publish?: PublishSignalResult;
 }
 
 /**
@@ -106,6 +112,16 @@ export async function scanSymbol(
   symbol: string,
   strategy: StrategyRuntimeDefinition,
   mode: "research" | "live",
+  opts: {
+    /**
+     * true (default, existing behaviour) = force a fresh candle fetch. The
+     * live scanner passes false when reacting to `candle.closed`: that event
+     * is emitted AFTER the fresh series was stored, so re-fetching would only
+     * double the venue call. `ensureSeries` still refetches a cache older
+     * than its own freshness window — stale data is never used silently.
+     */
+    forceRefresh?: boolean;
+  } = {},
 ): Promise<ScanOutcome> {
   if (strategy.availability !== "EXECUTABLE" || !strategy.impl) {
     return { opportunity: null, evaluated: false, reason: `strategy ${strategy.setup_id} is ${strategy.availability}: ${strategy.blocked_reason ?? "not executable"}` };
@@ -113,7 +129,7 @@ export async function scanSymbol(
   // Each strategy declares its OWN timeframe — never hard-coded to 15m.
   const tf = strategy.timeframe as TimeframeId;
 
-  const seriesTrg = await candleManager.ensureSeries(symbol, tf, true);
+  const seriesTrg = await candleManager.ensureSeries(symbol, tf, opts.forceRefresh ?? true);
   if (!seriesTrg || seriesTrg.candles.length < strategy.min_bars) {
     return { opportunity: null, evaluated: false, reason: `insufficient ${tf} history: need ${strategy.min_bars}, have ${seriesTrg?.candles.length ?? 0}` };
   }
@@ -295,7 +311,15 @@ export async function scanSymbol(
   if (!row) eventBus.emit("opportunity.created", { id: payload.id, symbol });
   else eventBus.emit("opportunity.updated", { id: payload.id, state: payload.state });
 
-  if (mode === "live" && payload.state === "READY") publishSignal(payload);
+  if (mode === "live" && payload.state === "READY") {
+    // T05 T4: the publish result is part of the scan outcome (observable),
+    // never silently discarded. publishSignal is the ONE publication path.
+    const publish = publishSignal(payload);
+    if (!publish.published) {
+      eventBus.emit("signal.publish.refused", { id: publish.id, symbol, opportunity_id: payload.id, reason: publish.reason });
+    }
+    return { opportunity: payload, evaluated: true, publish };
+  }
   return { opportunity: payload, evaluated: true };
 }
 
@@ -337,31 +361,102 @@ export function runtimeStatusFor(strategyId: string): string {
   return promotedRuntimeStatus(strategyId);
 }
 
-/** Publish advisory signal (live mode only). Signal ≠ order. */
-export function publishSignal(opp: OpportunityPayload): { id: string } {
+/**
+ * Publish action for an existing signal row, by its current lifecycle state.
+ *
+ * The signal lifecycle is one-way for a given opportunity (stable key =
+ * `idFor`'s symbol|tf|direction|strategy|anchor): `candidate`/`qualified` may
+ * become `published` exactly once; `published` is an idempotent no-op; every
+ * other state (`expired`, `invalidated`, `closed`, `archived`,
+ * `blocked_by_risk`) is TERMINAL and must never be resurrected or re-queued.
+ * Unknown states are fail-safe terminal: a state this code does not understand
+ * must never be silently overwritten into `published`.
+ */
+export function publishActionFor(existingState: string | null): "create" | "activate" | "already_published" | "terminal" {
+  if (existingState === null) return "create";
+  if (existingState === "published") return "already_published";
+  if (existingState === "candidate" || existingState === "qualified") return "activate";
+  return "terminal";
+}
+
+export interface PublishSignalResult {
+  id: string;
+  /** true only when the signal is in state `published` after this call */
+  published: boolean;
+  /** honest outcome: "published", "already published", or the exact refusal reason */
+  reason: string;
+}
+
+/**
+ * Publish advisory signal (live mode only). Signal ≠ order.
+ *
+ * FIX (T05): this is the FINAL boundary of the hard risk gate and the ONE
+ * publication point for the Telegram outbox. It now enforces, on its own,
+ * every invariant the delivery path promises:
+ *
+ *  1. FINAL RISK BOUNDARY (strict): a decision whose state is not `READY`, or
+ *     whose risk result is not an EXPLICIT well-formed `verdict: "pass"` from
+ *     the risk engine, is NEVER turned into a published signal or an outbox
+ *     row — regardless of the caller. Missing / unavailable / unknown /
+ *     malformed risk is refused as firmly as `block`; a blocked/denied risk
+ *     result stays blocked here; no later layer can override it.
+ *  2. EXACTLY ONCE (closure §V): one opportunity -> one signal row -> ONE
+ *     outbox row. Re-publishing is an idempotent no-op. Previously only
+ *     `state === "published"` short-circuited, so an `expired` signal (engine
+ *     expires on age while >=1h-strategy anchors are still fresh) was
+ *     resurrected to `published` AND re-queued — a duplicate Telegram advisory
+ *     for one opportunity and a non-deterministic lifecycle.
+ *  3. LIFECYCLE ONE-WAYNESS: terminal states are preserved verbatim;
+ *     `candidate`/`qualified` transition exactly once (via UPDATE — created_ms
+ *     and row identity preserved; the old `INSERT OR REPLACE` destroyed the
+ *     row's history).
+ *  4. ATOMICITY: the signal row and its outbox row are written in ONE
+ *     transaction — a crash can no longer produce a "published" signal with no
+ *     delivery record (or a delivery with no signal).
+ */
+export function publishSignal(opp: OpportunityPayload): PublishSignalResult {
   const repo = getRepo();
   const id = `sig-${opp.id}`;
-  const now = Date.now();
-  // Idempotency (closure §V): the DB enforces UNIQUE(opp_id). We look the
-  // signal up by that natural key instead of scanning the newest N rows.
+
+  // ---- 1. final hard risk boundary (defense in depth at the publish step).
+  // FIX (T05 T2, STRICT): ONLY an explicit, well-formed PASS from the
+  // authoritative risk engine may publish. Missing / unavailable / unknown /
+  // malformed risk is NEVER approval — there is no substitute metric and no
+  // default. The contract vocabulary stays the risk engine's own: a result is
+  // publishable exactly when `verdict === "pass"` on a well-formed result
+  // ({verdict: string, reasons: []}); `block` and every other value — plus
+  // absent or malformed results — are refused deterministically below.
+  if (opp.state !== "READY") {
+    return { id, published: false, reason: `opportunity state ${opp.state} is not publishable — only READY opportunities become signals` };
+  }
+  const riskUnknown: unknown = opp.risk;
+  if (riskUnknown == null) {
+    return { id, published: false, reason: "risk result missing/unavailable — publication requires an explicit risk-gate PASS" };
+  }
+  const riskVerdict = (riskUnknown as { verdict?: unknown }).verdict;
+  const riskReasons = (riskUnknown as { reasons?: unknown }).reasons;
+  if (typeof riskVerdict !== "string" || !Array.isArray(riskReasons)) {
+    return { id, published: false, reason: "risk result malformed (expected {verdict: string, reasons: []}) — publication requires an explicit risk-gate PASS" };
+  }
+  if (riskVerdict !== "pass") {
+    return { id, published: false, reason: `risk gate verdict "${riskVerdict}" — only an explicit PASS may be published` };
+  }
+
+  // ---- 2/3. lifecycle-aware idempotency on the stable natural key (closure §V)
   const existing = repo.signalByOpp(opp.id);
-  if (existing && existing.state === "published") return { id: existing.id };
-  repo.signalInsert({
-    id,
-    state: "published",
-    symbol: opp.symbol,
-    timeframe: opp.timeframe,
-    direction: opp.direction,
-    score: opp.score,
-    strategy_id: opp.strategy_id,
-    opp_id: opp.id,
-    payload_json: JSON.stringify({ ...opp, published_at_ms: now }),
-    created_ms: existing?.created_ms ?? now,
-    updated_ms: now,
-  });
+  const action = publishActionFor(existing?.state ?? null);
+  if (action === "already_published") {
+    return { id: existing!.id, published: true, reason: "already published (idempotent no-op)" };
+  }
+  if (action === "terminal") {
+    return { id: existing!.id, published: false, reason: `existing signal is ${existing!.state} (terminal) — never resurrected or re-queued` };
+  }
+
+  const now = Date.now();
+  const payloadJson = JSON.stringify({ ...opp, published_at_ms: now });
   // Advisory payload (closure §V): complete decision context, no execution language.
   const entryPx = opp.entry_zone ? (opp.entry_zone.top + opp.entry_zone.bottom) / 2 : null;
-  const outboxId = repo.outboxEnqueue("signal", {
+  const outboxPayload = {
     kind: "signal",
     advisory_only: true,
     symbol: opp.symbol,
@@ -387,10 +482,67 @@ export function publishSignal(opp: OpportunityPayload): { id: string } {
     chart_png_url: `/api/charts/${opp.id}.png`,
     generated_at_ms: now,
     timestamp: now,
-  });
+  };
+
+  // ---- 4. signal row + outbox row are ONE publication act (all-or-nothing).
+  // T05 T4: the outbox row id is recorded ON the signal row (`outbox_id`) in
+  // the same transaction — the stable signal -> outbox provenance link. The
+  // outbox row stays the single source of truth for delivery state.
+  let outboxId: number;
+  try {
+    outboxId = repo.withTransaction(() => {
+      const enqueued = repo.outboxEnqueue("signal", outboxPayload);
+      if (action === "create") {
+        repo.signalInsert({
+          id,
+          state: "published",
+          symbol: opp.symbol,
+          timeframe: opp.timeframe,
+          direction: opp.direction,
+          score: opp.score,
+          strategy_id: opp.strategy_id,
+          opp_id: opp.id,
+          payload_json: payloadJson,
+          created_ms: now,
+          updated_ms: now,
+          outbox_id: enqueued,
+        });
+      } else {
+        // activate: candidate/qualified -> published, exactly once. UPDATE
+        // (not REPLACE) preserves id, opp_id and created_ms.
+        repo.signalUpdate({
+          id: existing!.id,
+          state: "published",
+          symbol: opp.symbol,
+          timeframe: opp.timeframe,
+          direction: opp.direction,
+          score: opp.score,
+          strategy_id: opp.strategy_id,
+          opp_id: opp.id,
+          payload_json: payloadJson,
+          outbox_id: enqueued,
+        });
+      }
+      return enqueued;
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // A concurrent publisher may have won the UNIQUE(opp_id)/PK race — the
+    // row that exists is authoritative; never queue a second delivery for it.
+    const again = repo.signalByOpp(opp.id);
+    if (again && publishActionFor(again.state) === "already_published") {
+      return { id: again.id, published: true, reason: "already published (existing row found after publish conflict)" };
+    }
+    return { id, published: false, reason: `publish aborted atomically: ${msg}` };
+  }
+
   eventBus.emit("signal.created", { id, symbol: opp.symbol, state: "published" });
   eventBus.emit("system", { message: `signal ${id} published; outbox row ${outboxId} queued`, level: "info" });
-  return { id };
+  return {
+    id,
+    published: true,
+    reason: action === "create" ? `published; outbox row ${outboxId} queued` : `activated from ${existing!.state}; outbox row ${outboxId} queued`,
+  };
 }
 
 /**

@@ -18,6 +18,8 @@ export type AsaEventType =
   | "opportunity.created"
   | "opportunity.updated"
   | "signal.created"
+  | "signal.publish.refused"
+  | "scan.completed"
   | "news.created"
   | "backtest.completed"
   | "system";
@@ -40,6 +42,24 @@ export interface AsaEventMap {
   "opportunity.created": { id: string; symbol: string };
   "opportunity.updated": { id: string; state: string };
   "signal.created": { id: string; symbol: string; state: string };
+  /** T05 T4: a READY live decision reached publishSignal and was refused (exact reason) */
+  "signal.publish.refused": { id: string; symbol: string; opportunity_id: string; reason: string };
+  /**
+   * T05 T4: one live scan (symbol x strategy setup) finished. `outcome` is the
+   * honest result class; `duration_ms` is INTERNAL wall time of scanSymbol
+   * (includes the candle fetch when one happened — see `reason`).
+   */
+  "scan.completed": {
+    symbol: string;
+    timeframe: string;
+    setup_id: string;
+    /** candle.closed = bar boundary; candles.updated = first sighting of a bar after (re)start / other fetch paths; manual = API/test */
+    trigger: "candle.closed" | "candles.updated" | "manual";
+    outcome: "published" | "already_published" | "publish_refused" | "not_ready" | "no_opportunity" | "not_evaluated" | "error";
+    reason: string | null;
+    opportunity_id: string | null;
+    duration_ms: number;
+  };
   "news.created": { id: string; title: string };
   "backtest.completed": { jobId: string };
   system: { message: string; level: "info" | "warn" | "error" };
