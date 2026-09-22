@@ -4,10 +4,22 @@
  * refuses non-safe methods, which is one of the execution-safety proofs.
  * Behaviour: explicit timeout, bounded retries with jitter, 429 backoff,
  * response validation, structured error mapping, provenance capture.
+ *
+ * TASK 1 — CANONICAL ADMISSION BOUNDARY. The rate budget is consumed HERE and
+ * nowhere else:
+ *
+ *   intent -> shared TTT transport -> scheduler admission -> fetch()
+ *
+ * Admission is charged inside the retry loop, after method/source/host
+ * validation and immediately before the network attempt, so
+ *   - a request that never reaches fetch() consumes ZERO tokens, and
+ *   - every retry is a NEW attempt that pays a NEW admission.
+ * Callers may only supply lane intent (`priority`).
  */
 import { TTT_BASE_URL } from "../env";
 import { randomInt } from "node:crypto";
 import { marketSource } from "./guard";
+import { activeScheduler, laneOf, DEFAULT_LANE, type PriorityLane } from "./scheduler";
 import type { TttErrorBody } from "./types";
 
 export type HttpMethod = "GET" | "HEAD";
@@ -80,6 +92,13 @@ export interface TttHttpOptions {
   headers?: Record<string, string>;
   /** test seam: override the venue base URL (never used in app code) */
   baseUrl?: string;
+  /**
+   * LANE INTENT ONLY (Task 1). The caller states how important this traffic is
+   * (see PRIORITY in ./scheduler); the transport performs the actual scheduler
+   * admission, once per network attempt. Callers must never acquire budget
+   * themselves, and passing a lane here never grants anything by itself.
+   */
+  priority?: number;
 }
 
 function parseErrorBody(text: string): string | null {
@@ -111,13 +130,14 @@ export async function tttRequest<T>(
   const endpoint = `${opts.baseUrl ?? TTT_BASE_URL}${uri}`;
   const retries = Math.max(0, Math.min(3, opts.retries ?? 2));
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT;
+  // Lane intent is resolved once; the budget itself is charged per attempt below.
+  const lane: PriorityLane = laneOf(opts.priority ?? DEFAULT_LANE);
+  // The scheduler that charges this request is also the one exposed by status.
+  const scheduler = activeScheduler();
 
   let lastErr: Error | null = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const started = Date.now();
     try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       const headers: Record<string, string> = {
         Accept: "application/json",
         ...(opts.headers ?? {}),
@@ -126,6 +146,14 @@ export async function tttRequest<T>(
         const { buildSignedHeaders } = await import("./signer");
         Object.assign(headers, buildSignedHeaders(opts.apiKey, opts.apiSecret, Date.now(), method, uri));
       }
+      // ── TASK 1: THE single admission point ───────────────────────────────
+      // Reached only when the request is about to hit the network: unsafe
+      // methods, a forbidden host/source and local failures consume zero
+      // tokens, while every attempt (including every retry) pays exactly one.
+      await scheduler.acquire(lane);
+      const started = Date.now();
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       let res: Response;
       try {
         res = await fetch(endpoint, { method, headers, signal: ctrl.signal, cache: "no-store" });
@@ -135,6 +163,9 @@ export async function tttRequest<T>(
       const latency_ms = Date.now() - started;
       const text = await res.text().catch(() => "");
       if (res.status === 429) {
+        // 429 accounting is TRANSPORT-OWNED: exactly one note429() per observed
+        // HTTP 429. Callers must never record rate-limit pressure themselves.
+        scheduler.note429();
         throw new TttHttpError("rate_limited", "TTT 429 rate limit", 429, text);
       }
       if (res.status === 401 || res.status === 403) {

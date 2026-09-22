@@ -6,7 +6,7 @@
  */
 import { sharedStore, type MarketStore } from "./store";
 import { tttClient } from "../ttt/client";
-import { sharedScheduler } from "../ttt/scheduler";
+import { PRIORITY, type PriorityLane } from "../ttt/scheduler";
 import { getTimeframe, type TimeframeId } from "../domain/timeframes";
 import { isOperationalSymbol, operationalUniverse } from "./operational-universe";
 import type { CandleSeries } from "../domain/types";
@@ -17,8 +17,22 @@ import { TTT_MAX_BARS_PER_REQUEST } from "./history";
 interface QueueItem {
   symbol: string;
   tf: TimeframeId;
-  priority: 0 | 1 | 2 | 3;
+  /**
+   * LANE INTENT ONLY (Task 1). The queue orders work by this value; the actual
+   * rate-budget admission is charged by the shared TTT transport, once per
+   * network attempt. Nothing here consumes a token.
+   */
+  priority: PriorityLane;
   why: "backfill" | "close" | "ondemand";
+}
+
+/**
+ * Default lane for a working-window fetch when no explicit intent is supplied.
+ * Preserves the historical split: the fast lanes (15m/4h) refresh, everything
+ * else is background sweep traffic.
+ */
+function defaultLaneForTf(tf: TimeframeId): PriorityLane {
+  return tf === "15m" || tf === "4h" ? PRIORITY.REFRESH : PRIORITY.SWEEP;
 }
 
 export class CandleManager {
@@ -43,13 +57,13 @@ export class CandleManager {
   }
 
   /** Fill backfill work for all universe symbols for the given TFs. */
-  enqueueBackfill(tfs: TimeframeId[], priority: 0 | 1 | 2 | 3 = 2): void {
+  enqueueBackfill(tfs: TimeframeId[], priority: PriorityLane = PRIORITY.SWEEP): void {
     const focus = this.store.focusSymbol;
     const ordered = [focus, ...operationalUniverse().filter((s) => s !== focus)];
     for (const tf of tfs) {
       for (const symbol of ordered) {
         if (this.hasFreshEnough(symbol, tf, tf === "15m" || tf === "1h" || tf === "4h" ? 25 : 45)) continue;
-        this.push({ symbol, tf, priority: symbol === focus ? 0 : priority, why: "backfill" });
+        this.push({ symbol, tf, priority: symbol === focus ? PRIORITY.FOCUS : priority, why: "backfill" });
       }
     }
     this.pump();
@@ -57,7 +71,7 @@ export class CandleManager {
 
   /** Schedule a refresh because a new candle closed on `tf` for `symbol`. */
   enqueueCloseRefresh(symbol: string, tf: TimeframeId): void {
-    this.push({ symbol, tf, priority: symbol === this.store.focusSymbol ? 1 : 2, why: "close" });
+    this.push({ symbol, tf, priority: symbol === this.store.focusSymbol ? PRIORITY.REFRESH : PRIORITY.SWEEP, why: "close" });
     this.pump();
   }
 
@@ -90,7 +104,9 @@ export class CandleManager {
           // relies on fetch()'s own coalescing (same key space) instead of
           // double-tracking.
           try {
-            await this.fetch(item.symbol, item.tf);
+            // the item's lane intent travels with the fetch; admission is charged
+            // by the transport per attempt
+            await this.fetch(item.symbol, item.tf, undefined, item.priority);
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             if (!/429/.test(msg) && !/rate_limited/.test(msg)) {
@@ -104,7 +120,7 @@ export class CandleManager {
     })();
   }
 
-  async fetch(symbol: string, tf: TimeframeId, wantBars?: number): Promise<CandleSeries | null> {
+  async fetch(symbol: string, tf: TimeframeId, wantBars?: number, lane?: PriorityLane): Promise<CandleSeries | null> {
     const key = symbol + tf;
     const spec = getTimeframe(tf)!;
     // per-request depth override (backtests want long windows); cached series of
@@ -119,7 +135,7 @@ export class CandleManager {
     const keyT = `${key}:${target}`;
     const existing = this.inFlight.get(keyT);
     if (existing) return existing; // coalescing: concurrent callers share one fetch
-    const p = this.doFetch(symbol, tf, spec.tttResolution, spec.minutes, target).then((s) => {
+    const p = this.doFetch(symbol, tf, spec.tttResolution, spec.minutes, target, lane).then((s) => {
       this.fetchedTotal++;
       return s;
     });
@@ -131,14 +147,16 @@ export class CandleManager {
     }
   }
 
-  private async doFetch(symbol: string, tf: TimeframeId, resolution: string, minutes: number, target: number): Promise<CandleSeries | null> {
-    await sharedScheduler.acquire(tf === "15m" || tf === "4h" ? 1 : 2);
+  private async doFetch(symbol: string, tf: TimeframeId, resolution: string, minutes: number, target: number, lane: PriorityLane = defaultLaneForTf(tf)): Promise<CandleSeries | null> {
+    // NOTE (Task 1): no admission happens here. This path only labels the lane
+    // (`lane`) on the client call; http.ts charges the shared budget once per
+    // network attempt, including every retry.
     const toSec = Math.floor(Date.now() / 1000);
     // request a window slightly wider than the target to survive gaps
     const fromSec = toSec - target * minutes * 60 * 1.05 - 900;
     let series: CandleSeries;
     if (tf === "1d") {
-      series = await tttClient.getDailyCandles(symbol, target);
+      series = await tttClient.getDailyCandles(symbol, target, lane);
     } else {
       const res = await tttClient.getUdfHistory({
         symbol,
@@ -147,6 +165,7 @@ export class CandleManager {
         toSec,
         countback: Math.min(target + 20, TTT_MAX_BARS_PER_REQUEST),
         tfMinutes: minutes,
+        priority: lane,
       });
       series = res.series;
     }

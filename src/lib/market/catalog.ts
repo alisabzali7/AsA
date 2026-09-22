@@ -12,6 +12,7 @@
  * missing; the FEATURE is marked unavailable instead.
  */
 import { tttRequest } from "../ttt/http";
+import { PRIORITY } from "../ttt/scheduler";
 import { registerDiscoveredSymbols } from "../domain/universe";
 
 /** Permanently excluded from the AsA production universe. Never remove. */
@@ -255,7 +256,13 @@ export async function discoverMarkets(force = false): Promise<DiscoveryOutcome> 
   inflight = (async (): Promise<DiscoveryOutcome> => {
     let res;
     try {
-      res = await tttRequest<RawMarket[]>("/futures/markets", { timeoutMs: 20_000, retries: 2 });
+      // lane intent only (Task 1): discovery is background sweep traffic; the
+      // shared transport charges the rate budget per network attempt.
+      res = await tttRequest<RawMarket[]>("/futures/markets", {
+        timeoutMs: 20_000,
+        retries: 2,
+        priority: PRIORITY.SWEEP,
+      });
     } catch (err) {
       // transport/timeout/5xx/auth — NOT a statement about the venue's listings
       return {
