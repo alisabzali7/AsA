@@ -418,6 +418,15 @@ function isConfigured(id: "ollama" | "openai"): boolean {
 }
 
 /**
+ * Provider credential access for server-side callers outside this module
+ * (e.g. the AI Clone conversation route). Returned values are for building
+ * the Authorization header only — keys are never serialized into responses.
+ */
+export function llmProviderAuth(id: "ollama" | "openai"): { base: string; key: string; model: string } {
+  return providerConfig(id);
+}
+
+/**
  * Real network probe: list the provider catalogue and check the configured
  * model is actually offered. No claim is made without a measured response.
  * Secrets are only used to build the Authorization header — never returned.

@@ -6,7 +6,7 @@ import { STRINGS, dirFor, type Lang } from "@/lib/i18n/strings";
 interface LangCtx {
   lang: Lang;
   setLang: (l: Lang) => void;
-  t: (ns: "nav" | "header" | "market" | "status" | "common" | "board" | "conn", key: string) => string;
+  t: (ns: "nav" | "header" | "market" | "status" | "common" | "board" | "conn" | "ai", key: string) => string;
 }
 const Ctx = createContext<LangCtx>({ lang: "en", setLang: () => {}, t: () => "" });
 
