@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useLang } from "@/components/lang";
 import { usePoll, useSse, fmtAge } from "@/components/hooks";
 import { Metric, Panel, StatusChip } from "@/components/ui";
+import { topByPrice, topGainers } from "@/components/board-selectors";
 
 interface BoardRow { symbol: string; price: number | null; change24hPct: number | null; state: string; age_ms: number | null }
 interface BoardShape { ok: boolean; rows: BoardRow[]; stats_age_ms: number | null }
@@ -14,8 +15,8 @@ export default function DashboardPage() {
   const sse = useSse();
   const rows = board.data?.rows ?? [];
   const live = rows.filter((r) => r.price !== null).length;
-  const movers = [...rows].filter((r) => r.price !== null).sort((a, b) => (b.price ?? 0) - (a.price ?? 0)).slice(0, 8);
-  const gainers = [...rows].sort((a, b) => (b.change24hPct ?? -Infinity) - (a.change24hPct ?? -Infinity)).slice(0, 5);
+  const movers = topByPrice(rows, 8);
+  const gainers = topGainers(rows, 5);
 
   return (
     <div className="flex flex-col gap-2">
@@ -27,7 +28,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-2 lg:grid-cols-[1fr_340px]">
-        <Panel title="live board — top by market cap">
+        <Panel title="live board — top by price">
           <div className="overflow-x-auto">
             <table className="tbl w-full">
               <thead><tr><th>{t("market", "symbol")}</th><th className="text-right">{t("market", "price")}</th><th className="text-right">24h</th><th>state</th></tr></thead>
@@ -50,12 +51,15 @@ export default function DashboardPage() {
               {gainers.map((g) => (
                 <li key={g.symbol} className="flex justify-between">
                   <span className="font-medium">{g.symbol}</span>
-                  <span className="mono" style={{ color: (g.change24hPct ?? 0) >= 0 ? "#3fb68b" : "#d9605e" }}>
-                    {(g.change24hPct ?? 0) >= 0 ? "+" : ""}{(g.change24hPct ?? 0).toFixed(2)}%
+                  <span className="mono" style={{ color: g.change24hPct === null ? "var(--color-muted)" : "#3fb68b" }}>
+                    {g.change24hPct === null ? "—" : `+${g.change24hPct.toFixed(2)}%`}
                   </span>
                 </li>
               ))}
               {rows.length === 0 && <li className="text-muted">waiting for first TTT snapshot…</li>}
+              {rows.length > 0 && gainers.length === 0 && (
+                <li className="text-muted">no 24h gainers in this snapshot — losing rows are not gainers</li>
+              )}
             </ul>
           </Panel>
           <Panel title="pipeline">
