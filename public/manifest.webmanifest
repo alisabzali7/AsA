@@ -1,0 +1,27 @@
+{
+  "name": "AsA — AI trading intelligence terminal",
+  "short_name": "AsA",
+  "description": "Advisory-only crypto futures intelligence. Market truth: TTT only. AsA never executes.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#07080a",
+  "theme_color": "#07080a",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

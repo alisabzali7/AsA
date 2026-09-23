@@ -43,6 +43,23 @@ export const STRINGS = {
       lastUpdate: "last update",
     },
     board: { title: "TTT Market Universe", subtitle: "TTT /futures/markets/stats — one request per sweep" },
+    conn: {
+      offline: "OFFLINE",
+      degraded: "CONNECTION DEGRADED",
+      noNetwork: "no network connection",
+      serverUnreachable: "AsA server unreachable",
+      lastContact: "last contact",
+      cachedNotLive: "values on screen are cached — not live",
+      providerStatusUnavailable: "provider status unavailable — last received status is shown",
+      questionNotSent: "question not sent — no answer is fabricated",
+    },
+    ai: {
+      context: "Deterministic context",
+      contextNote: "authoritative — shown verbatim; the explanation layer cannot change it",
+      explanation: "Explanation",
+      footnote:
+        "The deterministic context is measured state, shown verbatim. When an LLM provider is configured and online it adds an explanation that may only restate that context — it never changes it, overrides a risk gate or NO TRADE, or invents data. Without a provider — or when the LLM fails — you get the deterministic assembly only, labeled as such. AsA is advisory only; it never executes.",
+    },
     status: {
       CONNECTING: "connecting",
       CONNECTED: "connected",
@@ -113,6 +130,23 @@ export const STRINGS = {
       lastUpdate: "آخرین به‌روزرسانی",
     },
     board: { title: "جهان بازار TTT", subtitle: "TTT — یک درخواست در هر چرخه" },
+    conn: {
+      offline: "آفلاین",
+      degraded: "اتصال ضعیف",
+      noNetwork: "اتصال شبکه قطع است",
+      serverUnreachable: "سرور AsA در دسترس نیست",
+      lastContact: "آخرین تماس",
+      cachedNotLive: "مقادیر روی صفحه از حافظهٔ پویا هستند — زنده نیستند",
+      providerStatusUnavailable: "وضعیت ارائه‌دهنده‌ها در دسترس نیست — آخرین وضعیت دریافت‌شده نمایش داده می‌شود",
+      questionNotSent: "پرسش ارسال نشد — پاسخی ساختگی داده نمی‌شود",
+    },
+    ai: {
+      context: "زمینهٔ قطعی",
+      contextNote: "حاکم است — دقیقاً همان‌طور که اندازه‌گیری شده نمایش داده می‌شود؛ لایهٔ توضیح نمی‌تواند آن را تغییر دهد",
+      explanation: "توضیح",
+      footnote:
+        "زمینهٔ قطعی، حالت اندازه‌گیری‌شده است و بدون تغییر نمایش داده می‌شود. اگر ارائه‌دهندهٔ LLM پیکربندی و آنلاین باشد، توضیحی افزوده می‌شود که فقط می‌تواند همان زمینه را بازنویسی کند — نه تغییر آن، نه نادیده گرفتن درگاه ریسک یا NO TRADE، و نه اختراع داده. بدون ارائه‌دهنده، یا در صورت شکست LLM، فقط مجموعهٔ قطعی با برچسب مشخص نمایش داده می‌شود. AsA فقط مشورتی است و هیچ‌گاه اجرا نمی‌کند.",
+    },
     status: {
       CONNECTING: "در حال اتصال",
       CONNECTED: "متصل",
