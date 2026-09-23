@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useLang } from "@/components/lang";
 import { usePoll, useSse, fmtAge } from "@/components/hooks";
 import { Metric, Panel, StatusChip } from "@/components/ui";
-import { topByPrice, topGainers } from "@/components/board-selectors";
+import { topByPrice, topGainers, effectiveAgeMs, displayStateFor } from "@/components/board-selectors";
 
 interface BoardRow { symbol: string; price: number | null; change24hPct: number | null; state: string; age_ms: number | null }
 interface BoardShape { ok: boolean; rows: BoardRow[]; stats_age_ms: number | null }
@@ -17,11 +17,15 @@ export default function DashboardPage() {
   const live = rows.filter((r) => r.price !== null).length;
   const movers = topByPrice(rows, 8);
   const gainers = topGainers(rows, 5);
+  // Effective sweep age (server age + time since the snapshot arrived): the
+  // "LIVE" verdict must re-derive from the ELAPSED age, else a cached board
+  // would keep reading LIVE forever while the connection is down.
+  const sweepEff = effectiveAgeMs(board.data?.stats_age_ms ?? null, board.age_ms);
 
   return (
     <div className="flex flex-col gap-2">
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="TTT market" value={<span style={{ color: sse.connected ? "#3fb68b" : "#d6a24a" }}>{board.data?.stats_age_ms !== null && board.data?.stats_age_ms !== undefined && board.data.stats_age_ms < 30000 ? "LIVE" : "CONNECTING/STALE"}</span>} sub={`last sweep ${board.data?.stats_age_ms !== null && board.data?.stats_age_ms !== undefined ? fmtAge(board.data.stats_age_ms) : "—"} · SSE ${sse.connected ? "on" : "off"}`} />
+        <Metric label="TTT market" value={<span style={{ color: sweepEff !== null && sweepEff < 30000 ? "#3fb68b" : "#d6a24a" }}>{sweepEff !== null && sweepEff < 30000 ? "LIVE" : "CONNECTING/STALE"}</span>} sub={`last sweep ${sweepEff !== null ? fmtAge(sweepEff) : "—"} · SSE ${sse.connected ? "on" : "off"}`} />
         <Metric label="universe live" value={`${live}/${rows.length}`} sub="TTT /futures/markets/stats — one request per sweep (dynamically discovered universe)" color="#d4b874" />
         <Metric label="health endpoint" value={<StatusChip state={sse.connected ? "LIVE" : "CONNECTING"} />} sub="/api/system/health" />
         <Metric label="mode" value="ADVISORY" sub="AsA never executes — human executes" color="#8b8f99" />
@@ -38,7 +42,7 @@ export default function DashboardPage() {
                     <td><Link className="focus-ring rounded px-1 font-semibold hover:text-gold" href={`/chart?symbol=${r.symbol}`}>{r.symbol}</Link></td>
                     <td className="mono text-right">{r.price === null ? "—" : r.price.toLocaleString("en-US", { maximumFractionDigits: r.price < 1 ? 6 : 2 })}</td>
                     <td className="mono text-right" style={{ color: r.change24hPct === null ? "var(--color-muted)" : r.change24hPct >= 0 ? "#3fb68b" : "#d9605e" }}>{r.change24hPct === null ? "—" : `${r.change24hPct.toFixed(2)}%`}</td>
-                    <td><StatusChip state={r.state} /></td>
+                    <td><StatusChip state={displayStateFor(r.state, effectiveAgeMs(r.age_ms, board.age_ms))} /></td>
                   </tr>
                 ))}
               </tbody>

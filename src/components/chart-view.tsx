@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createChart, ColorType, CandlestickSeries, type IChartApi, type ISeriesApi, type IPriceLine, type UTCTimestamp } from "lightweight-charts";
 import { useLang } from "./lang";
 import { usePoll, formatPrice, fmtAge } from "./hooks";
+import { effectiveAgeMs } from "./board-selectors";
 import { Badge, Panel } from "./ui";
 
 const TFS = ["1m", "5m", "15m", "30m", "45m", "1h", "2h", "4h", "8h", "1d"] as const;
@@ -255,7 +256,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
                 from {new Date(historyBySeries[seriesKey]!.earliest! * 1000).toISOString().slice(0, 10)}
               </span>
             )}
-            <span className="text-dim">age {candles.data ? fmtAge(candles.data.age_ms ?? null) : "…"}</span>
+            <span className="text-dim">age {candles.data ? fmtAge(effectiveAgeMs(candles.data.age_ms ?? null, candles.age_ms)) : "…"}</span>
           </div>
         </div>
         <div ref={chartRef} style={{ height: 540 }} />

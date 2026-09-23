@@ -2,7 +2,7 @@
 /** Design-system chrome: header (TTT state + red RTT/ping), nav, footer. */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useSyncExternalStore, useState, type ReactNode } from "react";
 import { useLang } from "./lang";
 import { stateColor } from "./hooks";
 import { FOOTER_EXACT } from "@/lib/i18n/strings";
@@ -25,12 +25,39 @@ const NAV = [
 
 interface HealthShape { ok: boolean; market: string; reason?: string; ts: number }
 
+/* Browser connectivity via useSyncExternalStore — the idiomatic React
+ * subscription to external browser state (no setState-in-effect). */
+function subscribeOnline(onStoreChange: () => void): () => void {
+  window.addEventListener("online", onStoreChange);
+  window.addEventListener("offline", onStoreChange);
+  return () => {
+    window.removeEventListener("online", onStoreChange);
+    window.removeEventListener("offline", onStoreChange);
+  };
+}
+function getOnline(): boolean {
+  return navigator.onLine;
+}
+/** SSR/hydration snapshot: assume online so the offline banner never
+ *  flashes on first paint; the client snapshot takes over immediately. */
+function getOnlineServer(): boolean {
+  return true;
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { lang, setLang, t } = useLang();
   const path = usePathname();
   const [health, setHealth] = useState<HealthShape | null>(null);
   const [rttMs, setRttMs] = useState<number | null>(null);
   const [tttState, setTttState] = useState<string>("CONNECTING");
+  const [connFails, setConnFails] = useState(0);
+  const [lastReachableMs, setLastReachableMs] = useState<number | null>(null);
+  /**
+   * Browser connectivity via useSyncExternalStore (the idiomatic React way to
+   * subscribe to external browser state — no setState-in-effect). The server
+   * snapshot is `true`, so SSR/hydration never renders the offline banner.
+   */
+  const online = useSyncExternalStore(subscribeOnline, getOnline, getOnlineServer);
 
   useEffect(() => {
     let dead = false;
@@ -44,8 +71,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         setRttMs(ms);
         setHealth(j);
         setTttState(j.market);
+        setConnFails(0);
+        setLastReachableMs(Date.now());
       } catch {
-        if (!dead) { setRttMs(null); setTttState("ERROR"); }
+        if (!dead) { setRttMs(null); setTttState("ERROR"); setConnFails((c) => c + 1); }
       }
     };
     void ping();
@@ -54,6 +83,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   const color = stateColor(tttState);
+
+  /**
+   * Connection state is a SEPARATE axis from market-data state (the TTT dot):
+   * OFFLINE   — browser has no network (navigator.onLine === false)
+   * DEGRADED  — network is up but the AsA server has not answered
+   * OK        — server answered (TTT state in the header dot may still be STALE)
+   * Banner content is text + shape, not color-only; timestamps stay LTR in RTL.
+   */
+  const connState: "OFFLINE" | "DEGRADED" | "OK" =
+    !online ? "OFFLINE" : rttMs === null && connFails > 0 ? "DEGRADED" : "OK";
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -92,6 +131,34 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
           </div>
         </div>
+        {connState !== "OK" && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 border-t hairline px-3 py-1.5 text-[10.5px] font-semibold tracking-wide"
+            style={{
+              color: connState === "OFFLINE" ? "#d9605e" : "#d6a24a",
+              background: connState === "OFFLINE" ? "rgba(217,96,94,0.08)" : "rgba(214,162,74,0.08)",
+            }}
+          >
+            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: "currentColor" }} />
+            <span>{t("conn", connState === "OFFLINE" ? "offline" : "degraded")}</span>
+            <span className="font-normal" style={{ color: "var(--color-muted)" }}>
+              {connState === "OFFLINE" ? t("conn", "noNetwork") : t("conn", "serverUnreachable")}
+              {lastReachableMs !== null && (
+                <>
+                  {" · "}
+                  {t("conn", "lastContact")}{" "}
+                  <span dir="ltr" className="mono">
+                    {new Date(lastReachableMs).toLocaleTimeString("en-GB", { hour12: false })}
+                  </span>
+                </>
+              )}
+              {" · "}
+              {t("conn", "cachedNotLive")}
+            </span>
+          </div>
+        )}
       </header>
 
       <main className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-3">{children}</main>

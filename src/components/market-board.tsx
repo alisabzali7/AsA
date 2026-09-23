@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useLang } from "./lang";
 import { usePoll, formatPrice, stateColor } from "./hooks";
+import { effectiveAgeMs, displayStateFor, BOARD_LIVE_MS } from "./board-selectors";
 import { StatusChip } from "./ui";
 
 interface BoardRow {
@@ -44,7 +45,7 @@ export function MarketBoard({ onFocus, compact = false }: { onFocus?: (s: string
       return next;
     });
   };
-  const { data, loading, error } = usePoll<BoardShape>("/api/market/board", 7000, true, handleBoard);
+  const { data, loading, error, age_ms: sinceResponseMs } = usePoll<BoardShape>("/api/market/board", 7000, true, handleBoard);
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
   const [sortKey, setSortKey] = useState<"symbol" | "change" | "volume" | "funding">("symbol");
   const [dir, setDir] = useState<1 | -1>(1);
@@ -75,11 +76,16 @@ export function MarketBoard({ onFocus, compact = false }: { onFocus?: (s: string
     </th>
   );
 
+  // Effective (client-elapsed) age of the whole sweep: the server's frozen
+  // stats_age_ms plus time since this snapshot arrived. Keeps ticking while
+  // offline, so a cached board can never keep pretending it is fresh.
+  const sweepEff = effectiveAgeMs(data?.stats_age_ms ?? null, sinceResponseMs);
+
   return (
     <div>
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
         <div className="text-[11px] text-muted">
-          {t("board", "title")} · <span className="text-dim">{rows.length} rows (dynamic TTT universe) · stats endpoint /futures/markets/stats · sweep age {data?.stats_age_ms !== null && data?.stats_age_ms !== undefined ? `${Math.round((data.stats_age_ms ?? 0) / 1000)}s` : "…"}</span>
+          {t("board", "title")} · <span className="text-dim">{rows.length} rows (dynamic TTT universe) · stats endpoint /futures/markets/stats · sweep age {sweepEff !== null ? `${Math.round(sweepEff / 1000)}s` : "…"}</span>
         </div>
         {error && <span className="text-[10px]" style={{ color: "#d9605e" }}>{error}</span>}
       </div>
@@ -102,6 +108,7 @@ export function MarketBoard({ onFocus, compact = false }: { onFocus?: (s: string
               const up = r.change24hPct !== null ? r.change24hPct >= 0 : null;
               const flashing = flash[r.symbol] !== undefined;
               const priceColor = r.price === null ? "var(--color-muted)" : "var(--color-text)";
+              const effAge = effectiveAgeMs(r.age_ms, sinceResponseMs);
               return (
                 <tr key={r.symbol} className={r.focus ? "" : ""} style={r.focus ? { background: "rgba(212,184,116,0.05)" } : undefined}>
                   <td>
@@ -132,11 +139,11 @@ export function MarketBoard({ onFocus, compact = false }: { onFocus?: (s: string
                   </td>
                   <td className="mono text-right text-dim">{r.openInterest === null ? "—" : fmtO((r.openInterest))}</td>
                   <td>
-                    <span className="mono text-[10px]" style={{ color: r.age_ms !== null && r.age_ms < 30000 ? "#3fb68b" : "#d6a24a" }}>
-                      {r.age_ms === null ? "—" : `${Math.round((r.age_ms ?? 0) / 1000)}s`}
+                    <span className="mono text-[10px]" style={{ color: effAge !== null && effAge < 30000 ? "#3fb68b" : "#d6a24a" }}>
+                      {effAge === null ? "—" : `${Math.round(effAge / 1000)}s`}
                     </span>
                   </td>
-                  <td><StatusChip state={r.state} /></td>
+                  <td><StatusChip state={displayStateFor(r.state, effAge)} /></td>
                 </tr>
               );
             })}

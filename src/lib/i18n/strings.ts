@@ -43,6 +43,16 @@ export const STRINGS = {
       lastUpdate: "last update",
     },
     board: { title: "TTT Market Universe", subtitle: "TTT /futures/markets/stats — one request per sweep" },
+    conn: {
+      offline: "OFFLINE",
+      degraded: "CONNECTION DEGRADED",
+      noNetwork: "no network connection",
+      serverUnreachable: "AsA server unreachable",
+      lastContact: "last contact",
+      cachedNotLive: "values on screen are cached — not live",
+      providerStatusUnavailable: "provider status unavailable — last received status is shown",
+      questionNotSent: "question not sent — no answer is fabricated",
+    },
     status: {
       CONNECTING: "connecting",
       CONNECTED: "connected",
@@ -113,6 +123,16 @@ export const STRINGS = {
       lastUpdate: "آخرین به‌روزرسانی",
     },
     board: { title: "جهان بازار TTT", subtitle: "TTT — یک درخواست در هر چرخه" },
+    conn: {
+      offline: "آفلاین",
+      degraded: "اتصال ضعیف",
+      noNetwork: "اتصال شبکه قطع است",
+      serverUnreachable: "سرور AsA در دسترس نیست",
+      lastContact: "آخرین تماس",
+      cachedNotLive: "مقادیر روی صفحه از حافظهٔ پویا هستند — زنده نیستند",
+      providerStatusUnavailable: "وضعیت ارائه‌دهنده‌ها در دسترس نیست — آخرین وضعیت دریافت‌شده نمایش داده می‌شود",
+      questionNotSent: "پرسش ارسال نشد — پاسخی ساختگی داده نمی‌شود",
+    },
     status: {
       CONNECTING: "در حال اتصال",
       CONNECTED: "متصل",
