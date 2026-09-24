@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { ensureEngineBooted } from "@/lib/state";
 import { sharedStore } from "@/lib/market/store";
-import { operationalUniverse } from "@/lib/market/operational-universe";
+import { operationalUniverse, universeMeta } from "@/lib/market/operational-universe";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,21 @@ export async function GET(): Promise<NextResponse> {
   try {
     await ensureEngineBooted();
   } catch {
-    /* degraded board */
+    /* degraded board: reported through universe state below */
+  }
+  const meta = universeMeta();
+  if (!meta.discovery_complete) {
+    return NextResponse.json({
+      ok: false,
+      source: "ttt",
+      state: meta.state,
+      error: `TTT discovery is ${meta.state}; market board is not ready`,
+      last_error: meta.last_error,
+      rows: [],
+      stats_age_ms: null,
+      universe: meta,
+      ts: Date.now(),
+    }, { status: 503 });
   }
   const now = Date.now();
   const focus = sharedStore.focusSymbol;
@@ -54,6 +68,7 @@ export async function GET(): Promise<NextResponse> {
     source: "ttt",
     endpoint: "/futures/markets/stats",
     stats_age_ms: sharedStore.lastStatsSweepAtMs === null ? null : now - sharedStore.lastStatsSweepAtMs,
+    universe: meta,
     focus,
     rows,
     ts: now,

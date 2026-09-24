@@ -14,6 +14,8 @@ Groups:
 
 Conventions: unavailable → `{ available: false, state, reason }`; never `0` for unknown; freshness as ages + RTTs in every payload; states from the state taxonomy (CONNECTING/CONNECTED/LIVE/DEGRADED/STALE/UNAVAILABLE/NOT_CONFIGURED/INSUFFICIENT_DATA/ERROR/READY/REJECTED/COOLDOWN).
 
+Market runtime: TTT discovery is the production universe source. While discovery is `NOT_READY`, `NETWORK_FAILURE`, or `INVALID_RESPONSE`, symbol-validating market/analysis routes return `ok:false` with HTTP 503 and machine-readable `universe`/`state` metadata; they do not relabel a symbol as invalid and do not fall back to the legacy regression set. `/api/market/board` and `/api/market/prices` include `universe` metadata on success and return 503 when no discovered universe exists. Focus-lane surfaces (`/trades`, `/orderbook`) return `{ available:false, state:"UNAVAILABLE", reason }` until their lane has actually measured data.
+
 Write protection: if `ASA_API_TOKEN` is set, mutating routes (config POST, journal POST/DELETE, ai analyze, ai-clone) require header `x-asa-token`. Local default: open (documented), token recommended on shared machines/VPS.
 
 Versioning: additive-only within v1; breaking changes under new route suffix.

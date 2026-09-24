@@ -66,8 +66,10 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
   const loadingRef = useRef(false);
 
   const symState = usePoll<SymbolsShape>("/api/market/symbols", 600_000);
-  const candles = usePoll<CandlesShape>(`/api/market/candles?symbol=${symbol}&tf=${tf}&limit=${INITIAL_VIEWPORT_BARS}&refresh=1`, tf === "1m" ? 12000 : 20000);
-  const analysis = usePoll<AnalysisShape>(`/api/analysis/${symbol}/${tf}`, 30000);
+  const availableSymbols = symState.data?.symbols ?? [];
+  const activeSymbol = availableSymbols.length > 0 && !availableSymbols.includes(symbol) ? availableSymbols[0] : symbol;
+  const candles = usePoll<CandlesShape>(`/api/market/candles?symbol=${activeSymbol}&tf=${tf}&limit=${INITIAL_VIEWPORT_BARS}&refresh=1`, tf === "1m" ? 12000 : 20000);
+  const analysis = usePoll<AnalysisShape>(`/api/analysis/${activeSymbol}/${tf}`, 30000);
   const focus = usePoll<{ symbol: string }>("/api/market/focus", 30000);
 
   // create chart once
@@ -95,11 +97,11 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
 
   // symbol change -> set server focus (advisory preference; mutation-guarded route)
   useEffect(() => {
-    if (focus.data && focus.data.symbol !== symbol) {
-      fetch("/api/market/focus", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol }) }).catch(() => {});
+    if (focus.data && focus.data.symbol !== activeSymbol) {
+      fetch("/api/market/focus", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: activeSymbol }) }).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol]);
+  }, [activeSymbol]);
 
   /**
    * Reset progressive history when the series identity changes.
@@ -107,14 +109,14 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
    * simply selects a different bucket — no state reset is required, which keeps
    * this free of effect-driven setState.
    */
-  const seriesKey = `${symbol}|${tf}`;
+  const seriesKey = `${activeSymbol}|${tf}`;
 
   /**
    * Pull one page of OLDER durable history from /api/market/history.
    * Deduplicates by timestamp and keeps ascending order.
    */
   const loadOlder = useCallback(async () => {
-    const key = `${symbol}|${tf}`;
+    const key = `${activeSymbol}|${tf}`;
     const bucket = historyBySeries[key];
     if (loadingRef.current || bucket?.exhausted) return;
     const live = candles.data?.candles ?? [];
@@ -125,7 +127,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
     loadingRef.current = true;
     setLoadingOlder(true);
     try {
-      const r = await fetch(`/api/market/history?symbol=${symbol}&tf=${tf}&to=${oldest - 1}&limit=${PAGE_BARS}`);
+      const r = await fetch(`/api/market/history?symbol=${activeSymbol}&tf=${tf}&to=${oldest - 1}&limit=${PAGE_BARS}`);
       const j = (await r.json()) as {
         ok: boolean;
         candles?: { t: number; o: number; h: number; l: number; c: number }[];
@@ -154,7 +156,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
       loadingRef.current = false;
       setLoadingOlder(false);
     }
-  }, [symbol, tf, candles.data, historyBySeries]);
+  }, [activeSymbol, tf, candles.data, historyBySeries]);
 
   // candles into series: DURABLE_HISTORY pages + the live COMPUTE_WINDOW
   useEffect(() => {
@@ -166,7 +168,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
     const merged = [...byTs.values()].sort((a, b) => a.t - b.t);
     s.setData(merged.map((c) => ({ time: c.t as UTCTimestamp, open: c.o, high: c.h, low: c.l, close: c.c })));
     if ((historyBySeries[seriesKey]?.bars.length ?? 0) === 0) chartApi.current?.timeScale().fitContent();
-  }, [candles.data, historyBySeries, seriesKey, tf, symbol]);
+  }, [candles.data, historyBySeries, seriesKey, tf, activeSymbol]);
 
   // scrolling to the left edge pulls the next page of durable history
   useEffect(() => {
@@ -217,7 +219,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
           <select
             aria-label="symbol"
             className="input w-[130px] px-2 py-1 text-[12.5px] font-semibold"
-            value={symbol}
+            value={activeSymbol}
             onChange={(e) => setSymbol(e.target.value)}
           >
             {(symState.data?.symbols ?? []).map((s) => <option key={s} value={s}>{s}</option>)}
@@ -235,6 +237,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
             ))}
           </div>
           <div className="ml-auto flex items-center gap-1.5 text-[9.5px]">
+            {candles.error && <Badge color="#d9605e">candles {candles.error}</Badge>}
             {chartSrc && <Badge color={chartSrc === "NATIVE" ? "#3fb68b" : "#d6a24a"}>{chartSrc}{candles.data?.derived_source_tf ? ` from ${candles.data.derived_source_tf}` : ""}</Badge>}
             {coverage && coverage.status === "PARTIAL" && <Badge color="#d6a24a">gaps {coverage.gap_count}</Badge>}
             {candles.data?.bars !== undefined && (
@@ -269,7 +272,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
       </Panel>
 
       <div className="flex flex-col gap-2">
-        <Panel title={`${symbol} · ${tf} analysis`}>
+        <Panel title={`${activeSymbol} · ${tf} analysis`}>
           {analysis.data?.available === false && <div className="text-[11px] text-muted">analysis pending series…</div>}
           {analysis.data?.bundle && (
             <div className="grid grid-cols-2 gap-1.5">
@@ -299,7 +302,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
             <li>· candles: TTT /futures/udf/history {candles.data?.native === true ? "(native)" : candles.data?.native === false ? "(derived fallback)" : ""}</li>
             <li>· 1D served NATIVE by TTT (verified); derived fallback is labeled</li>
             <li>· forming bar: TTT stats price, drawn as a labeled line — not a candle</li>
-            <li>· refresh: symbol {symbol} / TF {tf} / lang {lang}</li>
+            <li>· refresh: symbol {activeSymbol} / TF {tf} / lang {lang}</li>
           </ul>
         </Panel>
       </div>

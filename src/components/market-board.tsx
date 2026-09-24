@@ -56,7 +56,7 @@ export function MarketBoard({ onFocus, compact = false }: { onFocus?: (s: string
       switch (sortKey) {
         case "change": return r.change24hPct ?? -Infinity;
         case "volume": return r.volume24hQuote ?? -Infinity;
-        case "funding": return r.fundingRate ?? 0;
+        case "funding": return r.fundingRate ?? -Infinity;
         default: return r.symbol;
       }
     };

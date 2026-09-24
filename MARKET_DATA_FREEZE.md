@@ -4,6 +4,8 @@
 **App version:** `asa@6.0.0` · **Commit:** `f3c1727` · **Build id:** `asa@6.0.0+f3c1727`
 **Verified live against** `https://apiv2.thetruetrade.io` on 2026-09-09.
 
+> Historical freeze note: exact market counts, cached-bar totals and test counts in this file are the 2026-09-09 freeze evidence, not a live status claim for the current branch. Current runtime status is exposed by `/api/market/symbols`, `/api/market/sync-status` and `/api/system/status`.
+
 ---
 
 ## 1. Market discovery architecture

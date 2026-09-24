@@ -11,7 +11,7 @@ import { describeFreshSync } from "@/lib/backtest/data-freshness";
 import type { TimeframeId } from "@/lib/domain/timeframes";
 import { getRepo } from "@/db/sqlite";
 import { guardMutation, readBody } from "@/lib/api-common";
-import { isOperationalSymbol } from "@/lib/market/operational-universe";
+import { isOperationalSymbol, universeMeta } from "@/lib/market/operational-universe";
 import { runBacktest, type BacktestInput } from "@/lib/backtest/engine";
 import { getRuntimeStrategy } from "@/lib/strategy/runtime";
 
@@ -32,7 +32,15 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
   const rawSym = typeof body.symbol === "string" ? body.symbol.toUpperCase() : "BTCUSDT";
-  if (!isOperationalSymbol(rawSym)) return NextResponse.json({ ok: false, error: "symbol not in the operational TTT universe" }, { status: 400 });
+  try {
+    await ensureEngineBooted();
+  } catch {
+    /* degraded — surfaced through validation/data-freshness below */
+  }
+  if (!isOperationalSymbol(rawSym)) {
+    const meta = universeMeta();
+    return NextResponse.json({ ok: false, error: "symbol not in the operational TTT universe", universe: meta }, { status: meta.discovery_complete ? 400 : 503 });
+  }
   const sameBarPolicy = body.sameBarPolicy === "target_first" ? "target_first" : "stop_first";
   // AUDIT FIX (P0-7): the previous code accepted `dataMode: "fixture"` from the
   // body while ALWAYS reading candles from the TTT history store — the lineage
@@ -40,11 +48,6 @@ export async function POST(req: Request): Promise<NextResponse> {
   // route actually does: TTT stored history.
   const dataMode = "ttt" as const;
 
-  try {
-    await ensureEngineBooted();
-  } catch {
-    /* degraded — surfaced through the data-freshness contract below */
-  }
   // Use the STRATEGY'S OWN timeframe — never a hard-coded 15m for everything.
   const tf = strat.timeframe as TimeframeId;
   // History comes from the SHARED TTT history manager (remediation §16): the

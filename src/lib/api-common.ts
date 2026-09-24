@@ -5,7 +5,7 @@
  */
 import { NextResponse } from "next/server";
 import { ASA_API_TOKEN } from "./env";
-import { isOperationalSymbol } from "./market/operational-universe";
+import { isOperationalSymbol, universeMeta } from "./market/operational-universe";
 import { isTimeframe, type TimeframeId } from "./domain/timeframes";
 
 export function json(data: unknown, init?: { status?: number }): NextResponse {
@@ -31,7 +31,19 @@ export function sym(q: QueryBag, key = "symbol", fallback?: string): { symbol?: 
   const s = raw.trim().toUpperCase();
   // Validated against the DYNAMIC operational universe discovered from TTT,
   // not a hard-coded list — a newly listed contract is accepted immediately.
-  if (!isOperationalSymbol(s)) return { error: jsonError(`symbol '${s}' is not in the operational TTT universe (permanently excluded symbols are always rejected)`) };
+  if (!isOperationalSymbol(s)) {
+    const meta = universeMeta();
+    if (!meta.discovery_complete) {
+      return {
+        error: jsonError(
+          `market universe is ${meta.state}; cannot validate symbol '${s}' without TTT discovery`,
+          503,
+          { state: meta.state, source: meta.source, last_error: meta.last_error, degraded: "DISCOVERY_UNAVAILABLE" },
+        ),
+      };
+    }
+    return { error: jsonError(`symbol '${s}' is not in the operational TTT universe (permanently excluded symbols are always rejected)`) };
+  }
   return { symbol: s };
 }
 

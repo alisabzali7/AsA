@@ -4,6 +4,7 @@
  * reason; nothing is invented and nothing missing is shown as zero.
  */
 import { NextResponse } from "next/server";
+import { ensureEngineBooted } from "@/lib/state";
 import { sharedStore } from "@/lib/market/store";
 import { sym } from "@/lib/api-common";
 
@@ -16,6 +17,7 @@ const METRICS = [
 ] as const;
 
 export async function GET(req: Request): Promise<NextResponse> {
+  try { await ensureEngineBooted(); } catch { /* sym() reports NOT_READY when discovery is unavailable */ }
   const url = new URL(req.url);
   const { symbol, error } = sym(url.searchParams, "symbol", sharedStore.focusSymbol);
   if (error) return error;

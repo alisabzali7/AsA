@@ -18,7 +18,9 @@ export function ensureEngineBooted(): Promise<void> {
   if (gg.__asaBootPromise) return gg.__asaBootPromise;
   const p = marketEngine
     .start()
-    .then(() => undefined)
+    .then(() => {
+      gg.__asaBootError = undefined;
+    })
     .catch((err) => {
       gg.__asaBootError = err instanceof Error ? err.message : String(err);
       gg.__asaBootPromise = undefined; // allow retry on next request
@@ -33,5 +35,5 @@ export function bootError(): string | null {
 }
 
 export function isBooted(): boolean {
-  return marketEngine.bootedAtMs !== null;
+  return marketEngine.isRunning();
 }
