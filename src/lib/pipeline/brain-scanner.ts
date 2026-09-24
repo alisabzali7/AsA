@@ -9,7 +9,7 @@
  * candles are missing/stale is dropped before any detector runs, and the AI
  * layer is never invoked here — AI only ever sees already-admitted candidates.
  */
-import type { Candle } from "../domain/types";
+import type { Candle, CandleSeries } from "../domain/types";
 import { isOperationalSymbol } from "../market/operational-universe";
 import { COMPILED_STRATEGIES, evaluateCompiled, type CompiledEvaluation } from "../strategy/compiled";
 import { evaluateRisk } from "../risk/engine";
@@ -17,6 +17,8 @@ import { evaluatePortfolio, type OpenRisk } from "../risk/portfolio";
 import { evaluatePsychologyGate, defaultPsychologyState, type PsychologyState } from "../psychology/gate";
 import { admitOpportunity, SCORE_DISCLAIMER, type ScoreResult } from "../brain/score";
 import { scoreFromEvaluation } from "./scoring";
+import { prepareAnalysisInput } from "../analysis/input";
+import { tfStalenessMs } from "./freshness";
 import type { PsychologyPolicy, RiskPolicy, SourceRef } from "../brain/types";
 import type { EmpiricalStatus } from "../brain/types";
 
@@ -76,36 +78,6 @@ export interface ScanResult {
   duration_ms: number;
 }
 
-/**
- * Build the score from deterministic evidence only.
- *
- * AUDIT FIX (§J): this used to DUPLICATE scoreFromEvaluation minus the
- * unknown-rule (−3 each) and contradiction (−10 each) penalties, so the
- * scanner systematically over-scored candidates relative to the advisory
- * pipeline. It now DELEGATES to the single shared implementation (closure §J:
- * "ONE function ... so the scanner cannot drift apart").
- */
-function scoreCandidate(
-  ev: CompiledEvaluation,
-  riskPass: boolean,
-  psychPenalty: number,
-  psychReady: boolean,
-  barsAvailable: number,
-  stale: boolean,
-): ScoreResult {
-  // Contradiction derivation mirrors the orchestrator exactly: contradictions
-  // come from the rule layer, never hard-coded.
-  const contradictions = ev.setup.blocked_rules.map((id) => `rule ${id} is BLOCKED (non-computable or invalidation fired)`);
-  return scoreFromEvaluation(ev, {
-    riskPass,
-    psychReady,
-    psychPenalty,
-    bars: barsAvailable,
-    stale,
-    contradictions,
-  });
-}
-
 export function scanForOpportunities(input: ScanInput): ScanResult {
   const started = Date.now();
   const now = input.now ?? started;
@@ -122,42 +94,59 @@ export function scanForOpportunities(input: ScanInput): ScanResult {
     }
 
     for (const strat of COMPILED_STRATEGIES) {
-      const candles = byTf.get(strat.timeframe);
+      const rawCandles = byTf.get(strat.timeframe);
 
       // CHEAP FILTER 2: data presence and depth, before any detector runs
-      if (!candles || candles.length < strat.min_bars) {
-        skipped.push({ symbol, reason: `${strat.setup_id}: needs ${strat.min_bars} ${strat.timeframe} bars, has ${candles?.length ?? 0}` });
+      if (!rawCandles || rawCandles.length < strat.min_bars) {
+        skipped.push({ symbol, reason: `${strat.setup_id}: needs ${strat.min_bars} ${strat.timeframe} bars, has ${rawCandles?.length ?? 0}` });
         continue;
       }
-      const lastBar = candles[candles.length - 1];
-      const ageMs = now - lastBar.t * 1000;
-      const stale = ageMs > input.maxStalenessMs;
+      // ANALYSIS INPUT CONTRACT: drop the forming bar; measure age from the
+      // last CLOSED bar's close, never from bar-open or retrieval time.
+      const series: CandleSeries = {
+        symbol,
+        timeframe: strat.timeframe,
+        candles: rawCandles,
+        native: true,
+        source: "ttt",
+        fetched_at_ms: now,
+      };
+      const prepared = prepareAnalysisInput(symbol, strat.timeframe, series, now);
+      const candles = prepared.candles;
+      if (candles.length < strat.min_bars) {
+        skipped.push({ symbol, reason: `${strat.setup_id}: needs ${strat.min_bars} closed ${strat.timeframe} bars, has ${candles.length}${prepared.reason ? ` (${prepared.reason})` : ""}` });
+        continue;
+      }
+      const ageMs = prepared.data_age_ms;
+      const stale = prepared.freshness !== "FRESH" || (ageMs !== null && ageMs > tfStalenessMs(strat.timeframe));
 
       evaluated++;
       const ev = evaluateCompiled(strat, symbol, candles, now);
 
-      // risk sizing (only meaningful with complete levels)
+      // risk sizing (only meaningful with complete levels AND a specified policy)
       let riskOut: ScanCandidate["risk"] = null;
       let riskPass = false;
-      let riskAmount = 0;
-      if (ev.levels.entry !== null && ev.levels.stop !== null) {
+      let riskAmount: number | null = null;
+      const riskPct = input.riskPolicy.risk_per_trade_pct;
+      const maxLev = input.riskPolicy.max_leverage;
+      if (ev.levels.entry !== null && ev.levels.stop !== null && riskPct != null && maxLev != null) {
         const r = evaluateRisk({
           symbol, direction: ev.direction, entry: ev.levels.entry, stop: ev.levels.stop,
-          equity: input.equity, riskPerTradePct: input.riskPolicy.risk_per_trade_pct ?? 1,
-          maxLeverage: input.riskPolicy.max_leverage ?? 5,
+          equity: input.equity, riskPerTradePct: riskPct,
+          maxLeverage: maxLev,
           venueMaxLeverage: null, maintenanceMarginRate: null, takerFeeCoefficient: null,
         });
         riskPass = r.verdict === "pass";
-        riskAmount = r.numbers.risk_notional ?? 0;
+        riskAmount = typeof r.numbers.risk_notional === "number" ? r.numbers.risk_notional : null;
         riskOut = { verdict: r.verdict, reasons: r.reasons, numbers: r.numbers as unknown as Record<string, unknown> };
       }
 
-      // portfolio gate
+      // portfolio gate — omitted measurements stay null, never 0
       const portfolio = evaluatePortfolio({
         equity: input.equity, policy: input.riskPolicy,
-        open_risks: input.openRisks ?? [],
-        daily_realized_loss: input.dailyRealizedLoss ?? 0,
-        period_realized_loss: input.periodRealizedLoss ?? 0,
+        open_risks: input.openRisks !== undefined ? input.openRisks : null,
+        daily_realized_loss: input.dailyRealizedLoss !== undefined ? input.dailyRealizedLoss : null,
+        period_realized_loss: input.periodRealizedLoss !== undefined ? input.periodRealizedLoss : null,
         candidate: { symbol, risk_amount: riskAmount, direction: ev.direction },
       });
 
@@ -169,7 +158,15 @@ export function scanForOpportunities(input: ScanInput): ScanResult {
       };
       const psych = evaluatePsychologyGate(input.psychologyPolicies, pstate);
 
-      const score = scoreCandidate(ev, riskPass, psych.score_penalty, psych.verdict !== "block", candles.length, stale);
+      const score = scoreFromEvaluation(ev, {
+        riskPass,
+        riskEvaluated: riskOut != null,
+        psychReady: psych.verdict !== "block",
+        psychPenalty: psych.score_penalty,
+        bars: candles.length,
+        stale,
+        contradictions: ev.setup.blocked_rules.map((id) => `rule ${id} is BLOCKED (non-computable or invalidation fired)`),
+      });
 
       const runtimeStatus = input.runtimeStatus[strat.strategy_id] ?? "DISABLED";
       const empirical = input.empiricalStatus[strat.strategy_id] ?? "UNTESTED";
@@ -187,7 +184,7 @@ export function scanForOpportunities(input: ScanInput): ScanResult {
         threshold: input.scoreThreshold,
         data_quality_ok: candles.length >= strat.min_bars && !stale,
         stale,
-        risk_verdict: riskPass ? "pass" : "block",
+        risk_verdict: riskOut == null ? "unavailable" : riskPass ? "pass" : "block",
         portfolio_verdict: portfolio.verdict,
         psychology_verdict: psych.verdict,
         strategy_runtime_status: runtimeStatus,

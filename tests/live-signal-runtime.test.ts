@@ -180,6 +180,11 @@ afterAll(() => {
 beforeEach(() => {
   photoCalls = 0; textCalls = 0; photoResults = []; textResults = [];
   live.resetLiveScanDedupe();
+  // Isolate each case from the advisory open book of previous cases. Concurrency
+  // / heat of still-published signals is covered in decision-truth-recovery.
+  for (const s of repo.signalList(500)) {
+    if (s.state === "published" || s.state === "qualified") repo.signalUpdate({ id: s.id, state: "expired" });
+  }
 });
 
 describe("T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox", () => {

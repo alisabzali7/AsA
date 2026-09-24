@@ -16,6 +16,9 @@ export async function GET(req: Request): Promise<NextResponse> {
     // INTERFACE (Task 3): freshness is timeframe-aware — pass the row's own
     // timeframe so the 4-bar window matches the strategy that produced it.
     const fresh = opportunityFreshness((payload.anchor_close_ms as number | null) ?? null, now, r.timeframe);
+    const decisionState = r.state;
+    // Freshness is NOT the decision. READY freshness on a REJECTED row must
+    // never present as an actionable opportunity.
     return {
       ...payload,
       id: r.id,
@@ -25,11 +28,19 @@ export async function GET(req: Request): Promise<NextResponse> {
       score: r.score,
       mode: r.mode,
       strategy_id: r.strategy_id,
+      state: decisionState,
       created_ms: r.created_ms,
       updated_ms: r.updated_ms,
       fresh: fresh.state,
       age_ms: fresh.age_ms,
-      note: "85 is a deterministic score — never a calibrated probability",
+      freshness: {
+        state: fresh.state === "EXPIRED" ? "EXPIRED" : "WITHIN_WINDOW",
+        age_ms: fresh.age_ms,
+        window_bars: 4,
+        timeframe: r.timeframe,
+      },
+      actionable: decisionState === "READY" && fresh.state === "READY",
+      note: "85 is a deterministic score — never a calibrated probability. fresh=READY means the anchor is inside the 4-bar window, not that the decision was admitted.",
     };
   });
   return NextResponse.json({ ok: true, count: items.length, items, ts: now });

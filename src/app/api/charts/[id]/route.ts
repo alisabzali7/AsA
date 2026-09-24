@@ -19,6 +19,7 @@ import { isOperationalSymbol } from "@/lib/market/operational-universe";
 import { renderEvidenceSvg, renderEvidencePng } from "@/lib/chart/render";
 import { getHistoryStore } from "@/lib/market/history-store";
 import type { ChartEvidence } from "@/lib/chart/evidence";
+import { chartEvidenceMatches } from "@/lib/chart/evidence";
 import type { TimeframeId } from "@/lib/domain/timeframes";
 
 export const dynamic = "force-dynamic";
@@ -64,10 +65,21 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     );
   }
 
+  if (!chartEvidenceMatches(evidence, { symbol: opp.symbol, timeframe: opp.timeframe, direction: opp.direction as "long" | "short" })) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "chart evidence identity mismatch",
+        reason: `stored evidence is ${evidence.symbol}@${evidence.timeframe} ${evidence.direction}, opportunity is ${opp.symbol}@${opp.timeframe} ${opp.direction} — refusing to render contaminated lineage`,
+      },
+      { status: 409 },
+    );
+  }
+
   // Candles on the STRATEGY'S OWN timeframe — never a hard-coded 15m.
   // History comes from the durable store (full TTT-available range); the
   // optional `bars` param is a TRANSPORT window for rendering only.
-  const tf = (evidence.timeframe || opp.timeframe) as TimeframeId;
+  const tf = opp.timeframe as TimeframeId;
   const url = new URL(_req.url);
   const barsParam = Number(url.searchParams.get("bars") ?? NaN);
   const renderWindow = Number.isFinite(barsParam) && barsParam > 0 ? Math.floor(barsParam) : undefined;

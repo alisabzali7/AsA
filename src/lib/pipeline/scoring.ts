@@ -14,6 +14,8 @@ import type { CompiledEvaluation } from "../strategy/compiled";
 
 export interface ScoreContext {
   riskPass: boolean;
+  /** false when the risk engine was not run (missing entry/stop) — not a measured block */
+  riskEvaluated?: boolean;
   psychReady: boolean;
   psychPenalty: number;
   bars: number;
@@ -62,7 +64,9 @@ export function scoreFromEvaluation(ev: CompiledEvaluation, ctx: ScoreContext): 
       reward_risk_quality: ev.rr !== null
         ? { achieved: Math.min(1, ev.rr / 3), reason: `R:R ${ev.rr} (full marks at 3R)`, evidence_kind: "MEASURED" }
         : { achieved: null, reason: "R:R not computable — target or stop missing", evidence_kind: "UNKNOWN" },
-      risk_quality: { achieved: ctx.riskPass ? 1 : 0, reason: ctx.riskPass ? "risk engine passed" : "risk engine blocked", evidence_kind: "MEASURED" },
+      risk_quality: ctx.riskEvaluated === false
+        ? { achieved: null, reason: "risk engine not evaluated (entry/stop missing) — not a measured block", evidence_kind: "UNKNOWN" }
+        : { achieved: ctx.riskPass ? 1 : 0, reason: ctx.riskPass ? "risk engine passed" : "risk engine blocked", evidence_kind: "MEASURED" },
       data_quality: {
         achieved: ctx.stale ? 0 : Math.min(1, ctx.bars / 200),
         reason: ctx.stale ? "market data is stale" : `${ctx.bars} closed bars available`,

@@ -8,14 +8,13 @@ import { createHash } from "node:crypto";
 import { sharedStore } from "../market/store";
 import { candleManager } from "../market/candles";
 import { prepareAnalysisInput } from "../analysis/input";
-import { buildPsychology } from "../psychology/engine";
 import { getRepo } from "../../db/sqlite";
 import { promotedRuntimeStatus } from "../backtest/promotion";
 import { getRuntimeStrategy, listRuntimeStrategies, evaluateRuntime, type StrategyRuntimeDefinition } from "../strategy/runtime";
 import { evaluateRisk } from "../risk/engine";
 import { evaluatePortfolio } from "../risk/portfolio";
-import { evaluatePsychologyGate, defaultPsychologyState } from "../psychology/gate";
-import { computeScore, admitOpportunity, SCORE_DISCLAIMER, type ScoreResult } from "../brain/score";
+import { evaluatePsychologyGate } from "../psychology/gate";
+import { admitOpportunity, SCORE_DISCLAIMER, type ScoreResult } from "../brain/score";
 import { buildPsychologyPolicies } from "../brain/policies";
 import { getProductionRiskPolicy } from "../risk/policy";
 import { scoreFromEvaluation } from "./scoring";
@@ -24,6 +23,10 @@ import { eventBus } from "../events";
 import { getRiskPrefs } from "../prefs";
 import { ASA_SCORE_THRESHOLD } from "../env";
 import type { TimeframeId } from "../domain/timeframes";
+import { loadLiveGateContext } from "./live-gates";
+import { opportunityFreshness } from "./freshness";
+
+export { opportunityFreshness, tfBarMs, tfStalenessMs } from "./freshness";
 
 export const OPPORTUNITY_STATES = ["SCANNING", "ANALYZING", "CANDIDATE", "RISK_CHECK", "READY", "REJECTED", "COOLDOWN", "EXPIRED"] as const;
 export const SIGNAL_STATES = ["candidate", "qualified", "blocked_by_risk", "published", "expired", "invalidated", "closed", "archived"] as const;
@@ -56,8 +59,22 @@ export interface OpportunityPayload {
   blocked_factors: string[];
   unknown_factors: string[];
   source_refs: { file: string; start_line: number; end_line: number }[];
-  data_quality: { bars: number; stale: boolean; age_ms: number | null; state: string };
-  psychology: { state: string; hard_blocks: string[]; soft_warnings: string[]; score_modifier: number } | null;
+  data_quality: {
+    bars: number;
+    stale: boolean;
+    age_ms: number | null;
+    state: string;
+    source_ts_ms?: number | null;
+    native?: boolean;
+    forming_bar_excluded?: boolean;
+  };
+  psychology: {
+    state: string;
+    hard_blocks: string[];
+    soft_warnings: string[];
+    score_modifier: number;
+    not_evaluated?: string[];
+  } | null;
   portfolio: { verdict: string; reasons: string[]; unenforced: string[] } | null;
   setup_id: string | null;
   score_semantics: string;
@@ -75,27 +92,6 @@ export interface OpportunityPayload {
       candles: { macro: number | null; context: number | null; trigger: number | null };
     };
   };
-}
-
-/**
- * Freshness rule: anchor older than 4 closed bars of the OPPORTUNITY'S OWN
- * timeframe -> EXPIRED. The timeframe is REQUIRED (typed data, not a hidden
- * default): anchors are the strategy's own tf close — never a 15m trigger —
- * so measuring them against a hardcoded 15-minute bar would wrongly expire
- * 1h/1d opportunities while their own bars are still inside the admission
- * staleness contract (`tfStalenessMs`). Bars come from the SAME table
- * (`tfBarMs`), keeping freshness and staleness one authority.
- */
-export function opportunityFreshness(
-  anchor_close_ms: number | null,
-  nowMs: number,
-  timeframe: string,
-): { state: "READY" | "EXPIRED"; age_ms: number | null } {
-  if (anchor_close_ms === null) return { state: "EXPIRED", age_ms: null };
-  const age = nowMs - anchor_close_ms;
-  return age <= 4 * tfBarMs(timeframe)
-    ? { state: "READY", age_ms: age }
-    : { state: "EXPIRED", age_ms: age };
 }
 
 export function idFor(symbol: string, tf: string, direction: string, strategyId: string, anchorSec: number): string {
@@ -157,9 +153,8 @@ export async function scanSymbol(
   const anchorSec = candles[candles.length - 1].t;
   // SOURCE age = time since the last CLOSED bar actually closed (open + period).
   const anchorCloseMs = input.source_ts_ms as number;
-  const ageMs = nowMs - anchorCloseMs;
-  const staleAfter = tfStalenessMs(tf);
-  const stale = ageMs > staleAfter;
+  const ageMs = input.data_age_ms ?? (nowMs - anchorCloseMs);
+  const stale = input.freshness !== "FRESH";
 
   // ---- deterministic strategy evaluation (same call the backtester makes)
   const evOrBlocked = evaluateRuntime(strategy, symbol, candles, nowMs);
@@ -167,6 +162,7 @@ export async function scanSymbol(
     return { opportunity: null, evaluated: false, reason: evOrBlocked.reason };
   }
   const ev = evOrBlocked;
+  const id = idFor(symbol, tf, ev.direction, strategy.setup_id, anchorSec);
 
   // ---- risk (direction-safe, target-aware)
   const meta = sharedStore.catalog.get(symbol);
@@ -195,21 +191,25 @@ export async function scanSymbol(
     });
   }
   const riskPass = risk?.verdict === "pass";
+  const riskVerdict: "pass" | "block" | "unavailable" = risk == null ? "unavailable" : risk.verdict === "pass" ? "pass" : "block";
 
-  // ---- psychology (real gate, hard blocks cannot be overridden)
-  const psych = evaluatePsychologyGate(buildPsychologyPolicies(), {
-    ...defaultPsychologyState(),
+  // ---- psychology + portfolio from MEASURED sources (journal / advisory book).
+  // Never default consecutive losses, daily PnL or open exposure to zero.
+  const repoForGates = getRepo();
+  const gates = loadLiveGateContext(repoForGates, nowMs, {
     daily_loss_limit_pct: policy.daily_loss_limit_pct,
+    excludeOppId: id,
   });
+  const psych = evaluatePsychologyGate(buildPsychologyPolicies(), gates.psychology);
 
-  // ---- portfolio
+  const riskAmount = typeof risk?.numbers.risk_notional === "number" ? risk.numbers.risk_notional : null;
   const portfolio = evaluatePortfolio({
     equity: rp.equity,
     policy,
-    open_risks: [],
-    daily_realized_loss: 0,
-    period_realized_loss: 0,
-    candidate: { symbol, risk_amount: risk?.numbers.risk_notional ?? 0, direction: ev.direction },
+    open_risks: gates.open_risks,
+    daily_realized_loss: gates.daily_realized_loss,
+    period_realized_loss: gates.period_realized_loss,
+    candidate: { symbol, risk_amount: riskAmount, direction: ev.direction },
   });
 
   // ---- contradictions come from the rule layer, never hard-coded
@@ -218,6 +218,7 @@ export async function scanSymbol(
   // ---- explainable score (no constants)
   const score = scoreFromEvaluation(ev, {
     riskPass,
+    riskEvaluated: risk != null,
     psychReady: psych.verdict !== "block",
     psychPenalty: psych.score_penalty,
     bars: candles.length,
@@ -236,14 +237,15 @@ export async function scanSymbol(
     setup_verdict: ev.setup.outcome,
     score: score.score,
     threshold: getScoreThreshold(),
-    data_quality_ok: !stale && candles.length >= strategy.min_bars,
+    data_quality_ok: !stale && candles.length >= strategy.min_bars && (mode !== "live" || seriesTrg.native),
     stale,
-    risk_verdict: riskPass ? "pass" : "block",
+    risk_verdict: riskVerdict,
     portfolio_verdict: portfolio.verdict,
     psychology_verdict: psych.verdict,
     strategy_runtime_status: mode === "live" ? runtimeStatusFor(strategy.strategy_id) : "CANDIDATE",
     unresolved_contradiction: contradictions.length > 0,
     unknown_required_fields: unknownFields,
+    derived_market_truth: mode === "live" && seriesTrg.native === false,
     // Live output additionally requires the FULL promotion gate: a strategy
     // that is merely executable, or in-sample BACKTESTED, must never publish a
     // live advisory signal.
@@ -254,7 +256,6 @@ export async function scanSymbol(
     return { opportunity: null, evaluated: true, reason: `setup ${ev.setup.outcome}: ${ev.setup.explanation}` };
   }
 
-  const id = idFor(symbol, tf, ev.direction, strategy.setup_id, anchorSec);
   const oppState = admission.admitted ? "READY" : "REJECTED";
 
   const payload: OpportunityPayload = {
@@ -344,25 +345,6 @@ export async function scanSymbol(
     return { opportunity: payload, evaluated: true, publish };
   }
   return { opportunity: payload, evaluated: true };
-}
-
-/**
- * Closed-bar duration for a timeframe. ONE table, shared by `tfStalenessMs`
- * (admission data quality) and `opportunityFreshness` (READY/EXPIRED) so the
- * two contracts can never drift apart. 15m is only the unknown-tf fallback —
- * strategies declare their own timeframe and it is never hard-coded.
- */
-export function tfBarMs(tf: string): number {
-  const map: Record<string, number> = {
-    "1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000, "45m": 2_700_000,
-    "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000, "8h": 28_800_000, "1d": 86_400_000,
-  };
-  return map[tf] ?? 900_000;
-}
-
-/** Staleness budget = 2 closed bars of the strategy's own timeframe. */
-export function tfStalenessMs(tf: string): number {
-  return tfBarMs(tf) * 2;
 }
 
 /** Admission threshold. Decision score, NOT a probability. */
@@ -586,7 +568,7 @@ export function publishSignal(opp: OpportunityPayload): PublishSignalResult {
  * band of rows for a cycle. The walk is now two-phase: collect every stale id
  * first (no mutation during pagination), then expire them.
  */
-export function expireStaleSignals(maxAgeMs = 60 * 60_000, repo: ReturnType<typeof getRepo> = getRepo()): number {
+export function expireStaleSignals(maxAgeMs?: number, repo: ReturnType<typeof getRepo> = getRepo()): number {
   const now = Date.now();
   // Phase 1: collect. No writes happen while the pages are being read, so the
   // ordering cannot shift underneath the cursor.
@@ -597,9 +579,25 @@ export function expireStaleSignals(maxAgeMs = 60 * 60_000, repo: ReturnType<type
     const page = repo.signalPage(PAGE, offset);
     if (page.length === 0) break;
     for (const s of page) {
-      if ((s.state === "published" || s.state === "qualified") && now - s.updated_ms > maxAgeMs) {
-        staleIds.push(s.id);
+      if (s.state !== "published" && s.state !== "qualified") continue;
+      if (maxAgeMs !== undefined) {
+        // Explicit override (tests / ops): retrieval-age walk, preserved so
+        // pagination regressions stay byte-identical. Production callers omit
+        // this argument and use source-anchor freshness below.
+        if (now - s.updated_ms > maxAgeMs) staleIds.push(s.id);
+        continue;
       }
+      let anchor: number | null = null;
+      let tf = s.timeframe;
+      try {
+        const p = JSON.parse(s.payload_json) as { anchor_close_ms?: unknown; timeframe?: unknown };
+        if (typeof p.anchor_close_ms === "number" && Number.isFinite(p.anchor_close_ms)) anchor = p.anchor_close_ms;
+        if (typeof p.timeframe === "string" && p.timeframe.length > 0) tf = p.timeframe;
+      } catch {
+        /* unreadable payload — cannot claim the signal is still fresh */
+      }
+      // A missing source anchor is EXPIRED, never upgraded by a recent updated_ms.
+      if (opportunityFreshness(anchor, now, tf).state === "EXPIRED") staleIds.push(s.id);
     }
     if (page.length < PAGE) break;
     offset += PAGE;

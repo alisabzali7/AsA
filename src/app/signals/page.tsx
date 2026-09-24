@@ -7,7 +7,15 @@ import { Badge, Empty, Panel, StatusChip } from "@/components/ui";
 
 const LIFECYCLE = ["candidate", "qualified", "blocked_by_risk", "published", "expired", "invalidated", "closed", "archived"];
 
-interface SigItem { id: string; state: string; symbol: string; timeframe: string; direction: string; score: number; strategy_id: string; created_ms: number; updated_ms: number }
+interface DeliveryView {
+  delivery_state?: string; attempts?: number | null; error?: string | null;
+  sent_ms?: number | null; outbox_id?: number | null;
+}
+interface SigItem {
+  id: string; state: string; symbol: string; timeframe: string; direction: string;
+  score: number; strategy_id: string; created_ms: number; updated_ms: number;
+  delivery?: DeliveryView; opp_id?: string | null;
+}
 interface SigShape { ok: boolean; items: SigItem[] }
 interface JItem { id: number; created_ms: number; symbol: string; direction: string; notes: string; r_multiple: number | null }
 interface JShape { ok: boolean; items: JItem[] }
@@ -53,9 +61,13 @@ export default function SignalsPage() {
             <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
               <Badge color="#d4b874">score {s.score}</Badge>
               <Badge>{s.strategy_id}</Badge>
+              <Badge color={s.delivery?.delivery_state === "SENT" ? "#3fb68b" : s.delivery?.delivery_state === "FAILED" || s.delivery?.delivery_state === "DEAD" ? "#d9605e" : undefined}>
+                delivery {s.delivery?.delivery_state ?? "UNLINKED"}
+              </Badge>
               <span className="text-dim">created {new Date(s.created_ms).toLocaleString()}</span>
             </div>
-            <p className="mt-1.5 text-[9.5px] text-dim">Advisory only — AsA has no execution path. The human decides on their venue.</p>
+            {s.delivery?.error && <p className="mt-1 text-[10.5px]" style={{ color: "#d9605e" }}>delivery: {s.delivery.error}</p>}
+            <p className="mt-1.5 text-[9.5px] text-dim">Advisory only — AsA has no execution path. Delivery failure does not change the decision. The human decides on their venue.</p>
           </Panel>
         ))}
       </div>

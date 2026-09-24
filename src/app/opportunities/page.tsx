@@ -10,6 +10,9 @@ interface OppItem {
   fresh: string; age_ms: number | null; thesis?: string; stop?: number | null; targets?: number[];
   entry_zone?: { top: number; bottom: number } | null; risk?: { verdict: string; reasons: string[] } | null;
   evidence?: string[]; contradictions?: string[];
+  blocked_factors?: string[]; unknown_factors?: string[];
+  data_quality?: { state?: string; stale?: boolean; age_ms?: number | null; native?: boolean };
+  actionable?: boolean;
   note?: string;
 }
 interface OppShape { ok: boolean; items: OppItem[] }
@@ -33,11 +36,13 @@ export default function OpportunitiesPage() {
       )}
       <div className="grid gap-2 xl:grid-cols-2">
         {items.map((o) => (
-          <Panel key={o.id} title={`${o.symbol} · ${o.timeframe} · ${o.direction}`} right={<StatusChip state={o.fresh === "READY" ? o.state ?? "READY" : "EXPIRED"} label={o.fresh === "READY" ? o.state : "EXPIRED"} />}>
+          <Panel key={o.id} title={`${o.symbol} · ${o.timeframe} · ${o.direction}`} right={<StatusChip state={o.actionable ? "READY" : (o.fresh === "EXPIRED" ? "EXPIRED" : o.state ?? "REJECTED")} label={o.actionable ? "READY" : (o.fresh === "EXPIRED" ? "EXPIRED" : o.state)} />}>
             <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px]">
               <Badge color="#d4b874">score {o.score}</Badge>
               <Badge>{o.mode}</Badge>
               <Badge>{o.strategy_id}</Badge>
+              <Badge color={o.data_quality?.stale ? "#d6a24a" : undefined}>{o.data_quality?.state ?? (o.fresh === "EXPIRED" ? "EXPIRED" : "—")}</Badge>
+              {o.actionable === false && <Badge color="#d9605e">not actionable</Badge>}
               <span className="text-dim">age {o.age_ms !== null ? fmtAge(o.age_ms) : "—"}</span>
             </div>
             {o.thesis && <p className="mb-2 text-[12px] leading-relaxed text-text">{o.thesis}</p>}
