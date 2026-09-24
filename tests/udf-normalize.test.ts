@@ -64,7 +64,7 @@ describe("parseUdfHistory over live TTT payloads", () => {
   it("drops invalid rows: NaN, non-positive ts, negative volume, broken OHLC", () => {
     const raw = {
       s: "ok",
-      t: [1000, 1100, 1200, 1300, 1400, 1500],
+      t: [900, 1800, 2700, 3600, 4500, 5400],
       o: [10, 10, NaN, 10, 10, 10],
       h: [11, 5, 11, 11, 11, 11], // row1: high < open/close -> invalid
       l: [9, 9, 9, 9, 9, 9],
@@ -78,17 +78,17 @@ describe("parseUdfHistory over live TTT payloads", () => {
   });
 
   it("last-wins dedupe for a repeated timestamp", () => {
-    const raw = { s: "ok", t: [100, 200, 300, 300], o: [1, 1, 1, 9], h: [2, 2, 2, 10], l: [0, 0, 0, 0], c: [1.5, 1.5, 1.5, 9.5], v: [1, 1, 1, 2] };
+    const raw = { s: "ok", t: [900, 1800, 2700, 2700], o: [1, 1, 1, 9], h: [2, 2, 2, 10], l: [0.5, 0.5, 0.5, 0.5], c: [1.5, 1.5, 1.5, 9.5], v: [1, 1, 1, 2] };
     const r = parseUdfHistory(raw, 15);
     expect(r.meta.dropped_duplicates).toBe(1);
-    expect(r.candles.map((c) => c.t)).toEqual([100, 200, 300]);
+    expect(r.candles.map((c) => c.t)).toEqual([900, 1800, 2700]);
     expect(r.candles[2].c).toBe(9.5); // last occurrence kept
   });
 
   it("detects gaps when bars are missing", () => {
-    const raw = { s: "ok", t: [0, 900, 2700, 3600], o: [1, 1, 1, 1], h: [2, 2, 2, 2], l: [0, 0, 0, 0], c: [1, 1, 1, 1], v: [1, 1, 1, 1] };
+    const raw = { s: "ok", t: [900, 1800, 3600, 4500], o: [1, 1, 1, 1], h: [2, 2, 2, 2], l: [0.5, 0.5, 0.5, 0.5], c: [1, 1, 1, 1], v: [1, 1, 1, 1] };
     const r = parseUdfHistory(raw, 15);
-    expect(r.meta.gaps).toBe(1); // 900 -> 2700 skips a bar
+    expect(r.meta.gaps).toBe(1); // 1800 -> 3600 skips a bar
   });
 });
 

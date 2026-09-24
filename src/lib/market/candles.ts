@@ -180,6 +180,13 @@ export class CandleManager {
       });
       series = res.series;
     }
+    if (series.candles.length === 0) {
+      // Task 03: a response with zero usable bars is NOT a market observation.
+      // Replacing the working window with an empty series would erase good
+      // data and hide the failure; surface it and keep the prior series (its
+      // own source timestamp keeps ageing, so it can never look fresher).
+      throw new Error(`TTT UDF ${symbol}@${tf}: response carried zero usable candles; previous series retained`);
+    }
     // PERSIST EVERYTHING FETCHED BEFORE TRIMMING (remediation §5, §9, §18).
     // The in-memory series is a hot working window; the durable history store
     // is the retention layer. Trimming the RAM copy must never lose history.

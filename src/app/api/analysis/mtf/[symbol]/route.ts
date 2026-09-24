@@ -4,10 +4,7 @@
  */
 import { NextResponse } from "next/server";
 import { ensureEngineBooted } from "@/lib/state";
-import { candleManager } from "@/lib/market/candles";
-import { sharedStore } from "@/lib/market/store";
-import { buildBundle } from "@/lib/analysis/bundle";
-import { buildMtf } from "@/lib/analysis/mtf";
+import { loadMtf } from "@/lib/analysis/load";
 import { buildPsychology } from "@/lib/psychology/engine";
 import { isOperationalSymbol, universeMeta } from "@/lib/market/operational-universe";
 
@@ -25,20 +22,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ symbol: string
     const meta = universeMeta();
     return NextResponse.json({ ok: false, error: `'${symbol}' not in the operational TTT universe`, universe: meta }, { status: meta.discovery_complete ? 400 : 503 });
   }
-  const stats = sharedStore.getStats(symbol);
-  const [m4, h1, m15] = await Promise.all([
-    candleManager.ensureSeries(symbol, "4h"),
-    candleManager.ensureSeries(symbol, "1h"),
-    candleManager.ensureSeries(symbol, "15m"),
-  ]);
-  const bundle = (series: typeof m4, tf: string) =>
-    series && series.candles.length
-      ? buildBundle({ symbol, timeframe: tf, candles: series.candles, stats, seriesProvenance: { fetched_at_ms: series.fetched_at_ms, native: series.native, derived_source_tf: series.derived_source_tf } })
-      : null;
-  const macro = bundle(m4, "4h");
-  const context = bundle(h1, "1h");
-  const trigger = bundle(m15, "15m");
-  const mtf = buildMtf(macro, context, trigger);
+  const { mtf, parts } = await loadMtf(symbol);
+  const [m4, h1, m15] = parts;
+  const macro = m4.bundle, context = h1.bundle, trigger = m15.bundle;
   const psychology = buildPsychology(symbol);
-  return NextResponse.json({ ok: true, symbol, mtf, psychology, macro, context, trigger });
+  const inputs = parts.map((p) => ({ timeframe: p.timeframe, closed_bars: p.input.closed_bars, freshness: p.input.freshness, source_ts_ms: p.input.source_ts_ms, data_age_ms: p.input.data_age_ms, forming_bar_excluded: p.input.forming_bar_excluded, native: p.input.native, reason: p.input.reason ?? null, error: p.error }));
+  // every component failed at the venue: an outage, not an analysis
+  if (parts.every((p) => p.error !== null)) {
+    return NextResponse.json({ ok: false, symbol, error: "TTT candle history unavailable for all core timeframes", mtf, inputs }, { status: 502 });
+  }
+  return NextResponse.json({ ok: true, symbol, mtf, psychology, macro, context, trigger, inputs });
 }

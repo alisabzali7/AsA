@@ -172,7 +172,7 @@ export function validateCandles(candles: Candle[]): { valid: Candle[]; invalid: 
       Number.isFinite(c.t) && c.t > 0 &&
       Number.isFinite(c.o) && Number.isFinite(c.h) && Number.isFinite(c.l) && Number.isFinite(c.c) &&
       c.h >= c.l && c.h >= c.o && c.h >= c.c && c.l <= c.o && c.l <= c.c &&
-      c.o > 0 && c.c > 0 && (c.v === undefined || c.v >= 0);
+      c.o > 0 && c.c > 0 && c.l > 0 && (c.v === undefined || c.v >= 0);
     if (!ok) invalid++;
     return ok;
   });
@@ -208,6 +208,14 @@ async function fetchChunk(
         ok: false,
         invalid: true,
         reason: parsed.meta.reason ?? "structurally invalid UDF payload",
+      };
+    }
+    if (parsed.meta.received > 0 && parsed.candles.length === 0) {
+      // Task 03: every row was rejected by normalization. That is a corrupt
+      // payload — neither an explicit no_data nor an empty success.
+      return {
+        candles: [], noData: false, ok: false, invalid: true,
+        reason: `all ${parsed.meta.received} UDF row(s) rejected by normalization (invalid=${parsed.meta.dropped_invalid}, future=${parsed.meta.dropped_future})`,
       };
     }
     return { candles: parsed.candles, noData: parsed.meta.no_data === true, ok: true, invalid: false };

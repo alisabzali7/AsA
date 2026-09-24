@@ -19,3 +19,13 @@ Market runtime: TTT discovery is the production universe source. While discovery
 Write protection: if `ASA_API_TOKEN` is set, mutating routes (config POST, journal POST/DELETE, ai analyze, ai-clone) require header `x-asa-token`. Local default: open (documented), token recommended on shared machines/VPS.
 
 Versioning: additive-only within v1; breaking changes under new route suffix.
+
+## Market-truth semantics (Team 01 / Task 03)
+
+- **Closed bars only for analysis.** TTT UDF series end with the still-forming bar. Every analysis producer (`/api/analysis/*`, `/api/ai/analyze`, the live scanner via `scanSymbol`) goes through `src/lib/analysis/input.ts` (`prepareAnalysisInput`), which removes the forming bar, checks the series really is the requested symbol/timeframe, and works out freshness.
+- **Freshness is source age.** `source_ts_ms` = the close time of the last closed bar. `data_age_ms` = now − `source_ts_ms`. `freshness` is `FRESH | STALE | UNAVAILABLE`, and a series is STALE after 2 bar-periods. `age_ms` / `series_age_ms` are **retrieval** ages only.
+- **`/api/analysis/{symbol}/{tf}`** returns `{ ok, available, bundle?, input }`. `input` carries `closed_bars`, `freshness`, `source_ts_ms`, `data_age_ms`, `forming_bar_excluded`, `native`, `derived_source_tf` and `reason`. A venue failure returns **502**; it is never an empty success.
+- **`/api/analysis/mtf/{symbol}`** `mtf.verdict` ∈ `UNAVAILABLE | INSUFFICIENT | STALE | ALIGNED | PARTIAL | CONFLICT`, checked in that order. Bias alignment is only computed over fresh, sufficient, same-symbol components. `mtf.components[]` gives per-timeframe state, nativeness and source age. `freshness_verified`, `derived_components` and `oldest_source_ts_ms` are exposed. If all three timeframes fail at the venue, the route returns 502.
+- **`/api/market/candles`**: `closed_count` counts closed bars. `last_bar_forming`, `source_ts_ms`, `data_age_ms` and `freshness` are added.
+- **Stats rows** carry their own venue `timestamp` as `provenance.source_ts_ms`. A future timestamp (more than 60 s of skew) is not trusted. A row whose own timestamp is more than 10 min old is **STALE** even when it was fetched seconds ago (a halted or frozen market). `/api/market/board` rows expose `source_ts_ms`, `source_age_ms` and `state_reason`, and the client only ever *downgrades* the server state.
+- **Normalization** (`parseUdfHistory`) rejects null or empty numerics (never coerced to 0), prices ≤ 0, timestamps not aligned to the timeframe, and bars opening after the current forming bar. A payload whose every row is rejected is an **invalid response**: never `no_data`, never an empty series. It never replaces a previously good working series.

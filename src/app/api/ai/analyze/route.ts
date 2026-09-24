@@ -5,10 +5,7 @@
  */
 import { NextResponse } from "next/server";
 import { ensureEngineBooted } from "@/lib/state";
-import { candleManager } from "@/lib/market/candles";
-import { sharedStore } from "@/lib/market/store";
-import { buildBundle } from "@/lib/analysis/bundle";
-import { buildMtf } from "@/lib/analysis/mtf";
+import { loadMtf } from "@/lib/analysis/load";
 import { buildPsychology } from "@/lib/psychology/engine";
 import { runAi, type AiEvidence } from "@/lib/ai";
 import type { AiMode } from "@/lib/env";
@@ -50,21 +47,11 @@ export async function POST(req: Request): Promise<NextResponse> {
   // plain string (the operational universe is dynamic — no compile-time union),
   // and the core timeframes are statically known TimeframeIds.
   const symbol = symbolRaw;
-  const stats = sharedStore.getStats(symbol);
-  const [m4, h1, m15] = await Promise.all([
-    candleManager.ensureSeries(symbol, "4h"),
-    candleManager.ensureSeries(symbol, "1h"),
-    candleManager.ensureSeries(symbol, "15m"),
-  ]);
-  const mk = (s: typeof m4, t: string) =>
-    s && s.candles.length ? buildBundle({ symbol, timeframe: t, candles: s.candles, stats, seriesProvenance: { fetched_at_ms: s.fetched_at_ms, native: s.native, derived_source_tf: s.derived_source_tf } }) : null;
-  const macro = mk(m4, "4h");
-  const context = mk(h1, "1h");
-  const trigger = mk(m15, "15m");
+  const { mtf, parts } = await loadMtf(symbol);
+  const macro = parts[0].bundle, context = parts[1].bundle, trigger = parts[2].bundle;
   if (!trigger) {
     return NextResponse.json({ ok: false, error: "insufficient candle data to analyze yet (backfill in progress)" }, { status: 409 });
   }
-  const mtf = buildMtf(macro, context, trigger);
   const psychology = buildPsychology(symbol);
   const fundamental = getNewsContext(symbol);
   const evidence: AiEvidence = {
@@ -78,7 +65,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     risk: null,
     strategy: null,
     fundamental,
-    data_timestamp: Date.now(),
+    // SOURCE timestamp of the evidence (oldest component close), not compute time
+    data_timestamp: mtf.oldest_source_ts_ms ?? trigger.provenance.source_ts_ms ?? Date.now(),
     window: trigger.candle_window,
   };
   const result = await runAi(evidence, provider);

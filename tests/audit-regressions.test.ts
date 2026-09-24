@@ -481,7 +481,7 @@ describe("mandate 5: HTTP 200 s:ok with zero bars is not COMPLETE_TO_TTT_BOUNDAR
       n++;
       if (n === 1) {
         // first chunk: one real bar
-        const t = Math.floor(Date.now() / 1000) - 3600;
+        const t = Math.floor(Date.now() / 1000 / 3600) * 3600 - 3600; // aligned to an hourly bar open (Task 03 alignment invariant)
         return jsonRes({ s: "ok", t: [t], o: [100], h: [101], l: [99], c: [100], v: [10] });
       }
       // older window: venue answers ok but empty — walk must stop WITHOUT proving the boundary

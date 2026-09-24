@@ -90,8 +90,9 @@ export class TttClient {
     const res = await tttRequest<TttStatsRaw[]>("/futures/markets/stats", { apiKey: AUTH?.apiKey, apiSecret: AUTH?.apiSecret, priority });
     if (!Array.isArray(res.data)) throw new Error("TTT /markets/stats: expected array");
     const rows = res.data.filter((r) => isObject(r) && typeof r.symbol === "string");
-    const srcTs = parseIsoMs(rows[0]?.timestamp);
-    return { rows, provenance: prov("/futures/markets/stats", res as TttRequestResult<unknown>, srcTs) };
+    // Task 03: rows carry INDIVIDUAL timestamps. The batch provenance has no
+    // single source time; callers attach each row's own timestamp.
+    return { rows, provenance: prov("/futures/markets/stats", res as TttRequestResult<unknown>) };
   }
 
   async getTrades(symbol: string, priority: LaneIntent = PRIORITY.REFRESH): Promise<{ book: TttTradeRaw; provenance: Provenance }> {
@@ -150,6 +151,11 @@ export class TttClient {
     const parsed = parseUdfHistory(res.data, tfMinutes);
     if (!parsed.meta.ok) {
       throw new Error(`TTT UDF ${symbol}@${resolution}: ${parsed.meta.reason ?? "invalid payload"}`);
+    }
+    if (parsed.meta.received > 0 && parsed.candles.length === 0) {
+      // Task 03: a payload whose every row fails normalization is corrupt —
+      // never an empty series, never a license to derive.
+      throw new Error(`TTT UDF ${symbol}@${resolution}: all ${parsed.meta.received} row(s) rejected by normalization (invalid=${parsed.meta.dropped_invalid}, future=${parsed.meta.dropped_future})`);
     }
     return {
       series: {
