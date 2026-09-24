@@ -24,7 +24,7 @@ npm run build && npm run start   # production
 #    curl "$HOST/api/market/history?symbol=BTCUSDT&tf=1h&sync=full&limit=1"
 ```
 
-Open http://localhost:3000. The engine boots at server start: TTT markets → backfill (144 series) → stats sweeps → analysis → scanning.
+Open http://localhost:3000. The engine boots discovery-first: TTT markets → dynamic universe/catalog → stats sweeps → candle backfill/close refresh → analysis → scanning. If TTT is unavailable at boot, the app reports `NOT_READY`/`NETWORK_FAILURE` and keeps the recovery loops running instead of falling back to a static universe.
 
 ## Tests
 

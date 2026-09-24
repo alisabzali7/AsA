@@ -58,7 +58,12 @@ export class MarketStore {
   coverage = new Map<string, SeriesCoverage>(); // `${symbol}|${tf}`
 
   setFocus(symbol: string): void {
-    if (isOperationalSymbol(symbol)) this.focusSymbol = symbol;
+    if (!isOperationalSymbol(symbol) || symbol === this.focusSymbol) return;
+    this.focusSymbol = symbol;
+    this.tape = [];
+    this.orderBook = null;
+    this.tapeFetchedAtMs = null;
+    this.orderBookFetchedAtMs = null;
   }
 
   // ---------------------------------------------------------------- catalog
@@ -198,32 +203,72 @@ export class MarketStore {
   metricTruth(symbol: string, metric: string): MetricTruth {
     const s = this.stats.get(symbol);
     const cat = this.catalog.get(symbol);
-    const now = Date.now();
     const measured = (v: number | null | undefined): boolean => v !== null && v !== undefined && Number.isFinite(v);
+    const statsMetric = (label: string, v: number | null | undefined): MetricTruth => {
+      const ok = measured(v);
+      return {
+        capability: true,
+        availability: ok ? "available" : s ? "unavailable" : "unknown",
+        currently_measured: ok,
+        verdict: ok ? "MEASURED" : "UNAVAILABLE",
+        source: "ttt",
+        endpoint: "/futures/markets/stats",
+        measured_at_ms: ok ? s?.provenance.fetched_at_ms : undefined,
+        reason: ok ? undefined : s ? `${label} is not measured in the latest TTT stats row` : "no stats row yet",
+      };
+    };
+    const focusMetric = (label: string, fetchedAt: number | null, endpoint: string): MetricTruth => {
+      const focus = symbol === this.focusSymbol;
+      const ok = focus && fetchedAt !== null;
+      return {
+        capability: true,
+        availability: ok ? "available" : "unavailable",
+        currently_measured: ok,
+        verdict: ok ? "MEASURED" : "UNAVAILABLE",
+        source: "ttt",
+        endpoint,
+        measured_at_ms: ok ? fetchedAt : undefined,
+        reason: ok ? undefined : focus ? `${label} has not been measured yet` : "focus-symbol lane only",
+      };
+    };
     switch (metric) {
       case "last_price":
-        return { capability: true, availability: "available", currently_measured: measured(s?.lastPrice), verdict: "MEASURED", source: "ttt", endpoint: "/futures/markets/stats", measured_at_ms: s?.provenance.fetched_at_ms, reason: s ? undefined : "no stats row yet" };
-      case "stats_24h":
-        return { capability: true, availability: "available", currently_measured: measured(s?.change24hPct) && measured(s?.volume24hQuote), verdict: "MEASURED", source: "ttt", endpoint: "/futures/markets/stats", measured_at_ms: s?.provenance.fetched_at_ms };
+        return statsMetric("last_price", s?.lastPrice);
+      case "stats_24h": {
+        const ok = measured(s?.change24hPct) && measured(s?.volume24hQuote);
+        return {
+          capability: true,
+          availability: ok ? "available" : s ? "unavailable" : "unknown",
+          currently_measured: ok,
+          verdict: ok ? "MEASURED" : "UNAVAILABLE",
+          source: "ttt",
+          endpoint: "/futures/markets/stats",
+          measured_at_ms: ok ? s?.provenance.fetched_at_ms : undefined,
+          reason: ok ? undefined : s ? "24h change/volume are not both measured in the latest TTT stats row" : "no stats row yet",
+        };
+      }
       case "ohlcv":
-        return { capability: true, availability: "available", currently_measured: false, verdict: "MEASURED", source: "ttt", endpoint: "/futures/udf/history", reason: "per-series; see coverage" };
+        return { capability: true, availability: "unknown", currently_measured: false, verdict: "UNAVAILABLE", source: "ttt", endpoint: "/futures/udf/history", reason: "per-series; see coverage" };
       case "trades":
-        return { capability: true, availability: "available", currently_measured: this.tapeFetchedAtMs !== null && symbol === this.focusSymbol, verdict: "MEASURED", source: "ttt", endpoint: "/futures/markets/trades", reason: symbol !== this.focusSymbol ? "focus-symbol lane only" : undefined };
+        return focusMetric("trades", this.tapeFetchedAtMs, "/futures/markets/trades");
       case "orderbook":
-        return { capability: true, availability: "available", currently_measured: this.orderBookFetchedAtMs !== null && symbol === this.focusSymbol, verdict: "MEASURED", source: "ttt", endpoint: "/futures/markets/orderbook", measured_at_ms: this.orderBookFetchedAtMs ?? undefined, reason: symbol !== this.focusSymbol ? "focus-symbol lane only" : undefined };
+        return focusMetric("orderbook", this.orderBookFetchedAtMs, "/futures/markets/orderbook");
       case "funding":
-        return { capability: true, availability: "available", currently_measured: measured(s?.fundingRate), verdict: "MEASURED", source: "ttt", endpoint: "/futures/markets/stats", measured_at_ms: s?.provenance.fetched_at_ms };
+        return statsMetric("funding", s?.fundingRate);
       case "funding_history":
-        return { capability: true, availability: "available", currently_measured: this.fundingHistory?.symbol === symbol, verdict: "MEASURED", source: "ttt", endpoint: "/futures/markets/funding-history", reason: "focus-symbol lane only" };
-      case "open_interest":
-        return { capability: true, availability: "available", currently_measured: measured(s?.openInterest), verdict: "MEASURED", source: "ttt", endpoint: "/futures/markets/stats", measured_at_ms: s?.provenance.fetched_at_ms, note: "upstream field openInterest; semantics = base units per upstream naming" } as MetricTruth;
+        return focusMetric("funding_history", this.fundingHistory?.symbol === symbol ? this.fundingHistory.provenance.fetched_at_ms : null, "/futures/markets/funding-history");
+      case "open_interest": {
+        const out = statsMetric("open_interest", s?.openInterest);
+        if (out.currently_measured) out.reason = "upstream field openInterest; semantics = base units per upstream naming";
+        return out;
+      }
       case "mark_price":
-        return { capability: true, availability: "available", currently_measured: measured(s?.markPrice), verdict: "MEASURED", source: "ttt", endpoint: "/futures/markets/stats", measured_at_ms: s?.provenance.fetched_at_ms };
+        return statsMetric("mark_price", s?.markPrice);
       case "index_price":
-        return { capability: true, availability: "available", currently_measured: measured(s?.indexPrice), verdict: "MEASURED", source: "ttt", endpoint: "/futures/markets/stats", measured_at_ms: s?.provenance.fetched_at_ms };
+        return statsMetric("index_price", s?.indexPrice);
       case "basis": {
         const both = measured(s?.markPrice) && measured(s?.indexPrice);
-        return { capability: true, availability: "available", currently_measured: both, verdict: both ? "DERIVED" : "UNAVAILABLE", source: "ttt", endpoint: "/futures/markets/stats", derived: both, derivation_source: "mark,index", reason: both ? undefined : "mark/index not both measured", measured_at_ms: s?.provenance.fetched_at_ms };
+        return { capability: true, availability: both ? "available" : s ? "unavailable" : "unknown", currently_measured: both, verdict: both ? "DERIVED" : "UNAVAILABLE", source: "ttt", endpoint: "/futures/markets/stats", derived: both, derivation_source: "mark,index", reason: both ? undefined : "mark/index not both measured", measured_at_ms: both ? s?.provenance.fetched_at_ms : undefined };
       }
       case "liquidations":
         return { capability: false, availability: "unavailable", currently_measured: false, verdict: "UNAVAILABLE", reason: "no documented public TTT endpoint for liquidations (probe 2026-09-05)" };
@@ -234,10 +279,10 @@ export class MarketStore {
       case "cvd":
         return { capability: false, availability: "unavailable", currently_measured: false, verdict: "UNAVAILABLE", reason: "CVD needs verified taker-side semantics; not inferred" };
       case "oi_snapshots": {
-        return { capability: true, availability: "available", currently_measured: false, verdict: "DERIVED", derived: true, derivation_source: "stats.openInterest ring", reason: "delta/velocity derived from AsA snapshot ring; not upstream-native" };
+        return { capability: true, availability: "unknown", currently_measured: false, verdict: "UNAVAILABLE", derived: true, derivation_source: "stats.openInterest ring", reason: "delta/velocity derived from AsA snapshot ring; no current OI snapshot metric is exposed here" };
       }
       case "leverage_tiers":
-        return { capability: true, availability: "available", currently_measured: cat !== undefined, verdict: "MEASURED", source: "ttt", endpoint: "/futures/markets", reason: cat ? undefined : "catalog not loaded" };
+        return { capability: true, availability: cat !== undefined ? "available" : "unknown", currently_measured: cat !== undefined, verdict: cat !== undefined ? "MEASURED" : "UNAVAILABLE", source: "ttt", endpoint: "/futures/markets", reason: cat ? undefined : "catalog not loaded" };
       default:
         return { capability: false, availability: "unknown", currently_measured: false, verdict: "UNAVAILABLE", reason: `metric '${metric}' not recognized` };
     }

@@ -9,18 +9,21 @@ import { sharedStore } from "@/lib/market/store";
 import { buildBundle } from "@/lib/analysis/bundle";
 import { buildMtf } from "@/lib/analysis/mtf";
 import { buildPsychology } from "@/lib/psychology/engine";
-import { isOperationalSymbol } from "@/lib/market/operational-universe";
+import { isOperationalSymbol, universeMeta } from "@/lib/market/operational-universe";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ symbol: string }> }): Promise<NextResponse> {
   const { symbol: rawSym } = await ctx.params;
   const symbol = rawSym.toUpperCase();
-  if (!isOperationalSymbol(symbol)) return NextResponse.json({ ok: false, error: `'${symbol}' not in the operational TTT universe` }, { status: 400 });
   try {
     await ensureEngineBooted();
   } catch {
-    /* degraded path */
+    /* degraded path; validation below may return NOT_READY */
+  }
+  if (!isOperationalSymbol(symbol)) {
+    const meta = universeMeta();
+    return NextResponse.json({ ok: false, error: `'${symbol}' not in the operational TTT universe`, universe: meta }, { status: meta.discovery_complete ? 400 : 503 });
   }
   const stats = sharedStore.getStats(symbol);
   const [m4, h1, m15] = await Promise.all([

@@ -13,7 +13,7 @@ import { buildPsychology } from "@/lib/psychology/engine";
 import { runAi, type AiEvidence } from "@/lib/ai";
 import type { AiMode } from "@/lib/env";
 import { guardMutation, readBody } from "@/lib/api-common";
-import { isOperationalSymbol } from "@/lib/market/operational-universe";
+import { isOperationalSymbol, universeMeta } from "@/lib/market/operational-universe";
 import { isTimeframe } from "@/lib/domain/timeframes";
 import { getRepo } from "@/db/sqlite";
 import { getNewsContext } from "@/lib/fundamental/context";
@@ -28,7 +28,15 @@ export async function POST(req: Request): Promise<NextResponse> {
   if (error) return error;
   const symbolRaw = typeof body.symbol === "string" ? body.symbol.toUpperCase() : "BTCUSDT";
   const tf = typeof body.timeframe === "string" ? body.timeframe : "15m";
-  if (!isOperationalSymbol(symbolRaw)) return NextResponse.json({ ok: false, error: `'${symbolRaw}' not in the operational TTT universe` }, { status: 400 });
+  try {
+    await ensureEngineBooted();
+  } catch {
+    /* degraded; validation below may return NOT_READY */
+  }
+  if (!isOperationalSymbol(symbolRaw)) {
+    const meta = universeMeta();
+    return NextResponse.json({ ok: false, error: `'${symbolRaw}' not in the operational TTT universe`, universe: meta }, { status: meta.discovery_complete ? 400 : 503 });
+  }
   if (!isTimeframe(tf)) return NextResponse.json({ ok: false, error: `bad timeframe ${tf}` }, { status: 400 });
   // AUDIT FIX (P1): the provider string is VALIDATED instead of `as never` —
   // an unknown provider must be rejected, not coerced.
@@ -38,11 +46,6 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   const provider: AiMode = providerRaw;
 
-  try {
-    await ensureEngineBooted();
-  } catch {
-    /* degraded */
-  }
   // AUDIT FIX (P1): removed the `as never` casts. The symbol is a validated
   // plain string (the operational universe is dynamic — no compile-time union),
   // and the core timeframes are statically known TimeframeIds.

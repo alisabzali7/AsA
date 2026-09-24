@@ -139,6 +139,26 @@ describe("MarketStore over live TTT fixture", () => {
     expect(cov.source).toBe("ttt");
   });
 
+  it("clears focus-lane measurements when the focus symbol changes", () => {
+    const universe = fixtureUniverse();
+    const next = universe.find((s) => s !== store.focusSymbol)!;
+    expect(next).toBeTruthy();
+    const provenance = { source_name: "ttt" as const, endpoint: "/futures/markets/trades", fetched_at_ms: Date.now(), auth: "public" as const };
+    store.tape = [{ symbol: store.focusSymbol, price: 1, size: 1, side: "UNKNOWN", side_semantics: "UNVERIFIED", ts_ms: Date.now(), provenance }];
+    store.tapeFetchedAtMs = Date.now();
+    store.orderBook = { symbol: store.focusSymbol, bids: [], asks: [], depthDecimal: null, spreadAbs: null, spreadPct: null, provenance };
+    store.orderBookFetchedAtMs = Date.now();
+
+    store.setFocus(next);
+
+    expect(store.focusSymbol).toBe(next);
+    expect(store.tape).toEqual([]);
+    expect(store.tapeFetchedAtMs).toBeNull();
+    expect(store.orderBook).toBeNull();
+    expect(store.orderBookFetchedAtMs).toBeNull();
+    expect(store.metricTruth(next, "trades").currently_measured).toBe(false);
+  });
+
   it("an EMPTY operational universe yields an EMPTY board (no legacy fallback)", () => {
     __setOperationalUniverse(null);
     const fresh = new MarketStore();

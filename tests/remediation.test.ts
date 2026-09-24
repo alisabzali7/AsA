@@ -100,9 +100,10 @@ describe("P0-1 the operational universe is dynamic, not the legacy 48", () => {
 
   it("discovery runs BEFORE catalog ingestion and the stats sweep at boot", () => {
     const eng = fs.readFileSync("src/lib/market/engine.ts", "utf8");
-    const iDisc = eng.indexOf("refreshOperationalUniverse(true)");
-    // AUDIT FIX: catalog ingestion now reuses the DISCOVERY snapshot
-    // (cachedCatalog) instead of issuing a second /futures/markets request.
+    const iDisc = eng.indexOf("await this.refreshDiscovery(true, \"boot\")");
+    // AUDIT FIX: catalog ingestion now reuses the DISCOVERY snapshot inside
+    // the single refreshDiscovery path instead of issuing a second
+    // /futures/markets request.
     const iCat = eng.indexOf("cachedCatalog()");
     const iSweep = eng.indexOf("await this.sweepStats()");
     expect(iDisc).toBeGreaterThan(-1);
