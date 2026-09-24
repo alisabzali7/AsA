@@ -66,9 +66,15 @@ export function effectiveAgeMs(snapshotAgeMs: number | null | undefined, sinceRe
  * — reconnection alone never makes stale data live; a fresh successful
  * response (client age reset to 0) does.
  */
+const STATE_RANK: Record<string, number> = { LIVE: 0, STALE: 1, DEGRADED: 2, UNAVAILABLE: 3 };
+
 export function displayStateFor(state: string, ageMs: number | null): string {
   if (ageMs === null) return state;
-  if (ageMs < BOARD_LIVE_MS) return "LIVE";
-  if (ageMs < BOARD_STALE_MS) return "STALE";
-  return "DEGRADED";
+  const byAge = ageMs < BOARD_LIVE_MS ? "LIVE" : ageMs < BOARD_STALE_MS ? "STALE" : "DEGRADED";
+  // Task 03: the client may only DOWNGRADE. A server STALE (e.g. the venue
+  // row's own source timestamp stopped moving) must never render as LIVE just
+  // because the snapshot was received recently. Unknown server states win.
+  const serverRank = STATE_RANK[state];
+  if (serverRank === undefined) return state;
+  return serverRank >= STATE_RANK[byAge] ? state : byAge;
 }

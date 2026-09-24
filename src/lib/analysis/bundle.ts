@@ -11,6 +11,7 @@
 import type { Candle, SymbolStats, Provenance } from "../domain/types";
 import { analyzeStructure, type StructureResult } from "./structure";
 import { lastEma, rsi, atr } from "./indicators";
+import type { AnalysisInput, InputFreshness } from "./input";
 
 export interface BundleIndicators {
   ema20: number | null;
@@ -43,6 +44,17 @@ export interface AnalysisBundle {
     stats_age_ms: number | null;
     native: boolean;
     derived_source_tf?: string;
+    /**
+     * SOURCE freshness (Task 03): close instant of the last CLOSED bar and its
+     * age. `series_age_ms` above is only the retrieval age and must never be
+     * read as market freshness. UNAVAILABLE when the bundle was built without
+     * the analysis-input contract (tests / legacy callers).
+     */
+    source_ts_ms: number | null;
+    data_age_ms: number | null;
+    freshness: InputFreshness;
+    closed_bars_only: boolean;
+    forming_bar_excluded: boolean;
   };
   computed_at_ms: number;
 }
@@ -53,6 +65,7 @@ export function buildBundle(opts: {
   candles: Candle[];
   stats?: SymbolStats;
   seriesProvenance?: { fetched_at_ms: number; native: boolean; derived_source_tf?: string };
+  input?: AnalysisInput;
 }): AnalysisBundle {
   const { symbol, timeframe, candles, stats } = opts;
   const n = candles.length;
@@ -112,10 +125,31 @@ export function buildBundle(opts: {
       stats_age_ms: stats?.provenance.fetched_at_ms ? now - stats.provenance.fetched_at_ms : null,
       native: opts.seriesProvenance?.native ?? false,
       derived_source_tf: opts.seriesProvenance?.derived_source_tf,
+      source_ts_ms: opts.input?.source_ts_ms ?? null,
+      data_age_ms: opts.input?.data_age_ms ?? null,
+      freshness: opts.input?.freshness ?? "UNAVAILABLE",
+      closed_bars_only: opts.input !== undefined,
+      forming_bar_excluded: opts.input?.forming_bar_excluded ?? false,
     },
     computed_at_ms: now,
   };
   return bundle;
+}
+
+/**
+ * Build a bundle from the analysis-input contract. Returns null when no closed
+ * bar exists — an empty input is NOT an analysis (no empty-but-valid object).
+ */
+export function buildBundleFromInput(input: AnalysisInput, stats?: SymbolStats): AnalysisBundle | null {
+  if (input.candles.length === 0) return null;
+  return buildBundle({
+    symbol: input.symbol,
+    timeframe: input.timeframe,
+    candles: input.candles,
+    stats,
+    seriesProvenance: input.fetched_at_ms === null ? undefined : { fetched_at_ms: input.fetched_at_ms, native: input.native, derived_source_tf: input.derived_source_tf },
+    input,
+  });
 }
 
 export type { Provenance };

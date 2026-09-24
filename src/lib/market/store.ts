@@ -36,6 +36,26 @@ export interface SymbolMeta {
 
 /** STATIC freshness thresholds (data cadence derived from engine loops). */
 export const STATS_SWEEP_MS = 7_000;
+/**
+ * SOURCE staleness (Task 03). Each TTT stats row carries its own `timestamp`.
+ * A halted/frozen market keeps being served in every successful sweep with an
+ * old timestamp (observed: TONUSDT row a week behind the rest). Retrieval age
+ * alone would call it LIVE. A row whose own timestamp is older than this is
+ * STALE regardless of how recently it was fetched.
+ */
+export const STATS_SOURCE_STALE_MS = 10 * 60_000;
+
+/** Classify one stats row by BOTH retrieval age and source age. */
+export function statsRowState(s: { provenance: { fetched_at_ms: number; source_ts_ms?: number } }, nowMs: number): { state: AppState; fetch_age_ms: number; source_age_ms: number | null; reason?: string } {
+  const fetchAge = nowMs - s.provenance.fetched_at_ms;
+  const src = s.provenance.source_ts_ms;
+  const sourceAge = typeof src === "number" && Number.isFinite(src) ? nowMs - src : null;
+  if (fetchAge > 5 * STATS_SWEEP_MS) return { state: "STALE", fetch_age_ms: fetchAge, source_age_ms: sourceAge, reason: `last successful fetch ${Math.round(fetchAge / 1000)}s ago` };
+  if (sourceAge !== null && sourceAge > STATS_SOURCE_STALE_MS) {
+    return { state: "STALE", fetch_age_ms: fetchAge, source_age_ms: sourceAge, reason: `venue row timestamp is ${Math.round(sourceAge / 1000)}s old (source not updating)` };
+  }
+  return { state: "LIVE", fetch_age_ms: fetchAge, source_age_ms: sourceAge };
+}
 
 export class MarketStore {
   catalog = new Map<string, SymbolMeta>();
@@ -64,6 +84,8 @@ export class MarketStore {
     this.orderBook = null;
     this.tapeFetchedAtMs = null;
     this.orderBookFetchedAtMs = null;
+    // the funding page belongs to the previous focus; never serve it for the new one
+    this.fundingHistory = null;
   }
 
   // ---------------------------------------------------------------- catalog
@@ -118,13 +140,14 @@ export class MarketStore {
         rows.push({ symbol, price: null, state: "CONNECTING", age_ms: null, source: "ttt", endpoint: null, received_ts_ms: null, price_source_ts_ms: null, reason: "no stats measurement yet" });
         continue;
       }
-      const age = now - s.provenance.fetched_at_ms;
-      const state: AppState = age > 5 * STATS_SWEEP_MS ? "STALE" : "LIVE";
+      const cls = statsRowState(s, now);
+      const age = cls.fetch_age_ms;
       rows.push({
         symbol,
         price: s.lastPrice,
-        state,
+        state: cls.state,
         age_ms: age,
+        reason: cls.reason,
         source: "ttt",
         endpoint: "/futures/markets/stats",
         received_ts_ms: s.provenance.fetched_at_ms,

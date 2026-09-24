@@ -13,6 +13,8 @@ export interface UdfNormalizeMeta {
   received: number;
   dropped_duplicates: number;
   dropped_invalid: number;
+  /** subset of dropped_invalid: bars opening after the current forming bar */
+  dropped_future: number;
   gaps: number;
   min_ts: number;
   max_ts: number;
@@ -26,13 +28,29 @@ export interface UdfNormalized {
   meta: UdfNormalizeMeta;
 }
 
+/**
+ * STRICT numeric parse (Task 03). `Number(null)`, `Number("")`,
+ * `Number(false)` and `Number([])` are all 0 — the old parser therefore turned
+ * an all-null row into a zero-price candle that passed the OHLC check. Only
+ * finite numbers and non-empty numeric strings are accepted.
+ */
+function strictNum(v: unknown): number {
+  if (typeof v === "number") return Number.isFinite(v) ? v : NaN;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : NaN;
+  }
+  return NaN;
+}
+
 export function parseUdfHistory(
   raw: unknown,
   tfMinutes: number,
+  nowMs: number = Date.now(),
 ): UdfNormalized {
   if (!raw || typeof raw !== "object") return empty("payload is not an object");
   const r = raw as { s?: unknown; t?: unknown; o?: unknown; h?: unknown; l?: unknown; c?: unknown; v?: unknown };
-  if (r.s === "no_data") return { candles: [], meta: { received: 0, dropped_duplicates: 0, dropped_invalid: 0, gaps: 0, min_ts: 0, max_ts: 0, ok: true, no_data: true } };
+  if (r.s === "no_data") return { candles: [], meta: { received: 0, dropped_duplicates: 0, dropped_invalid: 0, dropped_future: 0, gaps: 0, min_ts: 0, max_ts: 0, ok: true, no_data: true } };
   if (r.s !== "ok") return empty(`s=${JSON.stringify(r.s)}`);
 
   const t = r.t, o = r.o, h = r.h, l = r.l, c = r.c, v = r.v;
@@ -40,7 +58,7 @@ export function parseUdfHistory(
     return empty("missing OHLCV arrays");
   }
   const n = t.length;
-  if (n === 0) return { candles: [], meta: { received: 0, dropped_duplicates: 0, dropped_invalid: 0, gaps: 0, min_ts: 0, max_ts: 0, ok: true, no_data: false } };
+  if (n === 0) return { candles: [], meta: { received: 0, dropped_duplicates: 0, dropped_invalid: 0, dropped_future: 0, gaps: 0, min_ts: 0, max_ts: 0, ok: true, no_data: false } };
   if (![o.length, h.length, l.length, c.length, v.length].every((x) => x === n)) {
     return empty("OHLCV array length mismatch");
   }
@@ -49,13 +67,32 @@ export function parseUdfHistory(
   const out: Candle[] = [];
   let dropped_invalid = 0;
   let dropped_duplicates = 0;
+  let dropped_future = 0;
   let gaps = 0;
   let prevTs = -Infinity;
+  // the newest bar that may legitimately exist is the one currently forming
+  const maxOpenSec = Math.floor(nowMs / 1000 / stepSec) * stepSec;
   for (let i = 0; i < n; i++) {
-    const ts = Number(t[i]);
-    const oo = Number(o[i]), hh = Number(h[i]), ll = Number(l[i]), cc = Number(c[i]), vv = Number(v[i]);
-    if (!Number.isFinite(ts) || ts <= 0 || !Number.isFinite(oo) || !Number.isFinite(hh) || !Number.isFinite(ll) || !Number.isFinite(cc) || !Number.isFinite(vv) || vv < 0) {
+    const ts = strictNum(t[i]);
+    const oo = strictNum(o[i]), hh = strictNum(h[i]), ll = strictNum(l[i]), cc = strictNum(c[i]), vv = strictNum(v[i]);
+    if (!Number.isFinite(ts) || ts <= 0 || !Number.isInteger(ts) || !Number.isFinite(oo) || !Number.isFinite(hh) || !Number.isFinite(ll) || !Number.isFinite(cc) || !Number.isFinite(vv) || vv < 0) {
       dropped_invalid++;
+      continue;
+    }
+    // prices are strictly positive on a futures venue; 0/negative is corrupt
+    if (oo <= 0 || hh <= 0 || ll <= 0 || cc <= 0) {
+      dropped_invalid++;
+      continue;
+    }
+    // bars are aligned to the timeframe open (UTC); a misaligned stamp is not a bar of this timeframe
+    if (ts % stepSec !== 0) {
+      dropped_invalid++;
+      continue;
+    }
+    // a bar opening AFTER the current forming bar cannot exist yet
+    if (ts > maxOpenSec) {
+      dropped_invalid++;
+      dropped_future++;
       continue;
     }
     // OHLC validity: high must dominate, low must be beneath
@@ -85,6 +122,7 @@ export function parseUdfHistory(
       received: n,
       dropped_duplicates,
       dropped_invalid,
+      dropped_future,
       gaps,
       min_ts: out.length ? out[0].t : 0,
       max_ts: out.length ? out[out.length - 1].t : 0,
@@ -95,7 +133,7 @@ export function parseUdfHistory(
 }
 
 function empty(reason: string): UdfNormalized {
-  return { candles: [], meta: { received: 0, dropped_duplicates: 0, dropped_invalid: 0, gaps: 0, min_ts: 0, max_ts: 0, ok: false, no_data: false, reason } };
+  return { candles: [], meta: { received: 0, dropped_duplicates: 0, dropped_invalid: 0, dropped_future: 0, gaps: 0, min_ts: 0, max_ts: 0, ok: false, no_data: false, reason } };
 }
 
 /**

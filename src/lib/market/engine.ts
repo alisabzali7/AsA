@@ -70,6 +70,8 @@ const FUNDING_INTERVAL_MS = 30 * 60_000;
 const RECOVER_INTERVAL_MS = 30_000;
 const OUTBOX_INTERVAL_MS = 60_000;
 const HEALTH_INTERVAL_MS = 15_000;
+/** tolerated clock skew before an upstream timestamp counts as "future" */
+export const FUTURE_SKEW_MS = 60_000;
 
 export class MarketEngine {
   private timers: ReturnType<typeof setInterval>[] = [];
@@ -263,6 +265,12 @@ export class MarketEngine {
         const lastPrice = fin(num(r.lastPrice)) ? num(r.lastPrice) : null;
         const markPrice = fin(num(r.markPrice)) ? num(r.markPrice) : null;
         const indexPrice = fin(num(r.indexPrice)) ? num(r.indexPrice) : null;
+        // Task 03: per-ROW source timestamp. The client used to stamp the
+        // first row's timestamp on every row, so one frozen market could not be
+        // told apart from a live one. A source time in the future (beyond clock
+        // skew tolerance) is not trusted and is dropped, never clamped to now.
+        const rowSrc = r.timestamp ? Date.parse(r.timestamp) : NaN;
+        const rowSourceTs = Number.isFinite(rowSrc) && rowSrc <= provenance.fetched_at_ms + FUTURE_SKEW_MS ? rowSrc : undefined;
         const statsRow: SymbolStats = {
           symbol: r.symbol,
           lastPrice,
@@ -277,7 +285,11 @@ export class MarketEngine {
           volume24hQuote: fin(num(r.volume24hQuote)) ? num(r.volume24hQuote) : null,
           openInterest: fin(num(r.openInterest)) ? num(r.openInterest) : null,
           openValue: fin(num(r.openValue)) ? num(r.openValue) : null,
-          provenance,
+          provenance: {
+            ...provenance,
+            source_ts_ms: rowSourceTs,
+            note: Number.isFinite(rowSrc) && rowSourceTs === undefined ? `row timestamp ${r.timestamp} is in the future; not trusted` : undefined,
+          },
         };
         sharedStore.ingestStats(statsRow);
         if (lastPrice !== null) measuredPrices++;
@@ -348,6 +360,11 @@ export class MarketEngine {
         throw new Error(`focus symbol ${symbol} is not ready in the operational universe (state=${universeState()})`);
       }
       const { book, provenance } = await tttClient.getTrades(symbol, PRIORITY.REFRESH);
+      if (sharedStore.focusSymbol !== symbol) {
+        // Task 03: focus switched while this request was in flight. Writing the
+        // old symbol's tape now would mark the NEW focus as measured.
+        throw new Error(`discarded trades for ${symbol}: focus switched to ${sharedStore.focusSymbol} mid-request`);
+      }
       const prints = (book.trades ?? []).map((tr) => ({
         symbol,
         price: num(tr.price),
@@ -364,7 +381,9 @@ export class MarketEngine {
         // tape price is fresher than the stats sweep for the focus symbol
         const stats = sharedStore.getStats(symbol);
         if (stats) {
-          sharedStore.ingestStats({ ...stats, lastPrice: last.price, provenance: { ...provenance, endpoint: "/futures/markets/trades" } });
+          // source time = the print's own timestamp, not the fetch time
+          const printTs = Number.isFinite(last.ts_ms) && last.ts_ms <= provenance.fetched_at_ms + FUTURE_SKEW_MS ? last.ts_ms : undefined;
+          sharedStore.ingestStats({ ...stats, lastPrice: last.price, provenance: { ...provenance, endpoint: "/futures/markets/trades", source_ts_ms: printTs } });
         }
         eventBus.emit("price.updated", { symbol, price: last.price, age_ms: Date.now() - provenance.fetched_at_ms });
       }
@@ -387,6 +406,9 @@ export class MarketEngine {
         throw new Error(`focus symbol ${symbol} is not ready in the operational universe (state=${universeState()})`);
       }
       const { book, provenance } = await tttClient.getOrderBook(symbol, undefined, PRIORITY.REFRESH);
+      if (sharedStore.focusSymbol !== symbol) {
+        throw new Error(`discarded orderbook for ${symbol}: focus switched to ${sharedStore.focusSymbol} mid-request`);
+      }
       const bids = (book.bids ?? []).slice(0, 25).map((b) => ({ price: num(b.price), size: num(b.size) })).filter((b) => fin(b.price));
       const asks = (book.asks ?? []).slice(0, 25).map((a) => ({ price: num(a.price), size: num(a.size) })).filter((a) => fin(a.price));
       const bestBid = bids.length ? bids[bids.length - 1].price : null; // ascending
@@ -419,6 +441,9 @@ export class MarketEngine {
         throw new Error(`focus symbol ${symbol} is not ready in the operational universe (state=${universeState()})`);
       }
       const { page, provenance } = await tttClient.getFundingHistory(symbol, 1, PRIORITY.SWEEP);
+      if (sharedStore.focusSymbol !== symbol) {
+        throw new Error(`discarded funding history for ${symbol}: focus switched to ${sharedStore.focusSymbol} mid-request`);
+      }
       sharedStore.fundingHistory = { symbol, page, provenance };
       const stats = sharedStore.getStats(symbol);
       eventBus.emit("funding.updated", { symbol, rate: stats?.fundingRate ?? null });

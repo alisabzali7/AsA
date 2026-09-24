@@ -521,8 +521,12 @@ describe("adversarial sequences", () => {
     const res = await fetchFullHistory(SYM, TF, {});
 
     expect(res.candles).toEqual([]);
-    expect(res.meta.boundary_evidence).toBe("TTT_NO_DATA"); // the venue DID say no_data...
-    expect(res.meta.completion_state).toBe("NO_DATA"); // ...but with zero valid bars nothing is proven
+    // Task 03: a chunk whose every row fails normalization is a corrupt
+    // payload. The walk stops there — it neither walks on into a no_data it
+    // would then misread, nor reports "no data" for bars the venue DID send.
+    expect(res.meta.boundary_evidence).toBeNull();
+    expect(res.meta.completion_state).toBe("INVALID_RESPONSE");
+    expect(res.meta.reason).toMatch(/rejected by normalization/);
     expect(res.meta.completion_state).not.toBe("COMPLETE_TO_TTT_BOUNDARY");
   });
 

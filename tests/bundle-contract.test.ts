@@ -278,7 +278,8 @@ describe("Task K: MTF Alignment Contract (buildMtf)", () => {
 
   it("handles null bundle inputs safely without exception", () => {
     const mtf = buildMtf(null, null, null);
-    expect(mtf.verdict).toBe("INSUFFICIENT");
+    // Task 03: missing components are UNAVAILABLE, distinct from INSUFFICIENT history
+    expect(mtf.verdict).toBe("UNAVAILABLE");
     expect(mtf.macro).toBeNull();
     expect(mtf.context).toBeNull();
     expect(mtf.trigger).toBeNull();

@@ -13,6 +13,7 @@ import { candleManager } from "@/lib/market/candles";
 import { sharedStore } from "@/lib/market/store";
 import { sym, tff, intParam, jsonError } from "@/lib/api-common";
 import { getTimeframe } from "@/lib/domain/timeframes";
+import { prepareAnalysisInput } from "@/lib/analysis/input";
 
 export const dynamic = "force-dynamic";
 
@@ -46,12 +47,19 @@ export async function GET(req: Request): Promise<NextResponse> {
     const candles = series.candles.slice(-limit);
     const coverage = sharedStore.coverageRow(symbol as string, tf as string);
     const forming = sharedStore.getStats(symbol as string);
+    // Task 03: the venue's newest bar may still be forming. closed_count and
+    // freshness are computed from CLOSED bars and their source close time.
+    const input = prepareAnalysisInput(symbol as string, tf as string, { ...series, candles }, Date.now());
     return NextResponse.json({
       ok: true,
       symbol,
       timeframe: tf,
       bars: candles.length,
-      closed_count: candles.length,
+      closed_count: input.closed_bars,
+      last_bar_forming: input.forming_bar_excluded,
+      source_ts_ms: input.source_ts_ms,
+      data_age_ms: input.data_age_ms,
+      freshness: input.freshness,
       candles,
       native: series.native,
       provenance: series.native ? "NATIVE" : "DERIVED",
@@ -59,6 +67,7 @@ export async function GET(req: Request): Promise<NextResponse> {
       source: "ttt",
       endpoint: series.native ? "/futures/udf/history" : "/futures/udf/history (480 → derived 1D fallback)",
       fetched_at_ms: series.fetched_at_ms,
+      // retrieval age only — see data_age_ms/freshness for market freshness
       age_ms: Date.now() - series.fetched_at_ms,
       coverage,
       forming_price: forming?.lastPrice ?? null,

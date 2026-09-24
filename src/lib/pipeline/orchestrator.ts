@@ -7,8 +7,7 @@
 import { createHash } from "node:crypto";
 import { sharedStore } from "../market/store";
 import { candleManager } from "../market/candles";
-import { buildBundle } from "../analysis/bundle";
-import { buildMtf } from "../analysis/mtf";
+import { prepareAnalysisInput } from "../analysis/input";
 import { buildPsychology } from "../psychology/engine";
 import { getRepo } from "../../db/sqlite";
 import { promotedRuntimeStatus } from "../backtest/promotion";
@@ -144,14 +143,21 @@ export async function scanSymbol(
   const tf = strategy.timeframe as TimeframeId;
 
   const seriesTrg = await candleManager.ensureSeries(symbol, tf, opts.forceRefresh ?? true);
-  if (!seriesTrg || seriesTrg.candles.length < strategy.min_bars) {
-    return { opportunity: null, evaluated: false, reason: `insufficient ${tf} history: need ${strategy.min_bars}, have ${seriesTrg?.candles.length ?? 0}` };
+  const nowMs = Date.now();
+  // ANALYSIS INPUT CONTRACT (Task 03): the venue series ends with the bar that
+  // is still FORMING. Strategy rules are closed-bar logic, so that bar is
+  // removed here (and the identity of the series is verified) before any
+  // evaluation, sufficiency check or anchor/staleness computation.
+  const input = prepareAnalysisInput(symbol, tf, seriesTrg ?? null, nowMs);
+  if (!seriesTrg || input.closed_bars < strategy.min_bars) {
+    return { opportunity: null, evaluated: false, reason: `insufficient closed ${tf} history: need ${strategy.min_bars}, have ${input.closed_bars}${input.reason ? ` (${input.reason})` : ""}` };
   }
 
-  const nowMs = Date.now();
-  const candles = seriesTrg.candles;
+  const candles = input.candles;
   const anchorSec = candles[candles.length - 1].t;
-  const ageMs = nowMs - anchorSec * 1000;
+  // SOURCE age = time since the last CLOSED bar actually closed (open + period).
+  const anchorCloseMs = input.source_ts_ms as number;
+  const ageMs = nowMs - anchorCloseMs;
   const staleAfter = tfStalenessMs(tf);
   const stale = ageMs > staleAfter;
 
@@ -269,7 +275,7 @@ export async function scanSymbol(
     mode,
     state: oppState,
     anchor_ts_ms: anchorSec * 1000,
-    anchor_close_ms: anchorSec * 1000,
+    anchor_close_ms: anchorCloseMs,
     freshness_ms: ageMs,
     evidence: score.positive_factors,
     contradictions,

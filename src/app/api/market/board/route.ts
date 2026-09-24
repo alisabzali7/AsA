@@ -7,7 +7,7 @@
  */
 import { NextResponse } from "next/server";
 import { ensureEngineBooted } from "@/lib/state";
-import { sharedStore } from "@/lib/market/store";
+import { sharedStore, statsRowState } from "@/lib/market/store";
 import { operationalUniverse, universeMeta } from "@/lib/market/operational-universe";
 
 export const dynamic = "force-dynamic";
@@ -50,7 +50,10 @@ export async function GET(): Promise<NextResponse> {
       markPrice: s?.markPrice ?? null,
       indexPrice: s?.indexPrice ?? null,
       age_ms: age,
-      state: age === null ? "CONNECTING" : age < 60_000 ? "LIVE" : age < 300_000 ? "STALE" : "DEGRADED",
+      state: age === null ? "CONNECTING" : age >= 300_000 ? "DEGRADED" : age >= 60_000 ? "STALE" : statsRowState(s!, now).state === "STALE" ? "STALE" : "LIVE",
+      source_ts_ms: s?.provenance.source_ts_ms ?? null,
+      source_age_ms: s && typeof s.provenance.source_ts_ms === "number" ? now - s.provenance.source_ts_ms : null,
+      state_reason: s ? statsRowState(s, now).reason ?? null : "no stats measurement yet",
       t: {
         price: truth("last_price"),
         funding: truth("funding"),
