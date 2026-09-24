@@ -170,6 +170,7 @@ export interface Repo {
   signalList(limit: number): SignalRow[];
   signalPage(limit: number, offset: number): SignalRow[];
   signalByOpp(oppId: string): SignalRow | null;
+  signalGet(id: string): SignalRow | null;
   journalAdd(j: Omit<JournalRow, "id">): number;
   journalList(): JournalRow[];
   journalDelete(id: number): void;

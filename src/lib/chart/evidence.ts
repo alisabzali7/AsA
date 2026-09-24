@@ -108,3 +108,14 @@ export function buildChartEvidence(ev: CompiledEvaluation, score: number | null)
     lineage_complete: complete,
   };
 }
+
+/** True iff chart evidence belongs to the given opportunity identity. */
+export function chartEvidenceMatches(
+  evidence: ChartEvidence,
+  identity: { symbol: string; timeframe: string; direction?: string },
+): boolean {
+  if (evidence.symbol !== identity.symbol) return false;
+  if (evidence.timeframe !== identity.timeframe) return false;
+  if (identity.direction && evidence.direction !== identity.direction) return false;
+  return true;
+}

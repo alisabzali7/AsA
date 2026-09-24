@@ -81,7 +81,15 @@ const state: LiveScanState = {
   last_error: null,
 };
 
-/** symbol|setup_id -> in-flight scan (concurrent identical scans join it) */
+/** In-flight coalescing key. Different close times are different scans. */
+export function liveScanFlightKey(symbol: string, setupId: string, closeTimeMs?: number | null): string {
+  // Different bars MUST NOT join each other: a slow scan of bar A completing
+  // after bar B closed used to return A's result for B and drop B. Concurrent
+  // identical (symbol, setup, bar) scans still coalesce.
+  return `${symbol}|${setupId}|${closeTimeMs ?? "na"}`;
+}
+
+/** symbol|setup|bar -> in-flight scan (concurrent identical scans join it) */
 const inFlight = new Map<string, Promise<LiveScanResult>>();
 /** symbol|setup_id -> close_time_ms already scanned (duplicate event guard) */
 const lastClose = new Map<string, number>();
@@ -118,7 +126,7 @@ export function runLiveScanFor(
   trigger: LiveScanTrigger,
   opts: { close_time_ms?: number | null; forceRefresh?: boolean } = {},
 ): Promise<LiveScanResult> {
-  const key = `${symbol}|${strategy.setup_id}`;
+  const key = liveScanFlightKey(symbol, strategy.setup_id, opts.close_time_ms);
   const joined = inFlight.get(key);
   if (joined) return joined;
 
@@ -152,7 +160,7 @@ export function runLiveScanFor(
     }
     state.scans_total++;
     state.last_scan_ms = Date.now();
-    if (opts.close_time_ms != null) lastClose.set(key, opts.close_time_ms);
+    if (opts.close_time_ms != null) lastClose.set(`${symbol}|${strategy.setup_id}`, opts.close_time_ms);
     eventBus.emit("scan.completed", {
       symbol,
       timeframe: strategy.timeframe,
@@ -187,8 +195,9 @@ export async function runLiveScan(
   const strategies = (opts.strategies ?? executableStrategies()).filter((s) => s.timeframe === timeframe);
   const jobs: Promise<LiveScanResult>[] = [];
   for (const strategy of strategies) {
-    const key = `${symbol}|${strategy.setup_id}`;
-    if (opts.close_time_ms != null && lastClose.get(key) === opts.close_time_ms && !inFlight.has(key)) continue; // same bar already scanned
+    const dedupeKey = `${symbol}|${strategy.setup_id}`;
+    const flight = liveScanFlightKey(symbol, strategy.setup_id, opts.close_time_ms);
+    if (opts.close_time_ms != null && lastClose.get(dedupeKey) === opts.close_time_ms && !inFlight.has(flight)) continue; // same bar already scanned
     jobs.push(runLiveScanFor(symbol, strategy, trigger, { close_time_ms: opts.close_time_ms, forceRefresh: opts.forceRefresh }));
   }
   return Promise.all(jobs);

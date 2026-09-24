@@ -225,14 +225,17 @@ async function renderAdvisoryPng(payload: TelegramSignalPayload): Promise<Uint8A
     const parsed = JSON.parse(row.payload_json) as { chart_evidence?: ChartEvidence };
     const evidence = parsed.chart_evidence;
     if (!evidence) return null;
+    const { chartEvidenceMatches } = await import("../chart/evidence");
+    if (!chartEvidenceMatches(evidence, { symbol: row.symbol, timeframe: row.timeframe })) return null;
     const { candleManager } = await import("../market/candles");
     const { isTimeframe } = await import("../domain/timeframes");
     // AUDIT FIX (P1): validate the stored timeframe instead of `as never` —
     // a corrupt payload must not reach the fetcher.
     if (!isTimeframe(evidence.timeframe)) return null;
-    const series = await candleManager.ensureSeries(row.symbol, evidence.timeframe, true);
+    const series = await candleManager.ensureSeries(evidence.symbol, evidence.timeframe, true);
+    if (!series || series.symbol !== evidence.symbol || series.timeframe !== evidence.timeframe) return null;
     const { renderEvidencePng } = await import("../chart/render");
-    return renderEvidencePng(evidence, series?.candles ?? []);
+    return renderEvidencePng(evidence, series.candles);
   } catch {
     return null; // never block the advisory text on a rendering failure
   }

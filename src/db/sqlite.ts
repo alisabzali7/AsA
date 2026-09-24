@@ -194,6 +194,9 @@ export class SqliteRepo implements Repo {
   signalByOpp(oppId: string): SignalRow | null {
     return (this.db.prepare("SELECT * FROM signals WHERE opp_id = ?").get(oppId) as SignalRow) ?? null;
   }
+  signalGet(id: string): SignalRow | null {
+    return (this.db.prepare("SELECT * FROM signals WHERE id = ?").get(id) as SignalRow) ?? null;
+  }
   signalList(limit: number): SignalRow[] {
     return this.db.prepare("SELECT * FROM signals ORDER BY updated_ms DESC LIMIT ?").all(limit) as SignalRow[];
   }

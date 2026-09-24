@@ -162,12 +162,14 @@ export interface AdmissionInput {
   threshold: number;
   data_quality_ok: boolean;
   stale: boolean;
-  risk_verdict: "pass" | "block";
+  risk_verdict: "pass" | "block" | "unavailable";
   portfolio_verdict: "pass" | "block";
   psychology_verdict: "pass" | "block" | "flag";
   strategy_runtime_status: string;
   unresolved_contradiction: boolean;
   unknown_required_fields: string[];
+  /** true when the series used for this decision is DERIVED rather than native TTT */
+  derived_market_truth?: boolean;
   /**
    * LIVE MODE ONLY. Live advisory output requires the FULL promotion gate
    * (`strategy/promotion`), not merely "the strategy is not DISABLED".
@@ -196,6 +198,8 @@ export function admitOpportunity(a: AdmissionInput): AdmissionResult {
   if (!a.data_quality_ok) reasons.push("data quality insufficient");
   if (a.stale) reasons.push("market data is stale");
   if (a.risk_verdict === "block") reasons.push("risk engine BLOCK");
+  if (a.risk_verdict === "unavailable") reasons.push("risk result UNAVAILABLE — not treated as pass");
+  if (a.derived_market_truth) reasons.push("derived series cannot be admitted as native market truth");
   if (a.portfolio_verdict === "block") reasons.push("portfolio risk BLOCK");
   if (a.psychology_verdict === "block") reasons.push("psychology hard block");
   if (a.unresolved_contradiction) reasons.push("unresolved contradiction in evidence");
