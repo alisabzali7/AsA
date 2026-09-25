@@ -1,0 +1,19 @@
+{
+  "project": "AsA",
+  "artifacts": [
+    "ARENA_AGENT_OS_V2.md",
+    "ARENA_MASTER_PROMPT_STARTER.md",
+    "MCP_ASA_STACK.md",
+    "AGENTS.md",
+    "docs/ARENA_RESEARCH_NOTES.md"
+  ],
+  "skills": [
+    ".agents/skills/asa-agent-orchestration/SKILL.md",
+    ".agents/skills/asa-source-fidelity/SKILL.md",
+    ".agents/skills/asa-systematic-debugging/SKILL.md",
+    ".agents/skills/asa-frontend-visual-qa/SKILL.md",
+    ".agents/skills/asa-fullstack-verification/SKILL.md",
+    ".agents/skills/asa-git-release/SKILL.md",
+    ".agents/skills/asa-mcp-hygiene/SKILL.md"
+  ]
+}
