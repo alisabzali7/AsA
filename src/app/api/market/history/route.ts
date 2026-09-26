@@ -43,26 +43,45 @@ export async function GET(req: Request): Promise<NextResponse> {
   }
 
   const market = await getMarket(symbol).catch(() => null);
+  let persistedEvidenceRead = false;
   if (!market) {
     // AUDIT FIX (swallow-site triage): "not found" and "catalog unavailable"
     // are different failures. A discovery outage with no snapshot must NOT be
     // reported as "symbol does not exist".
     const meta = universeMeta();
     if (!meta.discovery_complete) {
+      // DURABLE-RECOVERY PATH (Task 06 — restart during a venue outage must
+      // not sever persistence → API). A symbol whose history THIS deployment
+      // already persisted carries durable evidence of its prior discovery
+      // membership; refusing to read it during a discovery outage made the
+      // boundary-proven store unreachable exactly when it matters most (the
+      // venue being down). Such reads are served WITH an explicit degraded
+      // marker — never as a clean, fully-validated response. A symbol with no
+      // persisted evidence stays 503: membership still cannot be confirmed.
+      // Permanent exclusions (TONUSDT) are rejected above and can never reach
+      // this path through the persisted-evidence bypass.
+      const store = getHistoryStore();
+      const hasPersistedEvidence =
+        store.count(symbol, tf) > 0 ||
+        store.allSyncRows().some((r) => r.symbol === symbol);
+      if (!hasPersistedEvidence) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `TTT catalog unavailable (${meta.state}${meta.last_error ? `: ${meta.last_error}` : ""}) — cannot confirm '${symbol}'`,
+            source: "ttt",
+            degraded: "DISCOVERY_UNAVAILABLE",
+          },
+          { status: 503 },
+        );
+      }
+      persistedEvidenceRead = true;
+    } else {
       return NextResponse.json(
-        {
-          ok: false,
-          error: `TTT catalog unavailable (${meta.state}${meta.last_error ? `: ${meta.last_error}` : ""}) — cannot confirm '${symbol}'`,
-          source: "ttt",
-          degraded: "DISCOVERY_UNAVAILABLE",
-        },
-        { status: 503 },
+        { ok: false, error: `${symbol} is not in the discovered TTT catalog`, source: "ttt" },
+        { status: 404 },
       );
     }
-    return NextResponse.json(
-      { ok: false, error: `${symbol} is not in the discovered TTT catalog`, source: "ttt" },
-      { status: 404 },
-    );
   }
 
   const numParam = (k: string): number | undefined => {
@@ -117,6 +136,9 @@ export async function GET(req: Request): Promise<NextResponse> {
           boundary_proof: row?.boundary_proof ?? null,
           boundary_proven_this_attempt: boundaryProvenThisAttempt,
           last_error: row?.last_error ?? null,
+          // served from persisted evidence while live discovery was down —
+          // never presented as a fully-validated, discovery-complete read
+          discovery_degraded: persistedEvidenceRead ? "DISCOVERY_UNAVAILABLE" : null,
         },
         ts: Date.now(),
       });
@@ -145,8 +167,12 @@ export async function GET(req: Request): Promise<NextResponse> {
           to: candles.length ? candles[candles.length - 1].t : null,
         },
         completion_state: row?.completion_state ?? "PARTIAL",
-        data_quality: (row?.gap_count ?? 0) > 0 ? "GAPPED" : "OK",
-        gap_count: row?.gap_count ?? 0,
+        // When no sync row exists (bars written by the live candle path only),
+        // gap_count is measured over the RETURNED window instead of assuming 0.
+        gap_count: row?.gap_count ?? detectGaps(candles, spec.minutes).length,
+        data_quality: row
+          ? (row.gap_count ?? 0) > 0 ? "GAPPED" : "OK"
+          : detectGaps(candles, spec.minutes).length > 0 ? "GAPPED" : "OK",
         dataset_fingerprint: row?.dataset_fingerprint ?? fingerprint(candles),
         last_sync_ms: row?.last_sync_ms ?? null,
         last_attempt_ms: row?.last_attempt_ms ?? null,
@@ -155,7 +181,14 @@ export async function GET(req: Request): Promise<NextResponse> {
         retrieval_version: row?.retrieval_version ?? null,
         // progressive-loading hints for the chart
         has_more_history: candles.length > 0 && bounds.earliest !== null && candles[0].t > bounds.earliest,
-        earliest_boundary_reached: row?.completion_state === "COMPLETE_TO_TTT_BOUNDARY",
+        // THE BOUNDARY FLAG IS PROOF-GATED (mandate §7.8). A retained
+        // completion flag WITHOUT a recorded evidence type (a legacy row from
+        // before `boundary_proof` existed) is UNKNOWN evidence — it may keep
+        // its historical completion_state, but it may NOT be announced to the
+        // chart as a proven TTT boundary. The badge requires the actual proof.
+        earliest_boundary_reached:
+          row?.completion_state === "COMPLETE_TO_TTT_BOUNDARY" &&
+          row?.boundary_proof != null,
         // the EVIDENCE behind the completion flag: 'TTT_NO_DATA' when the
         // boundary was proven by an explicit upstream answer, null when no
         // proof is recorded (legacy row / never proven)
@@ -163,6 +196,9 @@ export async function GET(req: Request): Promise<NextResponse> {
         boundary_proof_ms: row && row.boundary_proof_ms > 0 ? row.boundary_proof_ms : null,
         boundary_proven_this_attempt: boundaryProvenThisAttempt,
         transport_window_applied: limit !== undefined,
+        // served from persisted evidence while live discovery was down —
+        // never presented as a fully-validated, discovery-complete read
+        discovery_degraded: persistedEvidenceRead ? "DISCOVERY_UNAVAILABLE" : null,
         note: "limit is a TRANSPORT window only; the backend retains and can serve the full TTT-available range",
         sync: syncNote ?? null,
       };
