@@ -3,6 +3,7 @@
 import { useLang } from "@/components/lang";
 import { usePoll } from "@/components/hooks";
 import { Badge, Empty, Panel } from "@/components/ui";
+import { TruthState } from "@/components/data-state";
 
 interface NewsShape {
   ok: boolean;
@@ -18,18 +19,19 @@ export default function FundamentalPage() {
   return (
     <div className="flex flex-col gap-2">
       <h1 className="text-[15px] font-semibold">{t("nav", "fundamental")}</h1>
+      {d.status !== "OK" && <TruthState dense status={d.status} failure={d.failure} onRetry={d.refresh} />}
       <Panel title="connector state">
         {d.data?.connectors.map((c) => (
           <div key={c.id} className="flex items-center justify-between py-1 text-[12px]">
             <span>{c.name} <span className="text-dim">({c.id})</span></span>
             <span className="flex items-center gap-2">
-              <Badge color={c.configured ? "#3fb68b" : "#5d616b"}>{c.configured ? "CONFIGURED" : "NOT CONFIGURED"}</Badge>
+              <Badge color={c.configured ? "var(--color-up)" : "var(--color-dim)"}>{c.configured ? "CONFIGURED" : "NOT CONFIGURED"}</Badge>
               <span className="text-[10px] text-dim">{c.state.reason ?? c.state.state}</span>
             </span>
           </div>
         ))}
         <p className="mt-1.5 text-[10px] text-dim">
-          Rolling 30-day retention with auditable runs · append-only inside the window · auxiliiary news is never market price truth.
+          Rolling 30-day retention with auditable runs · append-only inside the window · auxiliary news is never market price truth.
         </p>
       </Panel>
       {state && state.state === "NOT_CONFIGURED" && (
@@ -40,7 +42,7 @@ export default function FundamentalPage() {
           <Panel key={n.id} className="py-2">
             <div className="flex flex-wrap items-center gap-1.5">
               {n.url ? <a className="text-[12.5px] font-semibold hover:text-gold focus-ring rounded" href={n.url} target="_blank" rel="noreferrer">{n.title}</a> : <span className="text-[12.5px] font-semibold">{n.title}</span>}
-              <Badge color="#d6a24a">{n.impact}</Badge>
+              <Badge color="var(--color-warn)">{n.impact}</Badge>
               <Badge>{n.source_type}</Badge>
             </div>
             {n.summary && <p className="mt-1 text-[11px] leading-relaxed text-muted">{n.summary.slice(0, 400)}</p>}
@@ -48,7 +50,7 @@ export default function FundamentalPage() {
               <span>source {n.source}</span>
               {n.published_at_ms && <span>· published {new Date(n.published_at_ms).toISOString().slice(0, 16)}</span>}
               <span>· ingested {new Date(n.ingested_at_ms).toISOString().slice(0, 16)}</span>
-              {n.related_symbols.map((s) => <Badge key={s} color="#8b8f99">{s}</Badge>)}
+              {n.related_symbols.map((s) => <Badge key={s} color="var(--color-muted)">{s}</Badge>)}
             </div>
           </Panel>
         ))}

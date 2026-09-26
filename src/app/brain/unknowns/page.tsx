@@ -39,7 +39,7 @@ export default function UnknownsPage() {
 
       <Panel title={`strategies blocked by UNKNOWN (${s?.strategies_blocked_by_unknown ?? 0})`}>
         <table className="w-full text-[11px]">
-          <thead><tr className="text-muted"><th className="text-left font-medium">strategy</th><th className="text-left font-medium">family</th><th className="text-left font-medium">missing</th></tr></thead>
+          <thead><tr className="text-muted"><th className="text-start font-medium">strategy</th><th className="text-start font-medium">family</th><th className="text-start font-medium">missing</th></tr></thead>
           <tbody>
             {(s?.strategies ?? []).slice(0, 60).map((x) => (
               <tr key={x.strategy_id} className="border-t" style={{ borderColor: "var(--color-line)" }}>

@@ -1,9 +1,17 @@
 "use client";
-/** Shared data hooks: typed polling + SSE subscription + formatting. */
+/** Shared data hooks: normalized provider polling + SSE subscription + formatting.
+ *
+ *  The provider contract (see resource-state.ts): every poll carries an
+ *  explicit status — LOADING / OK / UNAVAILABLE / OFFLINE / ERROR — plus the
+ *  server's own verdict (state + reason) whenever a failure is a truthful
+ *  "unavailable" answer rather than a fault. Features may format and
+ *  downgrade freshness, never invent a success state.
+ */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fmtAge } from "@/lib/i18n/strings";
 import { createSequenceGuard } from "@/lib/poll-sequence";
 import { decimalsFor } from "@/lib/chart/adapter";
+import { loadResource, type ResourceFailure, type ResourceStatus } from "./resource-state";
 
 export interface ApiState<T> {
   data: T | null;
@@ -11,20 +19,29 @@ export interface ApiState<T> {
   loading: boolean;
   age_ms: number | null;
   refresh: () => void;
+  /** normalized provider status — the state model the UI renders from */
+  status: ResourceStatus;
+  /** structured failure verdict (server state + reason) when not OK */
+  failure: ResourceFailure | null;
+  /** elapsed time since the LAST successful payload (null = never succeeded) */
+  stale_age_ms: number | null;
 }
 
 /** Poll a JSON endpoint at a cadence; also refreshable manually.
  *  `onData` (if given) runs in the async fetch continuation after each load —
  *  the correct place for components to react to fresh data without calling
- *  setState synchronously inside an effect.
- *
- *  Identity rule (Team 02): every response is stored WITH the URL that produced
- *  it, and only returned while that URL is still the requested one. Pre-fix,
- *  switching symbol/timeframe kept rendering the previous series' data (e.g.
- *  BTC S/R lines on an ETH chart) until the new response arrived. */
+ *  setState synchronously inside an effect. */
 export function usePoll<T>(url: string | null, intervalMs = 7000, enabled = true, onData?: (d: T) => void): ApiState<T> {
-  const [snap, setSnap] = useState<{ url: string | null; data: T | null; error: string | null; done: boolean }>({ url: null, data: null, error: null, done: false });
+  /**
+   * IDENTITY RULE (merged from the Team-02 closure): the snapshot is stored
+   * WITH the URL that produced it, and every field is returned only while
+   * that URL is still the requested one. Switching symbol/timeframe can
+   * therefore never keep painting the previous series' data.
+   */
+  const [snap, setSnap] = useState<{ url: string | null; data: T | null; error: string | null; status: ResourceStatus; failure: ResourceFailure | null }>({ url: null, data: null, error: null, status: "LOADING", failure: null });
   const [age, setAge] = useState<{ url: string | null; ms: number | null }>({ url: null, ms: null });
+  const [staleAge, setStaleAge] = useState<{ url: string | null; ms: number | null }>({ url: null, ms: null });
+  const lastOkAtRef = useRef<{ url: string; ms: number } | null>(null);
   const [tick, setTick] = useState(0);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const onDataRef = useRef(onData);
@@ -32,41 +49,143 @@ export function usePoll<T>(url: string | null, intervalMs = 7000, enabled = true
   useEffect(() => {
     if (!enabled || !url) return;
     let dead = false;
-    // Task 10: overlapping polls of this URL may resolve out of order — only
-    // the newest issued request that resolves first-in-order may write state
+    // overlapping polls of this URL may resolve out of order — only the newest
+    // issued request may write state (response-ordering guard)
     const seq = createSequenceGuard();
     const load = async () => {
       const ticket = seq.issue();
-      try {
-        const r = await fetch(url, { cache: "no-store" });
-        // a non-2xx body may still carry a typed error_class — surface it
-        if (!r.ok) {
-          let cls = "";
-          try { const b = (await r.json()) as { error_class?: string }; cls = b.error_class ? ` ${b.error_class}` : ""; } catch { /* non-JSON */ }
-          throw new Error(`HTTP ${r.status}${cls}`);
+      const r = await loadResource(url);
+      if (r.status === "OK") {
+        if (!dead && seq.accept(ticket)) {
+          setSnap({ url, data: r.data as T, error: null, status: "OK", failure: null });
+          setAge({ url, ms: 0 });
+          lastOkAtRef.current = { url, ms: r.at_ms };
+          setStaleAge({ url, ms: 0 });
+          onDataRef.current?.(r.data as T);
         }
-        const j = (await r.json()) as T;
-        if (!dead && seq.accept(ticket)) { setSnap({ url, data: j, error: null, done: true }); setAge({ url, ms: 0 }); onDataRef.current?.(j); }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        // keep this URL's last good data, but never another URL's
-        if (!dead && seq.accept(ticket)) setSnap((p) => ({ url, data: p.url === url ? p.data : null, error: msg, done: true }));
+      } else {
+        // never clear the last authoritative payload FOR THIS URL — the UI keeps
+        // showing it with a decaying age (cached-not-live), which is truthful;
+        // another URL's payload is NEVER inherited
+        if (!dead && seq.accept(ticket)) setSnap((p) => ({ url, data: p.url === url ? p.data : null, error: r.failure ? r.failure.message : "request failed", status: r.status, failure: r.failure }));
       }
     };
     void load();
     timer.current = setInterval(() => void load(), intervalMs);
-    const ageTimer = setInterval(() => setAge((a) => (a.ms === null ? a : { url: a.url, ms: a.ms + 1000 })), 1000);
-    return () => { dead = true; if (timer.current) clearInterval(timer.current); clearInterval(ageTimer); };
+    const ageTimer = setInterval(() => {
+      setAge((a) => (a.ms === null ? a : { url: a.url, ms: a.ms + 1000 }));
+      const ok = lastOkAtRef.current;
+      setStaleAge(ok ? { url: ok.url, ms: Date.now() - ok.ms } : { url: null, ms: null });
+    }, 1000);
+    // OFFLINE recovery: the moment the browser is back, re-ask the server
+    // instead of waiting for the next poll tick to flip the state.
+    const onOnline = () => void load();
+    window.addEventListener("online", onOnline);
+    // global refresh bus (command-palette "Refresh all data"): re-ask now,
+    // do not fake anything — a failed refresh keeps the honest prior state
+    const onBus = () => void load();
+    window.addEventListener("asa:refresh", onBus);
+    return () => {
+      dead = true;
+      if (timer.current) clearInterval(timer.current);
+      clearInterval(ageTimer);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("asa:refresh", onBus);
+    };
   }, [url, intervalMs, enabled, tick]);
   const refresh = useCallback(() => setTick((x) => x + 1), []);
   const current = snap.url === url;
   return {
     data: current ? snap.data : null,
     error: current ? snap.error : null,
-    loading: !current || !snap.done,
+    loading: !current || snap.status === "LOADING",
     age_ms: age.url === url ? age.ms : null,
     refresh,
+    status: current ? snap.status : "LOADING",
+    failure: current ? snap.failure : null,
+    stale_age_ms: staleAge.url === url ? staleAge.ms : null,
   };
+}
+
+/* ------------------------------------------------------------------ mutations
+ *
+ * Production deployments fail-closed on every mutation route unless
+ * `x-asa-token` matches ASA_API_TOKEN (server env). The browser never learns
+ * the token from the bundle: the operator may paste it once into Settings,
+ * where it is kept ONLY in localStorage and attached to mutation requests.
+ * Nothing about a denial is hidden — `postJson` surfaces the server's own
+ * error message, and callers render it verbatim.
+ */
+
+export function asaToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try { return window.localStorage.getItem("asa-token"); } catch { return null; }
+}
+
+/* useSyncExternalStore seam for the stored token: hydration-safe (the server
+ * snapshot is the empty "unknown" value) and reactive across tabs. */
+const tokenListeners = new Set<() => void>();
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === "asa-token") tokenListeners.forEach((l) => l());
+  });
+}
+export function subscribeAsaToken(cb: () => void): () => void {
+  tokenListeners.add(cb);
+  return () => { tokenListeners.delete(cb); };
+}
+export function getAsaTokenSnapshot(): string {
+  return asaToken() ?? "";
+}
+export function getAsaTokenServerSnapshot(): string {
+  return "";
+}
+export function setAsaToken(v: string | null): void {
+  try {
+    if (v) window.localStorage.setItem("asa-token", v);
+    else window.localStorage.removeItem("asa-token");
+    tokenListeners.forEach((l) => l());
+  } catch { /* private mode */ }
+}
+
+/** POST/DELETE with the operator token attached. Returns parsed JSON + the
+ *  HTTP ok flag; a network failure returns {ok:false, error} — never a fake
+ *  success. */
+export async function postJson<J = Record<string, unknown>>(
+  url: string,
+  body: unknown,
+  method: "POST" | "DELETE" = "POST",
+): Promise<{ ok: boolean; status: number; data: J | null; error: string | null }> {
+  try {
+    const token = asaToken();
+    const res = await fetch(url, {
+      method,
+      headers: {
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { "x-asa-token": token } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text().catch(() => "");
+    let parsed: (J & { ok?: boolean; error?: string }) | null = null;
+    try { parsed = text.trim() ? (JSON.parse(text) as J & { ok?: boolean; error?: string }) : null; } catch { /* non-JSON */ }
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        data: parsed as J | null,
+        error: parsed?.error ?? `HTTP ${res.status}`,
+      };
+    }
+    if (parsed && parsed.ok === false) {
+      return { ok: false, status: res.status, data: parsed as J, error: parsed.error ?? "server refused the operation" };
+    }
+    return { ok: true, status: res.status, data: parsed as J, error: null };
+  } catch (e) {
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, status: 0, data: null, error: offline ? `offline — request not sent (${msg})` : msg };
+  }
 }
 
 /** Subscribe to the AsA SSE bus. Returns the latest matching events. */
@@ -78,10 +197,15 @@ export function useSse(onEvent?: (e: { type: string; ts: number }) => void): { c
   useEffect(() => {
     let retries = 0;
     let es: EventSource | null = null;
+    let onlineListener: (() => void) | null = null;
     const open = () => {
       es = new EventSource("/api/system/events?stream=1");
       es.onopen = () => { setConnected(true); retries = 0; };
-      es.onerror = () => { setConnected(false); es?.close(); retries++; if (retries < 5) setTimeout(open, 3000 * retries); };
+      es.onerror = () => {
+        setConnected(false); es?.close(); retries++;
+        // bounded backoff while offline; recovery is event-driven, not polling
+        if (retries < 5) setTimeout(open, 3000 * retries);
+      };
       es.onmessage = (ev) => {
         try {
           const e = JSON.parse(ev.data) as { type: string; ts: number };
@@ -91,26 +215,24 @@ export function useSse(onEvent?: (e: { type: string; ts: number }) => void): { c
       };
     };
     open();
-    return () => { es?.close(); setConnected(false); };
+    onlineListener = () => { retries = 0; es?.close(); open(); };
+    window.addEventListener("online", onlineListener);
+    return () => { es?.close(); setConnected(false); if (onlineListener) window.removeEventListener("online", onlineListener); };
   }, []);
   return { connected, lastAt };
 }
 
 export function stateColor(state: string): string {
   switch (state) {
-    case "LIVE": case "READY": case "CONNECTED": return "#3fb68b";
-    case "STALE": case "DEGRADED": case "PARTIAL": return "#d6a24a";
-    case "CONNECTING": case "SCANNING": case "ANALYZING": case "RISK_CHECK": case "candidate": case "qualified": return "#8b8f99";
-    case "UNAVAILABLE": case "ERROR": case "REJECTED": case "COOLDOWN": case "EXPIRED": case "blocked_by_risk": return "#d9605e";
+    case "LIVE": case "READY": case "CONNECTED": case "OK": return "var(--color-up)";
+    case "STALE": case "DEGRADED": case "PARTIAL": case "UNAVAILABLE": case "NETWORK_FAILURE": case "NOT_READY": case "INVALID_RESPONSE": return "var(--color-warn)";
+    case "CONNECTING": case "SCANNING": case "ANALYZING": case "RISK_CHECK": case "candidate": case "qualified": return "var(--color-muted)";
+    case "OFFLINE": case "ERROR": case "REJECTED": case "COOLDOWN": case "EXPIRED": case "blocked_by_risk": return "var(--color-down)";
     case "NOT_CONFIGURED": case "INSUFFICIENT_DATA": case "published": case "PENDING": return "#5d616b";
-    default: return "#8b8f99";
+    default: return "var(--color-muted)";
   }
 }
 
-/**
- * Price label. With a venue tick, its decimals; otherwise ~5 significant
- * digits (Task 10: the old 6-decimal cap printed 1.23e-6 as "0.000001").
- */
 export function formatPrice(p: number | null | undefined, tick?: number | null): string {
   if (p === null || p === undefined || !Number.isFinite(p)) return "—";
   let digits: number;
