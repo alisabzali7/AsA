@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useLang } from "@/components/lang";
 import { usePoll, useSse, fmtAge } from "@/components/hooks";
 import { Metric, Panel, StatusChip } from "@/components/ui";
-import { topByPrice, topGainers, effectiveAgeMs, displayStateFor } from "@/components/board-selectors";
+import { topByPrice, topGainers, effectiveAgeMs, displayStateFor, healthDisplayState, type SystemHealthShape } from "@/components/board-selectors";
 
 interface BoardRow { symbol: string; price: number | null; change24hPct: number | null; state: string; age_ms: number | null }
 interface BoardShape { ok: boolean; rows: BoardRow[]; stats_age_ms: number | null }
@@ -12,6 +12,10 @@ interface BoardShape { ok: boolean; rows: BoardRow[]; stats_age_ms: number | nul
 export default function DashboardPage() {
   const { t } = useLang();
   const board = usePoll<BoardShape>("/api/market/board", 7000);
+  // TRUTH FIX: the "health endpoint" chip renders THIS endpoint's market
+  // state. It used to render SSE socket connectivity, so a live event socket
+  // showed LIVE while /api/system/health reported CONNECTING/STALE/UNAVAILABLE.
+  const health = usePoll<SystemHealthShape>("/api/system/health", 10_000);
   const sse = useSse();
   const rows = board.data?.rows ?? [];
   const live = rows.filter((r) => r.price !== null).length;
@@ -27,7 +31,7 @@ export default function DashboardPage() {
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="TTT market" value={<span style={{ color: sweepEff !== null && sweepEff < 30000 ? "#3fb68b" : "#d6a24a" }}>{sweepEff !== null && sweepEff < 30000 ? "LIVE" : "CONNECTING/STALE"}</span>} sub={`last sweep ${sweepEff !== null ? fmtAge(sweepEff) : "—"} · SSE ${sse.connected ? "on" : "off"}`} />
         <Metric label="universe live" value={`${live}/${rows.length}`} sub="TTT /futures/markets/stats — one request per sweep (dynamically discovered universe)" color="#d4b874" />
-        <Metric label="health endpoint" value={<StatusChip state={sse.connected ? "LIVE" : "CONNECTING"} />} sub="/api/system/health" />
+        <Metric label="health endpoint" value={<StatusChip state={healthDisplayState(health.data, health.error !== null, health.age_ms)} />} sub={`/api/system/health · ${health.data?.reason ?? (health.error ?? "awaiting first answer")}`} />
         <Metric label="mode" value="ADVISORY" sub="AsA never executes — human executes" color="#8b8f99" />
       </div>
 

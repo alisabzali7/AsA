@@ -26,6 +26,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { Candle } from "../domain/types";
 import type { TimeframeId } from "../domain/timeframes";
 import { getTimeframe } from "../domain/timeframes";
@@ -58,6 +59,19 @@ CREATE TABLE IF NOT EXISTS history_sync (
   last_error TEXT, retrieval_version TEXT NOT NULL DEFAULT '1.0.0',
   source TEXT NOT NULL DEFAULT 'ttt',
   PRIMARY KEY (symbol, timeframe)
+);
+-- MULTI-PROCESS CELL LEASE (cross-process critical-section guard): the
+-- per-cell sync body is a READ-MODIFY-WRITE over one history_sync row. The
+-- in-process FIFO chain serializes callers inside ONE process, but two
+-- processes sharing this database file (two dev servers, a cron worker + a
+-- server) could still interleave reads/writes and destroy a fresh boundary
+-- proof. This tiny table is a TTL lease taken in the same SQLite file, so the
+-- mutual exclusion is as durable as the data itself. One row per held cell.
+CREATE TABLE IF NOT EXISTS sync_lease (
+  key TEXT PRIMARY KEY,
+  owner TEXT NOT NULL,
+  acquired_ms INTEGER NOT NULL,
+  expires_ms INTEGER NOT NULL
 );
 `;
 
@@ -106,6 +120,16 @@ export interface HistoryStoreLike {
   allSyncRows(): SyncRow[];
   putSync(r: SyncRow): void;
   touchSyncAttempt(symbol: string, timeframe: TimeframeId, atMs: number, error?: string | null): void;
+  /**
+   * MULTI-PROCESS: try to take the cell lease. Returns true when acquired
+   * (fresh row, expired foreign lease, or already ours); false while another
+   * owner's lease is still valid.
+   */
+  acquireSyncLease(key: string, owner: string, ttlMs: number): boolean;
+  /** MULTI-PROCESS: heartbeat. Extends only when `owner` still holds the lease. */
+  renewSyncLease(key: string, owner: string, ttlMs: number): boolean;
+  /** MULTI-PROCESS: release only our own lease (idempotent). */
+  releaseSyncLease(key: string, owner: string): void;
   totalBars(): number;
   close(): void;
 }
@@ -231,6 +255,42 @@ export class HistoryStore implements HistoryStoreLike {
     ).run(atMs, atMs, error, symbol, timeframe);
   }
 
+  /**
+   * MULTI-PROCESS: atomically take/refresh the cell lease.
+   * `INSERT ... ON CONFLICT` is evaluated inside one SQLite transaction, so
+   * two connections racing the same cell produce exactly one winner: the
+   * loser sees the winner's still-valid `expires_ms` and backs off.
+   */
+  acquireSyncLease(key: string, owner: string, ttlMs: number): boolean {
+    const now = Date.now();
+    const expires = now + ttlMs;
+    // Take when: no row, our own row, or the foreign lease already expired.
+    this.db.prepare(
+      `INSERT INTO sync_lease (key, owner, acquired_ms, expires_ms) VALUES (?,?,?,?)
+       ON CONFLICT(key) DO UPDATE SET
+         owner = excluded.owner,
+         acquired_ms = CASE WHEN sync_lease.owner = excluded.owner THEN sync_lease.acquired_ms ELSE excluded.acquired_ms END,
+         expires_ms = excluded.expires_ms
+       WHERE sync_lease.expires_ms <= ? OR sync_lease.owner = excluded.owner`,
+    ).run(key, owner, now, expires, now);
+    return this.leaseOwner(key) === owner;
+  }
+
+  renewSyncLease(key: string, owner: string, ttlMs: number): boolean {
+    const res = this.db
+      .prepare("UPDATE sync_lease SET expires_ms = ? WHERE key = ? AND owner = ? AND expires_ms > ?")
+      .run(Date.now() + ttlMs, key, owner, Date.now());
+    return res.changes > 0;
+  }
+
+  releaseSyncLease(key: string, owner: string): void {
+    this.db.prepare("DELETE FROM sync_lease WHERE key = ? AND owner = ?").run(key, owner);
+  }
+
+  private leaseOwner(key: string): string | null {
+    return (this.db.prepare("SELECT owner FROM sync_lease WHERE key = ?").get(key) as { owner: string } | undefined)?.owner ?? null;
+  }
+
   totalBars(): number {
     return (this.db.prepare("SELECT COUNT(*) c FROM candles").get() as { c: number }).c;
   }
@@ -274,6 +334,89 @@ export interface SyncOptions {
   /** re-walk to the TTT boundary even if history is already stored */
   full?: boolean;
   maxChunks?: number;
+  /**
+   * Test/ops seam: how long to wait for a concurrent cell lease (cross
+   * process) before failing the sync. Default: SYNC_LEASE_WAIT_TIMEOUT_MS.
+   */
+  leaseTimeoutMs?: number;
+}
+
+/** Lease TTL for one cell's sync critical section; heartbeated while held. */
+export const SYNC_LEASE_TTL_MS = 30_000;
+/** Lease acquisition poll interval while waiting for a foreign holder. */
+const SYNC_LEASE_POLL_MS = 200;
+/** Default max wait for a foreign cell lease before failing the sync. */
+export const SYNC_LEASE_WAIT_TIMEOUT_MS = 120_000;
+
+interface LeaseGuard {
+  /** Throws when the cell lease was lost (expired + taken by another process). */
+  ensureOwned(): void;
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * MULTI-PROCESS CRITICAL SECTION for one cell.
+ *
+ * Composes with the in-process FIFO chain (which runs BEFORE this): the chain
+ * guarantees no same-process sibling can be mid-cell when we try to acquire,
+ * so a failure to acquire means a DIFFERENT process holds the lease — we poll
+ * until it finishes or `leaseTimeoutMs` elapses. A heartbeat keeps our TTL
+ * alive across the (long) venue walk; `LeaseGuard.ensureOwned()` is checked
+ * before every write, so a process that stalled past its TTL can never write
+ * over a takeover's results — it aborts with nothing persisted.
+ */
+async function withCellLease<T>(
+  symbol: string,
+  timeframe: TimeframeId,
+  opts: SyncOptions,
+  body: (guard: LeaseGuard) => Promise<T>,
+): Promise<T> {
+  const store = getHistoryStore();
+  const key = `${symbol}|${timeframe}`;
+  // crypto RNG — the production-source scan forbids the global PRNG (see
+  // tests/i18n-scan.test.ts) anywhere under src/; the owner id only needs to
+  // be collision-free across processes/instances.
+  const owner = `${process.pid}:${Date.now()}:${randomUUID()}`;
+  const ttl = SYNC_LEASE_TTL_MS;
+  const waitMs = opts.leaseTimeoutMs ?? SYNC_LEASE_WAIT_TIMEOUT_MS;
+  const deadline = Date.now() + waitMs;
+
+  let acquired = false;
+  while (Date.now() < deadline) {
+    if (store.acquireSyncLease(key, owner, ttl)) { acquired = true; break; }
+    await sleep(SYNC_LEASE_POLL_MS);
+  }
+  if (!acquired) {
+    throw new Error(
+      `[history] cell ${key}: timed out after ${waitMs}ms waiting for the cross-process sync lease — another worker is syncing this cell`,
+    );
+  }
+
+  let lost = false;
+  const heartbeat = setInterval(() => {
+    try {
+      if (!store.renewSyncLease(key, owner, ttl)) lost = true;
+    } catch {
+      lost = true;
+    }
+  }, Math.floor(ttl / 3));
+  heartbeat.unref?.();
+
+  try {
+    return await body({
+      ensureOwned() {
+        if (lost) throw new Error(`[history] cell ${key}: sync lease lost mid-flight (expired and taken by another process); refusing to write`);
+        if (!store.renewSyncLease(key, owner, ttl)) {
+          lost = true;
+          throw new Error(`[history] cell ${key}: sync lease lost mid-flight (expired and taken by another process); refusing to write`);
+        }
+      },
+    });
+  } finally {
+    clearInterval(heartbeat);
+    try { store.releaseSyncLease(key, owner); } catch { /* lease expires by TTL regardless */ }
+  }
 }
 
 export interface SyncResult {
@@ -302,19 +445,92 @@ export interface SyncResult {
 /**
  * Synchronise one symbol/timeframe.
  *
- * First sync walks to the TTT boundary. Later syncs fetch only the tail after
- * the newest stored bar, so a full backfill is never repeated.
+ * SERIALIZATION (concurrency truth fix): the body below is a READ-MODIFY-WRITE
+ * transaction over the cell's sync row — it reads `prior`/`bounds`, performs
+ * async venue walks, then writes completion_state + boundary_proof last-writer-
+ * wins. Two concurrent callers (chart sync=full + backtest sync=full, double
+ * click, parallel API clients) used to interleave that transaction:
+ *   - a caller that read `prior` BEFORE another caller proved the boundary
+ *     would later overwrite the fresh proof with its own stale snapshot
+ *     (fresh TTT_NO_DATA evidence destroyed), and
+ *   - a caller whose boundary probe raced another caller's extension of the
+ *     dataset could label an extent COMPLETE_TO_TTT_BOUNDARY that its own
+ *     evidence never covered (false boundary proof).
+ * Each cell (symbol×timeframe) now runs its sync critical section strictly
+ * serialized in FIFO arrival order, so every writer computes its truth from
+ * the state its write actually applies to. Venue walks of DIFFERENT cells
+ * still run concurrently — only same-cell syncs queue behind each other.
  */
 export async function syncHistory(
   symbol: string,
   timeframe: TimeframeId,
   opts: SyncOptions = {},
 ): Promise<SyncResult> {
+  const key = `${symbol}|${timeframe}`;
+  const prev = cellSyncChain.get(key) ?? Promise.resolve();
+  // In-process FIFO first, then the cross-process cell lease around the body:
+  // the chain guarantees a same-process sibling never overlaps our acquisition,
+  // so contention on the lease can only come from another process.
+  const run = prev.then(() =>
+    withCellLease(symbol, timeframe, opts, (lease) => syncHistoryCell(symbol, timeframe, opts, lease)),
+  );
+  // The chain tail swallows rejections so a failed sync never breaks the next
+  // queued one; the ORIGINAL promise still rejects for the caller.
+  const tail = run.then(() => undefined, () => undefined);
+  cellSyncChain.set(key, tail);
+  void tail.then(() => {
+    // drop the entry once this task is the last in line (no unbounded map)
+    if (cellSyncChain.get(key) === tail) cellSyncChain.delete(key);
+  });
+  return run;
+}
+
+/** FIFO chain of in-flight syncs per `symbol|timeframe` cell. */
+const cellSyncChain = new Map<string, Promise<void>>();
+
+async function syncHistoryCell(
+  symbol: string,
+  timeframe: TimeframeId,
+  opts: SyncOptions = {},
+  lease: LeaseGuard,
+): Promise<SyncResult> {
   const store = getHistoryStore();
   const spec = getTimeframe(timeframe)!;
   const before = store.count(symbol, timeframe);
   const bounds = store.bounds(symbol, timeframe);
   const prior = store.syncRow(symbol, timeframe);
+
+  /**
+   * CRASH-WINDOW GUARD for extending writes: a `put` that stores bars OLDER
+   * than the previously verified extent makes the stored proof stale — and a
+   * crash between the put and the final `putSync` would strand a row claiming
+   * COMPLETE_TO_TTT_BOUNDARY (proof covering only the old extent) over a
+   * dataset that reaches further back than that proof ever proved. The honest
+   * row is therefore persisted FIRST: proof dropped, completion weakened to
+   * PARTIAL. Order the writes the other way (bars, then row) and the crash
+   * window opens; this order makes a crash land on the truthful-unproven state,
+   * which the next successful sync re-proves from scratch.
+   */
+  const putGuarded = (incoming: Candle[]): void => {
+    lease.ensureOwned();
+    if (
+      incoming.length > 0 &&
+      prior?.completion_state === "COMPLETE_TO_TTT_BOUNDARY" &&
+      prior.earliest_ts !== null &&
+      incoming[0].t < prior.earliest_ts
+    ) {
+      const now = Date.now();
+      store.putSync({
+        ...prior,
+        completion_state: "PARTIAL",
+        boundary_proof: null,
+        boundary_proof_ms: 0,
+        last_attempt_ms: now,
+        last_sync_ms: now,
+      });
+    }
+    store.put(symbol, timeframe, incoming);
+  };
 
   const canIncrement =
     !opts.full && before > 0 && bounds.latest !== null &&
@@ -327,6 +543,7 @@ export async function syncHistory(
     if (nowSec - (bounds.latest as number) < stepSec) {
       // AUDIT FIX (P0-6): a skip is an ATTEMPT, not a verified success. Record
       // the attempt without touching the success timestamp.
+      lease.ensureOwned();
       store.touchSyncAttempt(symbol, timeframe, Date.now());
       const stored = store.get(symbol, timeframe);
       return {
@@ -394,12 +611,12 @@ export async function syncHistory(
       if (probe.meta.boundary_evidence === "TTT_NO_DATA") {
         boundaryProven = true;
       } else if (probe.candles.length > 0) {
-        store.put(symbol, timeframe, probe.candles);
+        putGuarded(probe.candles);
       }
     }
   }
 
-  store.put(symbol, timeframe, res.candles);
+  putGuarded(res.candles);
   const after = store.count(symbol, timeframe);
 
   // Recompute metadata over EVERYTHING stored, not just this fetch, so an
@@ -494,6 +711,9 @@ export async function syncHistory(
   const priorSuccessMs = prior?.last_successful_sync_ms ?? 0;
   const successMs = syncSucceeded ? attemptMs : priorSuccessMs;
 
+  // Refuse the terminal write if the lease was lost mid-flight — another
+  // process would already own this cell's truth and our row would overwrite it.
+  lease.ensureOwned();
   store.putSync({
     symbol, timeframe,
     earliest_ts: meta.earliest_available, latest_ts: meta.latest_available,

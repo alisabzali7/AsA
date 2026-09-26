@@ -78,3 +78,31 @@ export function displayStateFor(state: string, ageMs: number | null): string {
   if (serverRank === undefined) return state;
   return serverRank >= STATE_RANK[byAge] ? state : byAge;
 }
+
+/** Shape of GET /api/system/health (market truth endpoint). */
+export interface SystemHealthShape {
+  ok?: boolean;
+  market?: string;
+  reason?: string;
+}
+
+/**
+ * Dashboard "health endpoint" chip state (truth fix).
+ *
+ * The chip used to render `sse.connected ? "LIVE" : "CONNECTING"` while
+ * labelled "/api/system/health" — a connected SSE socket is NOT market health,
+ * so an UNAVAILABLE market still displayed LIVE (a client-side truth
+ * UPGRADE). The chip now renders the SERVER's own health state from
+ * /api/system/health, downgraded-only by the client-elapsed response age
+ * (same thresholds as the board). An endpoint that has never answered renders
+ * ERROR, never LIVE.
+ */
+export function healthDisplayState(
+  health: SystemHealthShape | null | undefined,
+  endpointError: boolean,
+  sinceResponseMs: number | null | undefined,
+): string {
+  const market = health?.market;
+  if (!market) return endpointError ? "ERROR" : "CONNECTING";
+  return displayStateFor(market, sinceResponseMs ?? 0);
+}
