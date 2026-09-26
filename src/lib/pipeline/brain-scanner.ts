@@ -21,6 +21,8 @@ import { prepareAnalysisInput } from "../analysis/input";
 import { tfStalenessMs } from "./freshness";
 import type { PsychologyPolicy, RiskPolicy, SourceRef } from "../brain/types";
 import type { EmpiricalStatus } from "../brain/types";
+import { decisionSnapshot, type DecisionSnapshot } from "../chart/evidence";
+import { DETECTOR_VERSION } from "../features/detectors";
 
 export interface ScanCandidate {
   symbol: string;
@@ -47,6 +49,12 @@ export interface ScanCandidate {
   runtime_status: string;
   source_refs: SourceRef[];
   bar_time: number | null;
+  /**
+   * decision-window identity, formed exactly as the orchestrator forms
+   * chart_evidence.snapshot (same helper, same engines string) — null only
+   * when no closed bar / source timestamp exists
+   */
+  snapshot: DecisionSnapshot | null;
 }
 
 export interface ScanInput {
@@ -103,6 +111,9 @@ export function scanForOpportunities(input: ScanInput): ScanResult {
       }
       // ANALYSIS INPUT CONTRACT: drop the forming bar; measure age from the
       // last CLOSED bar's close, never from bar-open or retrieval time.
+      // native/source below only satisfy the CandleSeries type: the caller
+      // supplies bare candles, and ScanCandidate carries no provenance field,
+      // so these placeholders never reach any output.
       const series: CandleSeries = {
         symbol,
         timeframe: strat.timeframe,
@@ -209,6 +220,8 @@ export function scanForOpportunities(input: ScanInput): ScanResult {
         runtime_status: runtimeStatus,
         source_refs: score.source_refs as SourceRef[],
         bar_time: ev.bar_time,
+        snapshot: prepared.source_ts_ms === null ? null
+          : decisionSnapshot(symbol, strat.timeframe, candles, prepared.source_ts_ms, `strategy:${strat.strategy_id}@${ev.version}|detectors:${DETECTOR_VERSION}`),
       };
 
       if (admission.admitted) admitted.push(candidate);

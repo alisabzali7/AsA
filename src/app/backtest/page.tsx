@@ -10,6 +10,7 @@
  * quote pnl), plus the data-freshness statement.
  */
 import { useState } from "react";
+import { formatPrice } from "@/components/hooks";
 import { useLang } from "@/components/lang";
 import { usePoll } from "@/components/hooks";
 import { Badge, Empty, Panel } from "@/components/ui";
@@ -155,8 +156,8 @@ export default function BacktestPage() {
                     <td className="mono text-dim">{new Date(tr.signal_ts * 1000).toISOString().slice(0, 16)}</td>
                     <td className="mono text-dim">{new Date(tr.entry_ts * 1000).toISOString().slice(0, 16)}</td>
                     <td className="mono text-dim">{new Date(tr.exit_ts * 1000).toISOString().slice(0, 16)}</td>
-                    <td className="mono">{tr.entry_price.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
-                    <td className="mono">{tr.avg_exit_price.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
+                    <td className="mono">{formatPrice(tr.entry_price)}</td>
+                    <td className="mono">{formatPrice(tr.avg_exit_price)}</td>
                     <td className="mono" style={{ color: tr.r_multiple >= 0 ? "#3fb68b" : "#d9605e" }}>{tr.r_multiple}</td>
                     <td className="mono">{tr.pnl_quote.toFixed(2)}</td>
                     <td className="text-muted">{tr.outcome}</td>

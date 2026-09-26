@@ -2,7 +2,7 @@
 /** Command Center — health, live board summary, MTF focus, events. */
 import Link from "next/link";
 import { useLang } from "@/components/lang";
-import { usePoll, useSse, fmtAge } from "@/components/hooks";
+import { usePoll, useSse, fmtAge, formatPrice } from "@/components/hooks";
 import { Metric, Panel, StatusChip } from "@/components/ui";
 import { topByPrice, topGainers, effectiveAgeMs, displayStateFor } from "@/components/board-selectors";
 
@@ -40,7 +40,7 @@ export default function DashboardPage() {
                 {movers.map((r) => (
                   <tr key={r.symbol}>
                     <td><Link className="focus-ring rounded px-1 font-semibold hover:text-gold" href={`/chart?symbol=${r.symbol}`}>{r.symbol}</Link></td>
-                    <td className="mono text-right">{r.price === null ? "—" : r.price.toLocaleString("en-US", { maximumFractionDigits: r.price < 1 ? 6 : 2 })}</td>
+                    <td className="mono text-right">{formatPrice(r.price)}</td>
                     <td className="mono text-right" style={{ color: r.change24hPct === null ? "var(--color-muted)" : r.change24hPct >= 0 ? "#3fb68b" : "#d9605e" }}>{r.change24hPct === null ? "—" : `${r.change24hPct.toFixed(2)}%`}</td>
                     <td><StatusChip state={displayStateFor(r.state, effectiveAgeMs(r.age_ms, board.age_ms))} /></td>
                   </tr>

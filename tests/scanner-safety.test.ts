@@ -67,6 +67,22 @@ describe.runIf(hasReplay)("opportunity scanner", () => {
     }
   });
 
+  it("every evaluated candidate carries its decision-window snapshot (release-gate)", () => {
+    const r = scanForOpportunities(baseInput(series()));
+    const all = [...r.admitted, ...r.rejected];
+    expect(all.length).toBeGreaterThan(0);
+    const step: Record<string, number> = { "1h": 3600, "1d": 86400, "4h": 14400, "15m": 900 };
+    for (const c of all) {
+      expect(c.snapshot).not.toBeNull();
+      expect(c.snapshot!.symbol).toBe(c.symbol);
+      expect(c.snapshot!.timeframe).toBe(c.timeframe);
+      expect(c.snapshot!.as_of_t).toBe(c.bar_time);
+      expect(c.snapshot!.knowable_at_ms).toBe((c.snapshot!.as_of_t + step[c.timeframe]) * 1000);
+      expect(c.snapshot!.engines).toMatch(/^strategy:.+@.+\|detectors:/);
+      expect(c.snapshot!.input_fingerprint).toMatch(/^[0-9a-f]+$/);
+    }
+  });
+
   it("refuses symbols outside the operational TTT universe", () => {
     const s = new Map([["TONUSDT", new Map([["1h", candles()]])]]);
     const r = scanForOpportunities(baseInput(s));

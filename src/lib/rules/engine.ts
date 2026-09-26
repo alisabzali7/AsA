@@ -28,6 +28,13 @@ export interface RulePredicate {
   test(bag: FeatureBag): { ok: boolean; detail: string };
   /** features that MUST be valid for this predicate to be meaningful */
   requires: string[];
+  /**
+   * Set when the predicate does NOT measure the quantity the source names but
+   * a stand-in for it (e.g. the source says "CD slope" but CD has not formed
+   * at evaluation time). A proxy is never SOURCE_DERIVED: its classification
+   * says who defined it. Metadata only — it never changes the test result.
+   */
+  proxy?: { measured: string; stands_for: string; classification: "ENGINEERING_DEFINED" | "LEGACY_BEHAVIOR"; reason: string };
 }
 
 export interface RuleDefinition {

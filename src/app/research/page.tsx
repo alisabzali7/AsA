@@ -80,7 +80,7 @@ export default function ResearchPage() {
                   <td>{c.provider}</td>
                   <td className="mono text-dim">{c.model}</td>
                   <td className="mono">{c.latency_ms === null ? "—" : `${c.latency_ms}ms`}</td>
-                  <td style={{ color: c.verdict === "reject" ? "#d9605e" : c.verdict === "neutral" ? "#8b8f99" : "#3fb68b" }}>{c.verdict}</td>
+                  <td style={{ color: c.verdict === "reject" ? "#d9605e" : c.verdict === "neutral" || c.verdict === "unavailable" ? "#8b8f99" : c.verdict === "long" || c.verdict === "short" ? "#3fb68b" : "#8b8f99" }}>{c.verdict}</td>
                 </tr>
               ))}
               {calls.data?.items.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted">no AI calls yet</td></tr>}

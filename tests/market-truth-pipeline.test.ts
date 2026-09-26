@@ -42,6 +42,15 @@ function bars(n: number, step: number, lastOpen: number, trend = 0): Candle[] {
     return { t: lastOpen - (n - 1 - i) * step, o, h: Math.max(o, c) + 0.5, l: Math.min(o, c) - 0.5, c, v: 10 + i };
   });
 }
+// Zig-zag with midpoint opens: real swing pivots (Team 02: trend requires a
+// confirmed HH/HL or LH/LL swing sequence; a monotonic ramp is "undetermined").
+function zbars(n: number, step: number, lastOpen: number, trend = 0): Candle[] {
+  const closes = Array.from({ length: n }, (_, i) => 200 + i * trend + 6 * Math.sin((2 * Math.PI * i) / 10));
+  return closes.map((c, i) => {
+    const o = i > 0 ? (closes[i - 1] + c) / 2 : c;
+    return { t: lastOpen - (n - 1 - i) * step, o, h: Math.max(o, c) + 1, l: Math.min(o, c) - 1, c, v: 10 + i };
+  });
+}
 function series(symbol: string, tf: string, candles: Candle[], native = true): CandleSeries {
   return { symbol, timeframe: tf, candles, native, derived_source_tf: native ? undefined : "8h", source: "ttt", fetched_at_ms: Date.now() };
 }
@@ -164,7 +173,7 @@ describe("D. analysis input contract + evidence-based MTF", () => {
   const cur = (step: number) => Math.floor(now / 1000 / step) * step; // forming bar open
 
   const mk = (sym: string, tf: string, step: number, trend: number, lastOpen = cur(step)) =>
-    buildBundleFromInput(prepareAnalysisInput(sym, tf, series(sym, tf, bars(120, step, lastOpen, trend)), now));
+    buildBundleFromInput(prepareAnalysisInput(sym, tf, series(sym, tf, zbars(120, step, lastOpen, trend * 0.4)), now));
 
   it("the forming bar is excluded and the bundle carries source timestamp/freshness", () => {
     const input = prepareAnalysisInput("BTCUSDT", "1h", series("BTCUSDT", "1h", bars(120, H, cur(H))), now);
@@ -239,9 +248,11 @@ describe("D. analysis input contract + evidence-based MTF", () => {
   });
 
   it("legacy bundles without source freshness never claim verified freshness", () => {
-    const b = buildBundle({ symbol: "BTCUSDT", timeframe: "1h", candles: bars(60, 60, 1_700_000_000, 2) });
+    const leg = (tf: string, step: number) => buildBundle({ symbol: "BTCUSDT", timeframe: tf, candles: zbars(80, step, 1_700_000_000, 0.8) });
+    const b = leg("1h", H);
     expect(b.provenance.freshness).toBe("UNAVAILABLE");
-    const m = buildMtf(b, b, b);
+    // roles must carry their contract timeframes (4h/1h/15m) or the MTF refuses with MISMATCH
+    const m = buildMtf(leg("4h", H4), b, leg("15m", M15));
     expect(m.freshness_verified).toBe(false);
     expect(m.reason).toMatch(/NOT VERIFIED/);
   });

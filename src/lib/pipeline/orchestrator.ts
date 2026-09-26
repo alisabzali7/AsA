@@ -18,7 +18,8 @@ import { admitOpportunity, SCORE_DISCLAIMER, type ScoreResult } from "../brain/s
 import { buildPsychologyPolicies } from "../brain/policies";
 import { getProductionRiskPolicy } from "../risk/policy";
 import { scoreFromEvaluation } from "./scoring";
-import { buildChartEvidence, type ChartEvidence } from "../chart/evidence";
+import { buildChartEvidence, decisionSnapshot, type ChartEvidence, type DecisionSnapshot } from "../chart/evidence";
+import { DETECTOR_VERSION } from "../features/detectors";
 import { eventBus } from "../events";
 import { getRiskPrefs } from "../prefs";
 import { ASA_SCORE_THRESHOLD } from "../env";
@@ -90,6 +91,13 @@ export interface OpportunityPayload {
       native_1d: boolean;
       /** null = that series was NOT part of this decision (never a fake 0) */
       candles: { macro: number | null; context: number | null; trigger: number | null };
+      /**
+       * Task 10: identity of the exact closed-bar window evaluated
+       * (bundleInputFingerprint over symbol|tf|engines + candles). Same object
+       * as chart_evidence.snapshot. null only when it could not be formed;
+       * absent on rows persisted before Task 10.
+       */
+      snapshot?: DecisionSnapshot | null;
     };
   };
 }
@@ -155,6 +163,7 @@ export async function scanSymbol(
   const anchorCloseMs = input.source_ts_ms as number;
   const ageMs = input.data_age_ms ?? (nowMs - anchorCloseMs);
   const stale = input.freshness !== "FRESH";
+  const snapshot = decisionSnapshot(symbol, tf, candles, anchorCloseMs, `strategy:${strategy.strategy_id}@${strategy.version}|detectors:${DETECTOR_VERSION}`);
 
   // ---- deterministic strategy evaluation (same call the backtester makes)
   const evOrBlocked = evaluateRuntime(strategy, symbol, candles, nowMs);
@@ -295,7 +304,7 @@ export async function scanSymbol(
     },
     portfolio: { verdict: portfolio.verdict, reasons: portfolio.reasons, unenforced: portfolio.unenforced },
     score_semantics: SCORE_DISCLAIMER,
-    chart_evidence: buildChartEvidence(ev, score.score),
+    chart_evidence: buildChartEvidence(ev, score.score, snapshot),
     risk: risk ? { verdict: risk.verdict, reasons: risk.reasons, numbers: risk.numbers as unknown as Record<string, unknown> } : null,
     ai: null,
     provenance: {
@@ -310,6 +319,7 @@ export async function scanSymbol(
         // to the /api/analysis path. Honest value: null = not part of this
         // decision.
         candles: { macro: null, context: null, trigger: candles.length },
+        snapshot,
       },
     },
   };

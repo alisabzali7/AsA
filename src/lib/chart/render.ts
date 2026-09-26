@@ -14,7 +14,16 @@
  * ever drawn: if an annotation does not exist, no line appears.
  */
 import type { Candle } from "../domain/types";
+import { decisionWindow } from "./evidence";
 import type { ChartEvidence, ChartAnnotation } from "./evidence";
+
+/**
+ * Significant-digit price text (Task 09): fixed 2/4 decimals printed sub-cent
+ * prices as "0.00"/"0.0000" on the Telegram/charts image — false evidence.
+ */
+function sig(v: number): string {
+  return Number.isFinite(v) ? String(Number(v.toPrecision(6))) : "—";
+}
 
 export interface RenderOptions {
   width?: number;
@@ -22,6 +31,8 @@ export interface RenderOptions {
   /** how many trailing candles to draw */
   bars?: number;
   title?: string;
+  /** result of verifyDecisionSnapshot, printed on the image when given */
+  snapshotState?: "VERIFIED" | "MISMATCH" | "UNVERIFIABLE" | "UNVERIFIABLE_LEGACY_RECORD";
 }
 
 const COLORS = {
@@ -56,25 +67,39 @@ function colorFor(kind: ChartAnnotation["kind"]): string {
  */
 const MAX_ANNOTATION_SPAN = 0.35; // 35% of the candle range on either side
 
+const finiteCandle = (c: Candle): boolean =>
+  Number.isFinite(c.o) && Number.isFinite(c.h) && Number.isFinite(c.l) && Number.isFinite(c.c) && Number.isFinite(c.t);
+
+/**
+ * Candle-anchored vertical bounds. Returns null when no candle in the view is
+ * finite — pre-recovery this returned a fabricated {lo: 0, hi: 1} scale and the
+ * renderer drew NaN geometry. A flat window (hi == lo) is padded relative to
+ * the price (0.5%), never by an absolute constant that could crush the axis.
+ */
 export function priceBounds(
   view: Candle[],
   annotations: ChartAnnotation[],
-): { lo: number; hi: number; offscale: Set<string> } {
+): { lo: number; hi: number; offscale: Set<string> } | null {
   const offscale = new Set<string>();
-  let lo = Math.min(...view.map((c) => c.l));
-  let hi = Math.max(...view.map((c) => c.h));
-  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return { lo: 0, hi: 1, offscale };
+  const valid = view.filter(finiteCandle);
+  if (valid.length === 0) return null;
+  let lo = Math.min(...valid.map((c) => c.l));
+  let hi = Math.max(...valid.map((c) => c.h));
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo) return null;
   const range = hi - lo;
   const limitLo = lo - range * MAX_ANNOTATION_SPAN;
   const limitHi = hi + range * MAX_ANNOTATION_SPAN;
 
   for (const a of annotations) {
     if (!Number.isFinite(a.price)) continue;
-    if (a.price < limitLo || a.price > limitHi) { offscale.add(a.annotation_id); continue; }
+    if (range > 0 && (a.price < limitLo || a.price > limitHi)) { offscale.add(a.annotation_id); continue; }
+    if (range === 0 && Math.abs(a.price - lo) > Math.abs(lo) * MAX_ANNOTATION_SPAN) { offscale.add(a.annotation_id); continue; }
     lo = Math.min(lo, a.price);
     hi = Math.max(hi, a.price);
   }
-  const pad = (hi - lo) * 0.08 || 1;
+  const span = hi - lo;
+  // all-zero prices are degenerate data; a unit pad only keeps the SVG finite
+  const pad = span > 0 ? span * 0.08 : Math.abs(hi) * 0.005 || 1;
   return { lo: lo - pad, hi: hi + pad, offscale };
 }
 
@@ -95,16 +120,18 @@ export function renderEvidenceSvg(
   const nBars = opts.bars ?? 160;
   const padL = 8, padR = 96, padT = 52, padB = 28;
 
-  const view = candles.slice(-nBars);
-  if (view.length === 0) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${COLORS.bg}"/><text x="24" y="40" fill="${COLORS.text}" font-family="monospace" font-size="14">no candles available</text></svg>`;
+  // Task 10: never draw bars after the decision bar
+  const view = decisionWindow(evidence, candles).slice(-nBars).filter(finiteCandle);
+  const bounds = view.length > 0 ? priceBounds(view, evidence.annotations) : null;
+  if (bounds === null) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${COLORS.bg}"/><text x="24" y="40" fill="${COLORS.text}" font-family="monospace" font-size="14">no valid candles available</text></svg>`;
   }
 
   // Price bounds: anchored on the CANDLES so price action stays readable.
   // An annotation far outside the visible range (e.g. a distant target) would
   // otherwise compress the candles into a sliver, so out-of-range annotations
   // are clamped to the edge and explicitly marked rather than rescaling.
-  const { lo, hi, offscale } = priceBounds(view, evidence.annotations);
+  const { lo, hi, offscale } = bounds;
 
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
@@ -121,7 +148,7 @@ export function renderEvidenceSvg(
     const gy = padT + (g / 4) * plotH;
     const gp = hi - (g / 4) * (hi - lo);
     parts.push(`<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${padL + plotW}" y2="${gy.toFixed(1)}" stroke="${COLORS.grid}" stroke-width="1"/>`);
-    parts.push(`<text x="${padL + plotW + 6}" y="${(gy + 4).toFixed(1)}" fill="${COLORS.muted}" font-family="monospace" font-size="11">${gp.toFixed(2)}</text>`);
+    parts.push(`<text x="${padL + plotW + 6}" y="${(gy + 4).toFixed(1)}" fill="${COLORS.muted}" font-family="monospace" font-size="11">${sig(gp)}</text>`);
   }
 
   // candles — the only non-annotation element, and they ARE the measured data
@@ -133,6 +160,23 @@ export function renderEvidenceSvg(
     const top = y(Math.max(c.o, c.c));
     const bot = y(Math.min(c.o, c.c));
     parts.push(`<rect x="${(cx - bw / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, bot - top).toFixed(1)}" fill="${col}"/>`);
+  }
+
+  // label placement: lines stay at their exact price; only the TEXT is nudged
+  // apart (min 12px) so nearby levels (e.g. entry vs invalidation) stay legible
+  const labelY = new Map<string, number>();
+  {
+    const LABEL_GAP = 12;
+    const placed = evidence.annotations
+      .filter((a) => Number.isFinite(a.price))
+      .map((a) => ({ id: a.annotation_id, want: y(Math.min(hi, Math.max(lo, a.price))) - 5 }))
+      .sort((p, q) => p.want - q.want || p.id.localeCompare(q.id));
+    let prev = -Infinity;
+    for (const pl of placed) {
+      const at = Math.max(pl.want, prev + LABEL_GAP);
+      labelY.set(pl.id, at);
+      prev = at;
+    }
   }
 
   // annotations — each one is evidence, each carries lineage in a data attribute
@@ -148,7 +192,7 @@ export function renderEvidenceSvg(
       ` data-annotation-id="${esc(a.annotation_id)}" data-produced-by="${esc(a.produced_by.type)}:${esc(a.produced_by.id)}"` +
       ` data-detector-version="${esc(a.detector_version)}" data-evidence="${esc(a.evidence_kind)}"/>`,
     );
-    parts.push(`<text x="${padL + 6}" y="${(ay - 5).toFixed(1)}" fill="${col}" font-family="monospace" font-size="11">${esc(a.label)} ${a.price.toFixed(4)} [${esc(a.evidence_kind)}]${isOff ? " ▲ OFF-SCALE" : ""}</text>`);
+    parts.push(`<text x="${padL + 6}" y="${(labelY.get(a.annotation_id) ?? ay - 5).toFixed(1)}" fill="${col}" font-family="monospace" font-size="11">${esc(a.label)} ${sig(a.price)} [${esc(a.evidence_kind)}]${isOff ? " ▲ OFF-SCALE" : ""}</text>`);
   }
 
   // header: what this chart asserts, and the score disclaimer
@@ -159,7 +203,8 @@ export function renderEvidenceSvg(
   if (!evidence.lineage_complete) {
     parts.push(`<text x="${W - 8}" y="40" text-anchor="end" fill="${COLORS.stop}" font-family="monospace" font-size="11">INCOMPLETE LINEAGE</text>`);
   }
-  parts.push(`<text x="${padL}" y="${H - 8}" fill="${COLORS.muted}" font-family="monospace" font-size="10">${esc(`${evidence.annotations.length} annotations, each traceable to a rule/feature + source line`)}</text>`);
+  const asOf = evidence.snapshot ? `decision window ends ${new Date(evidence.snapshot.as_of_t * 1000).toISOString().slice(0, 16)}Z open · knowable ${new Date(evidence.snapshot.knowable_at_ms).toISOString().slice(0, 16)}Z · fp ${evidence.snapshot.input_fingerprint}` : "decision window identity not stored";
+  parts.push(`<text x="${padL}" y="${H - 8}" fill="${COLORS.muted}" font-family="monospace" font-size="10">${esc(`${evidence.annotations.length} annotations, each traceable to a rule/feature + source line · ${asOf}${opts.snapshotState ? ` · snapshot ${opts.snapshotState}` : ""}`)}</text>`);
   parts.push("</svg>");
   return parts.join("");
 }
@@ -283,10 +328,10 @@ export function renderEvidencePng(
   };
 
   fill(COLORS.bg);
-  const view = candles.slice(-nBars);
-  if (view.length === 0) return encodePng(W, H, rgba);
-
-  const { lo, hi, offscale } = priceBounds(view, evidence.annotations);
+  const view = decisionWindow(evidence, candles).slice(-nBars).filter(finiteCandle);
+  const bounds = view.length > 0 ? priceBounds(view, evidence.annotations) : null;
+  if (bounds === null) return encodePng(W, H, rgba);
+  const { lo, hi, offscale } = bounds;
 
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;

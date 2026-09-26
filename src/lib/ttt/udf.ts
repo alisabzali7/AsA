@@ -8,6 +8,7 @@
  *  - HTTP 200 with s:"no_data" must NOT be treated as an empty series.
  */
 import type { Candle } from "../domain/types";
+import { ohlcvDefect } from "../domain/candle-validity";
 
 export interface UdfNormalizeMeta {
   received: number;
@@ -75,12 +76,14 @@ export function parseUdfHistory(
   for (let i = 0; i < n; i++) {
     const ts = strictNum(t[i]);
     const oo = strictNum(o[i]), hh = strictNum(h[i]), ll = strictNum(l[i]), cc = strictNum(c[i]), vv = strictNum(v[i]);
-    if (!Number.isFinite(ts) || ts <= 0 || !Number.isInteger(ts) || !Number.isFinite(oo) || !Number.isFinite(hh) || !Number.isFinite(ll) || !Number.isFinite(cc) || !Number.isFinite(vv) || vv < 0) {
+    if (!Number.isFinite(ts) || ts <= 0 || !Number.isInteger(ts)) {
       dropped_invalid++;
       continue;
     }
-    // prices are strictly positive on a futures venue; 0/negative is corrupt
-    if (oo <= 0 || hh <= 0 || ll <= 0 || cc <= 0) {
+    // canonical bar rule (domain/candle-validity): finite OHLCV, prices > 0,
+    // volume ≥ 0, high/low bound open/close. Checked before the time rules,
+    // exactly as the inline checks it replaces (same drop counting).
+    if (ohlcvDefect({ o: oo, h: hh, l: ll, c: cc, v: vv }) !== null) {
       dropped_invalid++;
       continue;
     }
@@ -93,11 +96,6 @@ export function parseUdfHistory(
     if (ts > maxOpenSec) {
       dropped_invalid++;
       dropped_future++;
-      continue;
-    }
-    // OHLC validity: high must dominate, low must be beneath
-    if (hh < Math.max(oo, cc) || ll > Math.min(oo, cc)) {
-      dropped_invalid++;
       continue;
     }
     if (ts === prevTs && out.length > 0) {

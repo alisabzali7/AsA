@@ -1,0 +1,197 @@
+{
+  "classes": [
+    "REAL_BUG",
+    "EXPECTED_UPSTREAM_FAILURE",
+    "TEST_ONLY",
+    "THIRD_PARTY",
+    "PRE_EXISTING"
+  ],
+  "total": 21,
+  "by_class": {
+    "EXPECTED_UPSTREAM_FAILURE": 16,
+    "TEST_ONLY": 5
+  },
+  "per_scenario": [
+    {
+      "scenario": "0-live-unavailable",
+      "errors": 3,
+      "by_class": {
+        "EXPECTED_UPSTREAM_FAILURE": 3
+      },
+      "understood": true
+    },
+    {
+      "scenario": "1-normal",
+      "errors": 3,
+      "by_class": {
+        "EXPECTED_UPSTREAM_FAILURE": 3
+      },
+      "understood": true
+    },
+    {
+      "scenario": "2-structure-rich",
+      "errors": 0,
+      "by_class": {},
+      "understood": true
+    },
+    {
+      "scenario": "3-insufficient-history",
+      "errors": 0,
+      "by_class": {},
+      "understood": true
+    },
+    {
+      "scenario": "4-tf-change-late-response",
+      "errors": 3,
+      "by_class": {
+        "EXPECTED_UPSTREAM_FAILURE": 3
+      },
+      "understood": true
+    },
+    {
+      "scenario": "5-symbol-change-subcent",
+      "errors": 3,
+      "by_class": {
+        "EXPECTED_UPSTREAM_FAILURE": 3
+      },
+      "understood": true
+    },
+    {
+      "scenario": "6-upstream-failure",
+      "errors": 9,
+      "by_class": {
+        "EXPECTED_UPSTREAM_FAILURE": 4,
+        "TEST_ONLY": 5
+      },
+      "understood": true
+    }
+  ],
+  "errors": [
+    {
+      "scenario": "0-live-unavailable",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "0-live-unavailable",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/analysis/BTCUSDT/15m — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "0-live-unavailable",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/analysis/mtf/BTCUSDT — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "1-normal",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "1-normal",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/analysis/BTCUSDT/15m — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "1-normal",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/analysis/mtf/BTCUSDT — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "4-tf-change-late-response",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "4-tf-change-late-response",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/analysis/BTCUSDT/15m — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "4-tf-change-late-response",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/analysis/mtf/BTCUSDT — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "5-symbol-change-subcent",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "5-symbol-change-subcent",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/analysis/BTCUSDT/15m — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "5-symbol-change-subcent",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/analysis/mtf/BTCUSDT — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "6-upstream-failure",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "6-upstream-failure",
+      "error": "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+      "class": "TEST_ONLY",
+      "why": "browser echo of HTTP 502 /api/analysis/BTCUSDT/15m — 502 injected by the driver to simulate an upstream failure (scenario 6)"
+    },
+    {
+      "scenario": "6-upstream-failure",
+      "error": "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+      "class": "TEST_ONLY",
+      "why": "browser echo of HTTP 502 /api/analysis/mtf/BTCUSDT — 502 injected by the driver to simulate an upstream failure (scenario 6)"
+    },
+    {
+      "scenario": "6-upstream-failure",
+      "error": "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+      "class": "TEST_ONLY",
+      "why": "browser echo of HTTP 502 /api/analysis/FIXTUREA/15m — 502 injected by the driver to simulate an upstream failure (scenario 6)"
+    },
+    {
+      "scenario": "6-upstream-failure",
+      "error": "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+      "class": "TEST_ONLY",
+      "why": "browser echo of HTTP 502 /api/analysis/mtf/FIXTUREA — 502 injected by the driver to simulate an upstream failure (scenario 6)"
+    },
+    {
+      "scenario": "6-upstream-failure",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "6-upstream-failure",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/analysis/BTCUSDT/15m — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "6-upstream-failure",
+      "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "class": "EXPECTED_UPSTREAM_FAILURE",
+      "why": "browser echo of HTTP 503 /api/analysis/mtf/BTCUSDT — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+    },
+    {
+      "scenario": "6-upstream-failure",
+      "error": "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+      "class": "TEST_ONLY",
+      "why": "browser echo of HTTP 502 /api/analysis/FIXTUREA/15m — 502 injected by the driver to simulate an upstream failure (scenario 6)"
+    }
+  ]
+}
