@@ -84,6 +84,30 @@ export class MemoryHistoryStore implements HistoryStoreLike {
     });
   }
 
+  /** symbol|timeframe cell lease (mirrors the SQLite sync_lease table) */
+  readonly leases = new Map<string, { owner: string; expires: number }>();
+
+  acquireSyncLease(key: string, owner: string, ttlMs: number): boolean {
+    const now = Date.now();
+    const cur = this.leases.get(key);
+    if (cur && cur.expires > now && cur.owner !== owner) return false;
+    this.leases.set(key, { owner, expires: now + ttlMs });
+    return true;
+  }
+
+  renewSyncLease(key: string, owner: string, ttlMs: number): boolean {
+    const cur = this.leases.get(key);
+    const now = Date.now();
+    if (!cur || cur.owner !== owner || cur.expires <= now) return false;
+    cur.expires = now + ttlMs;
+    return true;
+  }
+
+  releaseSyncLease(key: string, owner: string): void {
+    const cur = this.leases.get(key);
+    if (cur && cur.owner === owner) this.leases.delete(key);
+  }
+
   totalBars(): number {
     let n = 0;
     for (const m of this.bars.values()) n += m.size;

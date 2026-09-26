@@ -115,6 +115,12 @@ export async function GET(): Promise<NextResponse> {
       last_successful_sync_ms: r.last_successful_sync_ms > 0 ? r.last_successful_sync_ms : null,
       error: r.last_error,
       fingerprint: r.dataset_fingerprint,
+      // evidence behind the completion flag: 'TTT_NO_DATA' when the stored
+      // extent was proven by an explicit upstream answer, null = never proven
+      boundary_proof: r.boundary_proof,
+      boundary_proof_ms: r.boundary_proof_ms > 0 ? r.boundary_proof_ms : null,
+      retrieval_version: r.retrieval_version,
+      source: r.source,
     })),
     ts: Date.now(),
   });

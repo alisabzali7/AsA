@@ -465,8 +465,39 @@ export class MarketEngine {
 
   computeHealth(): { market: AppState; reason?: string } {
     const age = sharedStore.lastStatsSweepAtMs === null ? null : Date.now() - sharedStore.lastStatsSweepAtMs;
-    if (age === null) return { market: "CONNECTING", reason: "first stats sweep pending" };
-    if (age < 30_000) return { market: "LIVE", reason: `stats age ${(age / 1000).toFixed(0)}s` };
+    if (age === null) {
+      // Never received a stats sweep. State stays CONNECTING (we are still
+      // trying), but the REASON must not pretend everything is fine after the
+      // venue has been failing since boot — surface the measured failures.
+      const failures = this.statsLoop.consecutiveErrors;
+      return {
+        market: "CONNECTING",
+        reason: failures > 0
+          ? `no successful stats sweep yet; ${failures} consecutive failure(s); last: ${this.statsLoop.lastError ?? "unknown"}`
+          : "first stats sweep pending",
+      };
+    }
+    if (age < 30_000) {
+      // FETCH SUCCESS ≠ MARKET TRUTH SUCCESS (mandate §16 / §7.5). A venue can
+      // keep answering /futures/markets/stats on time while its own row
+      // timestamps stop moving (observed class: a frozen market row served for
+      // days behind the rest). The rows' SOURCE freshness is the market truth;
+      // retrieval freshness alone can never declare LIVE over a frozen feed.
+      // Only when EVERY measured row is source-stale does the whole feed count
+      // as frozen — a single genuinely halted market must not degrade the rest.
+      const measured = sharedStore.liveRows().filter((r) => r.price !== null);
+      const liveRows = measured.filter((r) => r.state === "LIVE").length;
+      if (measured.length > 0 && liveRows === 0) {
+        const withSource = measured.filter((r) => r.price_source_ts_ms !== null).length;
+        if (withSource > 0) {
+          return {
+            market: "STALE",
+            reason: `sweeps succeeding but all ${measured.length} measured venue row timestamp(s) are stale (source not updating)`,
+          };
+        }
+      }
+      return { market: "LIVE", reason: `stats age ${(age / 1000).toFixed(0)}s; ${liveRows}/${measured.length} rows live` };
+    }
     if (age < 120_000) return { market: "STALE", reason: `last stats ${(age / 1000).toFixed(0)}s ago` };
     if (age < 600_000) return { market: "DEGRADED", reason: `TTT unreachable since ${(age / 1000).toFixed(0)}s` };
     return { market: "UNAVAILABLE", reason: "no successful stats sweep for >10 min" };

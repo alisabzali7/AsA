@@ -1,15 +1,15 @@
 # API Contract (v1, JSON, defensive parsing)
 
 Groups:
-- SYSTEM: GET /api/system/health | /api/system/status | /api/system/events (GET json ?limit=; SSE ?stream=1) | /api/system/config (GET/POST sections risk|ai|general) | /api/system/config/risk (GET/POST) | /api/system/config/ai (GET/POST) | /api/system/logs
-- MARKET: GET /api/market/symbols | /prices | /candles?symbol&tf&limit&focus=1 | /trades?symbol | /stats?symbol? | /board | /coverage | /orderbook?symbol&refresh=1 | /derivatives?symbol | /deriv_features
+- SYSTEM: GET /api/system/health | /api/system/status | /api/system/events (GET json ?limit=; SSE ?stream=1) | /api/system/config (GET; POST {section: risk|ai|general, ...values} — sections are a POST body field, there are NO /config/{section} sub-paths) | /api/system/logs | POST /api/system/notify
+- MARKET: GET /api/market/symbols | /prices | /candles?symbol&tf&limit&focus=1 | /trades?symbol | /stats?symbol? | /board | /catalog | /focus?symbol | /matrix | /sync-status | /history?symbol&tf&sync=full | /orderbook?symbol&refresh=1 | /derivatives?symbol
 - ANALYSIS: GET /api/analysis/{symbol}/{tf} (typed IntelligenceBundle) | POST /api/ai/analyze {symbol, timeframe}
 - AI: GET /api/ai/status | POST /api/ai-clone {question, symbol}
 - PSYCHOLOGY: GET /api/psychology/summary
 - FUNDAMENTAL: GET /api/fundamental/news?days&symbol&kind
 - OPPORTUNITIES: GET /api/opportunities
 - SIGNALS: GET /api/signals | GET /api/signals/{id} | GET/POST /api/signals/journal | DELETE /api/signals/journal/{idOrOpp}
-- RESEARCH: GET /api/research/hypotheses | /api/research/strategies | /api/research/ai-calls | POST /api/research/backtest | GET /api/research/backtest/{job_id}
+- RESEARCH: GET /api/research/strategies | /api/research/ai-calls | POST /api/research/backtest | GET /api/research/backtest/{id}
 - CHARTS: GET /api/charts/{sigIdOrOppId}.json (final merged annotation spec shared by web + Telegram)
 
 Conventions: unavailable → `{ available: false, state, reason }`; never `0` for unknown; freshness as ages + RTTs in every payload; states from the state taxonomy (CONNECTING/CONNECTED/LIVE/DEGRADED/STALE/UNAVAILABLE/NOT_CONFIGURED/INSUFFICIENT_DATA/ERROR/READY/REJECTED/COOLDOWN).
@@ -56,6 +56,15 @@ Team 02 output is **decision-consumable evidence, not a decision**. A consumer c
 **MTF consumer safety.** Each `mtf.components[]` entry also carries `as_of_t`, `knowable_at_ms` (the component's last close instant) and `input_fingerprint`. When an evaluation instant is set, a component knowable only **after** it gets state `AFTER_AS_OF` and the verdict becomes `UNAVAILABLE` (lookahead refused). A cross-symbol set sets **every** bias to null. Outside `ALIGNED | PARTIAL | CONFLICT`, a per-component bias is only that component's own trend, so read `verdict` first.
 
 **AI consumer (`/api/ai/analyze`).** The evidence is always the core hierarchy (`analyzed_timeframes` = 4h/1h/15m). The route also returns `requested_timeframe` and `mtf_as_of_ms`. `response.data_timestamp` is the source time of the evidence (oldest component close), or `null` when unknown; it is never the reply time. Direction, score and confidence are AI-layer outputs derived only from the MTF verdict. A null or neutral bias never becomes a direction. Annotations show open FVGs only. `invalidation` is a factual structural reference, not a stop.
+
+## Market-truth semantics (Team 01 / Task 06 — closure addendum)
+
+- **Engine health is source-aware.** `GET /api/system/health` and `marketEngine.status().health` report `LIVE` only when the stats sweep is recent **and** at least one measured venue row has a live source timestamp. When every measured row's own `timestamp` has stopped moving (venue freeze), health is `STALE` with reason `sweeps succeeding but all N measured venue row timestamp(s) are stale` — fetch success alone never declares LIVE. Before the first successful sweep the state stays `CONNECTING`, and the reason carries the measured consecutive-failure count and last error instead of a bare "pending". The age ladder is unchanged: LIVE < 30 s · STALE < 2 min · DEGRADED < 10 min · UNAVAILABLE beyond.
+- **Boundary flag is proof-gated.** `metadata.earliest_boundary_reached` on `/api/market/history` is true only when `completion_state === COMPLETE_TO_TTT_BOUNDARY` **and** `boundary_proof` is recorded. A legacy row with a retained completion flag but no recorded evidence keeps its `completion_state` but never announces a proven boundary to the chart.
+- **`metadata.discovery_degraded`** is `DISCOVERY_UNAVAILABLE` when the route served a symbol from persisted evidence while live TTT discovery was down (restart-during-outage recovery). Such reads are `ok:true` but never presented as discovery-validated; a symbol with no persisted evidence still returns 503 `DISCOVERY_UNAVAILABLE`, and a permanently excluded symbol is always 400.
+- **Sync cells expose their evidence.** `/api/market/sync-status` and `/api/market/matrix` cells carry `boundary_proof` (`TTT_NO_DATA` or null), `boundary_proof_ms`, `last_successful_sync_ms`, `last_error` and `retrieval_version`, so a completion flag is always readable together with the evidence behind it.
+- **Same-cell syncs are serialized.** `syncHistory()` runs one critical section per (symbol, timeframe) in FIFO order: concurrent callers (chart `sync=full` + backtest `sync=full`) can no longer interleave read-prior → walk → write, which previously let a failing caller erase a fresh `TTT_NO_DATA` proof or let a stale writer label an unproven extent complete. Different cells still sync concurrently.
+- **The dashboard health chip reads the endpoint it names.** The `health endpoint` metric renders `/api/system/health`'s `market` state (client-elapsed downgrade only). SSE socket connectivity is reported separately as `SSE on/off` and is never presented as market health.
 
 ## Opportunity / signal / delivery (Team 01 / Task 04)
 
