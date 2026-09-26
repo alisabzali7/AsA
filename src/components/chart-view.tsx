@@ -11,16 +11,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createChart, ColorType, CandlestickSeries, type IChartApi, type ISeriesApi, type IPriceLine, type UTCTimestamp } from "lightweight-charts";
 import { useLang } from "./lang";
-import { usePoll, formatPrice, fmtAge } from "./hooks";
+import { usePoll, postJson, formatPrice, fmtAge } from "./hooks";
+import { TruthState } from "./data-state";
 import { effectiveAgeMs } from "./board-selectors";
-import { Badge, Panel } from "./ui";
+import { Badge, Panel, Stat } from "./ui";
+import { useSelection } from "./selection";
 
 const TFS = ["1m", "5m", "15m", "30m", "45m", "1h", "2h", "4h", "8h", "1d"] as const;
 const CORE = new Set(["4h", "1h", "15m"]);
 
 interface CandleShape { t: number; o: number; h: number; l: number; c: number; v: number }
 interface CandlesShape {
-  ok: boolean; symbol: string; timeframe: string; bars: number;
+  ok: boolean; symbol?: string; timeframe?: string; bars?: number; series?: null; freshness?: string;
   candles: CandleShape[]; native: boolean; provenance: string; derived_source_tf: string | null;
   coverage: { status: string; gap_count: number; bar_count: number; first_ts_ms: number | null } | null;
   forming_price: number | null; age_ms: number; fetched_at_ms: number; reason?: string;
@@ -29,6 +31,8 @@ interface SymbolsShape { symbols: string[] }
 interface AnalysisShape {
   ok: boolean;
   available?: boolean;
+  reason?: string;
+  input?: { freshness?: string; closed_bars?: number; data_age_ms?: number | null; reason?: string | null; native?: boolean };
   bundle?: {
     last_close: number | null;
     structure: { trend: string; sr_levels: { price: number; strength: number; kind: string }[]; fvgs: { direction: string; top: number; bottom: number; t: number }[]; last_swing_high: number | null; last_swing_low: number | null };
@@ -38,8 +42,18 @@ interface AnalysisShape {
 
 export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
   const { lang } = useLang();
-  const [symbol, setSymbol] = useState<string>(urlSymbol && urlSymbol !== "BTCUSDT" ? urlSymbol : "BTCUSDT");
-  const [tf, setTf] = useState<(typeof TFS)[number]>("15m");
+  /**
+   * Symbol and timeframe are DERIVED from the cross-page selection store —
+   * never mirrored in local state (one truth per UI concept; hydration-safe
+   * because useSyncExternalStore reconciles the client snapshot after mount).
+   * The store wins over a ?symbol= deep link because every in-app route that
+   * pushes a symbol writes the store in the same breath (board rows, palette).
+   */
+  const [sel, setSel] = useSelection();
+  const symbol = sel.symbol ?? (urlSymbol || "BTCUSDT");
+  const tf: (typeof TFS)[number] = (TFS as readonly string[]).includes(sel.tf ?? "") ? (sel.tf as (typeof TFS)[number]) : "15m";
+  const setSymbol = (v: string) => setSel({ symbol: v });
+  const setTf = (v: string) => setSel({ tf: v });
   const chartRef = useRef<HTMLDivElement>(null);
   const chartApi = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -70,23 +84,26 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
   const activeSymbol = availableSymbols.length > 0 && !availableSymbols.includes(symbol) ? availableSymbols[0] : symbol;
   const candles = usePoll<CandlesShape>(`/api/market/candles?symbol=${activeSymbol}&tf=${tf}&limit=${INITIAL_VIEWPORT_BARS}&refresh=1`, tf === "1m" ? 12000 : 20000);
   const analysis = usePoll<AnalysisShape>(`/api/analysis/${activeSymbol}/${tf}`, 30000);
+  const [focusNote, setFocusNote] = useState<string | null>(null);
   const focus = usePoll<{ symbol: string }>("/api/market/focus", 30000);
 
-  // create chart once
+  // create chart once — NOTE: lightweight-charts paints to CANVAS, which
+  // cannot resolve CSS custom properties; these hexes are the canvas twin of
+  // the token palette (--color-up/down/gold) and MUST match globals.css.
   useEffect(() => {
     if (!chartRef.current) return;
     const api = createChart(chartRef.current, {
       width: 0, height: 0,
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8b8f99", fontFamily: "JetBrains Mono, monospace" },
-      grid: { vertLines: { color: "#151922" }, horzLines: { color: "#151922" } },
-      rightPriceScale: { borderColor: "#272d39" },
-      timeScale: { borderColor: "#272d39", timeVisible: true, secondsVisible: false },
+      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8f95a3", fontFamily: "'JetBrains Mono Variable', ui-monospace, monospace", fontSize: 11 },
+      grid: { vertLines: { color: "rgba(158,176,210,0.05)" }, horzLines: { color: "rgba(158,176,210,0.06)" } },
+      rightPriceScale: { borderColor: "#262e40" },
+      timeScale: { borderColor: "#262e40", timeVisible: true, secondsVisible: false },
       crosshair: { mode: 0 },
       autoSize: true,
     });
     const series = api.addSeries(CandlestickSeries, {
-      upColor: "#3fb68b", downColor: "#d9605e",
-      wickUpColor: "#3fb68b", wickDownColor: "#d9605e",
+      upColor: "#43c495", downColor: "#e46a68",
+      wickUpColor: "#3fae85", wickDownColor: "#c95d5b",
       borderVisible: false,
     });
     chartApi.current = api;
@@ -95,10 +112,13 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
     return () => { api.remove(); chartApi.current = null; seriesRef.current = null; };
   }, []);
 
-  // symbol change -> set server focus (advisory preference; mutation-guarded route)
+  // symbol change -> set server focus (advisory preference; mutation-guarded route).
+  // A refusal (e.g. production fail-closed without x-asa-token) is VISIBLE, not swallowed.
   useEffect(() => {
     if (focus.data && focus.data.symbol !== activeSymbol) {
-      fetch("/api/market/focus", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: activeSymbol }) }).catch(() => {});
+      void postJson("/api/market/focus", { symbol: activeSymbol }).then((r) => {
+        setFocusNote(r.ok ? null : `focus not registered: ${r.error}`);
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSymbol]);
@@ -188,21 +208,21 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
     if (!s) return;
     for (const ln of linesRef.current) { try { s.removePriceLine(ln); } catch { /* already gone */ } }
     linesRef.current = [];
-    const lines: { price: number; color: string; lineStyle: number; title: string }[] = [];
+    const lines: { price: number; color: string; lineStyle: number; title: string; lineWidth?: number }[] = [];
     const st = analysis.data?.bundle?.structure;
     if (st) {
       for (const lv of st.sr_levels ?? []) {
-        lines.push({ price: lv.price, color: lv.kind === "support" ? "#3fb68b88" : "#d9605e88", lineStyle: 2, title: `S/R ${lv.strength}` });
+        lines.push({ price: lv.price, color: lv.kind === "support" ? "rgba(67,196,149,0.53)" : "rgba(228,106,104,0.53)", lineStyle: 2, title: `S/R ${lv.strength}` });
       }
-      if (st.last_swing_low) lines.push({ price: st.last_swing_low, color: "#5d616b88", lineStyle: 3, title: "swing L" });
-      if (st.last_swing_high) lines.push({ price: st.last_swing_high, color: "#5d616b88", lineStyle: 3, title: "swing H" });
+      if (st.last_swing_low) lines.push({ price: st.last_swing_low, color: "rgba(143,149,163,0.53)", lineStyle: 3, title: "swing L" });
+      if (st.last_swing_high) lines.push({ price: st.last_swing_high, color: "rgba(143,149,163,0.53)", lineStyle: 3, title: "swing H" });
     }
     if (candles.data?.forming_price && candles.data.forming_price > 0) {
-      lines.push({ price: candles.data.forming_price, color: "#d4b874aa", lineStyle: 0, title: `live ${formatPrice(candles.data.forming_price)}` });
+      lines.push({ price: candles.data.forming_price, color: "rgba(216,188,120,0.75)", lineStyle: 0, lineWidth: 2, title: `live ${formatPrice(candles.data.forming_price)}` });
     }
     for (const l of lines) {
       try {
-        const pl = s.createPriceLine({ price: l.price, color: l.color, lineWidth: 1, lineStyle: l.lineStyle as 0, axisLabelVisible: true, title: l.title });
+        const pl = s.createPriceLine({ price: l.price, color: l.color, lineWidth: (l.lineWidth ?? 1) as 1 | 2, lineStyle: l.lineStyle as 0, axisLabelVisible: true, title: l.title });
         linesRef.current.push(pl);
       } catch { /* invalid price line */ }
     }
@@ -223,6 +243,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
             onChange={(e) => setSymbol(e.target.value)}
           >
             {(symState.data?.symbols ?? []).map((s) => <option key={s} value={s}>{s}</option>)}
+            {(symState.data?.symbols ?? []).length === 0 && <option value={activeSymbol}>{activeSymbol} (not yet in a live universe)</option>}
           </select>
           <div className="flex flex-wrap gap-0.5">
             {TFS.map((f) => (
@@ -230,29 +251,33 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
                 key={f}
                 className={`btn px-2 py-1 text-[10.5px] ${tf === f ? "btn-active" : ""}`}
                 onClick={() => setTf(f)}
+                aria-pressed={tf === f}
+                aria-label={`timeframe ${f}`}
               >
                 {f}
                 {f === "1d" ? " N" : ""}
               </button>
             ))}
           </div>
-          <div className="ml-auto flex items-center gap-1.5 text-[9.5px]">
-            {candles.error && <Badge color="#d9605e">candles {candles.error}</Badge>}
-            {chartSrc && <Badge color={chartSrc === "NATIVE" ? "#3fb68b" : "#d6a24a"}>{chartSrc}{candles.data?.derived_source_tf ? ` from ${candles.data.derived_source_tf}` : ""}</Badge>}
-            {coverage && coverage.status === "PARTIAL" && <Badge color="#d6a24a">gaps {coverage.gap_count}</Badge>}
+          <div className="ms-auto flex items-center gap-1.5 text-[9.5px]">
+            {candles.error && <Badge color="var(--color-down)">candles {candles.error}</Badge>}
+            {chartSrc && <Badge color={chartSrc === "NATIVE" ? "var(--color-up)" : "var(--color-warn)"}>{chartSrc}{candles.data?.derived_source_tf ? ` from ${candles.data.derived_source_tf}` : ""}</Badge>}
+            {coverage && coverage.status === "PARTIAL" && <Badge color="var(--color-warn)">gaps {coverage.gap_count}</Badge>}
+            {candles.data?.freshness === "STALE" && <Badge color="var(--color-warn)">source STALE — last closed bar exceeds 2 {tf} periods</Badge>}
+            {candles.data?.freshness === "UNAVAILABLE" && <Badge color="var(--color-down)">no fresh source series</Badge>}
             {candles.data?.bars !== undefined && (
               <span className="text-dim">
                 bars {(candles.data.bars ?? 0) + (historyBySeries[seriesKey]?.bars.length ?? 0)}
                 {(historyBySeries[seriesKey]?.bars.length ?? 0) > 0 ? ` (+${historyBySeries[seriesKey]!.bars.length} history)` : ""}
               </span>
             )}
-            {loadingOlder && <Badge color="#5f8fd0">loading older…</Badge>}
-            {historyBySeries[seriesKey]?.boundary && <Badge color="#3fb68b">TTT boundary reached</Badge>}
+            {loadingOlder && <Badge color="var(--color-info)">loading older…</Badge>}
+            {historyBySeries[seriesKey]?.boundary && <Badge color="var(--color-up)">TTT boundary reached</Badge>}
             {historyBySeries[seriesKey]?.exhausted && !historyBySeries[seriesKey]?.boundary && (
-              <Badge color="#8b8f98">no older stored history</Badge>
+              <Badge color="var(--color-muted)">no older stored history</Badge>
             )}
             {!historyBySeries[seriesKey]?.exhausted && !loadingOlder && (historyBySeries[seriesKey]?.bars.length ?? 0) > 0 && (
-              <Badge color="#8b8f98">scroll left for more</Badge>
+              <Badge color="var(--color-muted)">scroll left for more</Badge>
             )}
             {historyBySeries[seriesKey]?.earliest != null && (
               <span className="text-dim" title="earliest candle TTT has for this series">
@@ -263,17 +288,26 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
           </div>
         </div>
         <div ref={chartRef} style={{ height: 540 }} />
-        {(!candles.data || candles.data.bars === 0) && (
-          <div className="flex h-[540px] flex-col items-center justify-center gap-2" style={{ marginTop: -540 }}>
-            <div className="text-[12px] text-muted">{candles.data?.reason ?? "waiting for real TTT candles…"}</div>
+        {candles.status !== "OK" && (
+          <div className="flex h-[540px] flex-col items-center justify-center gap-2 px-6" style={{ marginTop: -540 }}>
+            <TruthState status={candles.status} failure={candles.failure} onRetry={candles.refresh} staleAgeMs={candles.data ? candles.stale_age_ms : null} loadingText="requesting real TTT candles…" />
             <div className="text-[10px] text-dim">No fabricated candles, ever. Backfill runs inside the TTT rate budget.</div>
+          </div>
+        )}
+        {candles.status === "OK" && candles.data?.ok === true && (candles.data?.bars ?? 0) === 0 && (
+          <div className="flex h-[540px] flex-col items-center justify-center gap-2 px-6" style={{ marginTop: -540 }}>
+            <div className="text-[12px] text-muted">the venue answered: no closed candles stored for {activeSymbol} · {tf} yet{candles.data?.reason ? ` — ${candles.data.reason}` : ""}</div>
+            <div className="text-[10px] text-dim">EMPTY is not an error and not fake data — backfill is in progress inside the TTT rate budget.</div>
           </div>
         )}
       </Panel>
 
       <div className="flex flex-col gap-2">
         <Panel title={`${activeSymbol} · ${tf} analysis`}>
-          {analysis.data?.available === false && <div className="text-[11px] text-muted">analysis pending series…</div>}
+          {analysis.status !== "OK" && <TruthState dense status={analysis.status} failure={analysis.failure} onRetry={analysis.refresh} />}
+          {analysis.status === "OK" && analysis.data?.available === false && (
+            <div className="text-[11px] text-muted">{analysis.data?.reason ?? "no closed candles yet (backfill in progress)"}</div>
+          )}
           {analysis.data?.bundle && (
             <div className="grid grid-cols-2 gap-1.5">
               <Stat k="close" v={formatPrice(analysis.data.bundle.last_close)} />
@@ -281,7 +315,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
               <Stat k="ema20" v={formatPrice(analysis.data.bundle.indicators.ema20)} />
               <Stat k="ema50" v={formatPrice(analysis.data.bundle.indicators.ema50)} />
               <Stat k="atr%" v={fmt(analysis.data.bundle.indicators.atr14_pct)} />
-              <Stat k="trend" v={analysis.data.bundle.structure.trend} color={analysis.data.bundle.structure.trend === "up" ? "#3fb68b" : analysis.data.bundle.structure.trend === "down" ? "#d9605e" : undefined} />
+              <Stat k="trend" v={analysis.data.bundle.structure.trend} color={analysis.data.bundle.structure.trend === "up" ? "var(--color-up)" : analysis.data.bundle.structure.trend === "down" ? "var(--color-down)" : undefined} />
             </div>
           )}
         </Panel>
@@ -291,7 +325,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
             <span className="text-dim">→</span>
             <span className="panel-2 px-2 py-1">1H context</span>
             <span className="text-dim">→</span>
-            <span className="panel-2 px-2 py-1" style={{ borderColor: "#d4b87455" }}>15M trigger</span>
+            <span className="panel-2 px-2 py-1" style={{ borderColor: "var(--color-gold-dim)" }}>15M trigger</span>
           </div>
           <p className="mt-2 text-[10.5px] leading-relaxed text-muted">
             Core hierarchy: 4H defines the macro regime, 1H the context, 15M the setup/trigger. {CORE.has(tf) ? `Current view: ${tf}.` : "Switch to 4h/1h/15m for the core stack."}
@@ -310,14 +344,6 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
   );
 }
 
-function Stat({ k, v, color }: { k: string; v: string; color?: string }) {
-  return (
-    <div className="panel-2 px-2 py-1">
-      <div className="eyebrow">{k}</div>
-      <div className="mono text-[13px] font-semibold" style={{ color }}>{v}</div>
-    </div>
-  );
-}
 function fmt(v: number | null | undefined): string {
   return v === null || v === undefined || !Number.isFinite(v) ? "—" : v > 100 ? v.toFixed(1) : v.toFixed(2);
 }

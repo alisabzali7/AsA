@@ -34,9 +34,9 @@ interface ValidationShape {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  ROBUST: "#3fb68b", WALK_FORWARD: "#3fb68b", OOS_TESTED: "#7bc47f",
-  BACKTESTED: "#d6a24a", UNTESTED: "#8b8f98", REJECTED: "#d05f5f",
-  LIVE_ADVISORY_ONLY: "#3fb68b", CANDIDATE: "#d6a24a", PAPER: "#7bc47f", DISABLED: "#8b8f98",
+  ROBUST: "var(--color-up)", WALK_FORWARD: "var(--color-up)", OOS_TESTED: "#7bc47f",
+  BACKTESTED: "var(--color-warn)", UNTESTED: "var(--color-muted)", REJECTED: "#d05f5f",
+  LIVE_ADVISORY_ONLY: "var(--color-up)", CANDIDATE: "var(--color-warn)", PAPER: "#7bc47f", DISABLED: "var(--color-muted)",
 };
 
 function Stat({ label, value, tone }: { label: string; value: string | number; tone?: string }) {
@@ -69,9 +69,9 @@ export default function BrainPage() {
             <Stat label="source lines" value={s.fragments ?? 0} />
             <Stat label="strategies" value={s.strategies ?? 0} />
             <Stat label="rules" value={s.rules ?? 0} />
-            <Stat label="unknowns" value={s.unknowns ?? 0} tone="#d6a24a" />
-            <Stat label="conflicts" value={s.conflicts ?? 0} tone="#d6a24a" />
-            <Stat label="claims" value={s.claims ?? 0} tone="#d6a24a" />
+            <Stat label="unknowns" value={s.unknowns ?? 0} tone="var(--color-warn)" />
+            <Stat label="conflicts" value={s.conflicts ?? 0} tone="var(--color-warn)" />
+            <Stat label="claims" value={s.claims ?? 0} tone="var(--color-warn)" />
           </div>
 
           <div className="grid gap-2 lg:grid-cols-2">
@@ -79,21 +79,21 @@ export default function BrainPage() {
               <table className="w-full text-[11px]">
                 <thead>
                   <tr className="text-muted">
-                    <th className="text-left font-medium">file</th>
-                    <th className="text-right font-medium">lines</th>
-                    <th className="text-right font-medium">chars</th>
-                    <th className="text-left font-medium pl-2">sha256</th>
-                    <th className="text-left font-medium">state</th>
+                    <th className="text-start font-medium">file</th>
+                    <th className="text-end font-medium">lines</th>
+                    <th className="text-end font-medium">chars</th>
+                    <th className="text-start font-medium ps-2">sha256</th>
+                    <th className="text-start font-medium">state</th>
                   </tr>
                 </thead>
                 <tbody className="mono">
                   {d.documents.map((doc) => (
                     <tr key={doc.file_id} className="border-t" style={{ borderColor: "var(--color-line)" }}>
                       <td className="py-1">{doc.file_id}</td>
-                      <td className="text-right">{doc.lines}</td>
-                      <td className="text-right">{doc.chars.toLocaleString()}</td>
-                      <td className="pl-2 text-muted">{doc.sha256.slice(0, 10)}…</td>
-                      <td>{doc.truncated ? <Badge color="#d6a24a">TRUNCATED</Badge> : <Badge color="#3fb68b">COMPLETE</Badge>}</td>
+                      <td className="text-end">{doc.lines}</td>
+                      <td className="text-end">{doc.chars.toLocaleString()}</td>
+                      <td className="ps-2 text-muted">{doc.sha256.slice(0, 10)}…</td>
+                      <td>{doc.truncated ? <Badge color="var(--color-warn)">TRUNCATED</Badge> : <Badge color="var(--color-up)">COMPLETE</Badge>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -104,7 +104,7 @@ export default function BrainPage() {
               <ul className="flex flex-col gap-1.5">
                 {d.limitations.map((l, i) => (
                   <li key={i} className="flex gap-1.5 text-[11px] leading-relaxed">
-                    <span style={{ color: "#d6a24a" }}>▸</span>
+                    <span style={{ color: "var(--color-warn)" }}>▸</span>
                     <span className="text-muted">{l}</span>
                   </li>
                 ))}
@@ -119,13 +119,13 @@ export default function BrainPage() {
             <table className="w-full text-[11px]">
               <thead>
                 <tr className="text-muted">
-                  <th className="text-left font-medium">strategy</th>
-                  <th className="text-left font-medium">family</th>
-                  <th className="text-left font-medium">stage</th>
-                  <th className="text-left font-medium">empirical</th>
-                  <th className="text-left font-medium">runtime</th>
-                  <th className="text-right font-medium">exp</th>
-                  <th className="text-left font-medium pl-2">why not live</th>
+                  <th className="text-start font-medium">strategy</th>
+                  <th className="text-start font-medium">family</th>
+                  <th className="text-start font-medium">stage</th>
+                  <th className="text-start font-medium">empirical</th>
+                  <th className="text-start font-medium">runtime</th>
+                  <th className="text-end font-medium">exp</th>
+                  <th className="text-start font-medium ps-2">why not live</th>
                 </tr>
               </thead>
               <tbody>
@@ -138,11 +138,11 @@ export default function BrainPage() {
                       <div className="mono text-[9.5px] text-muted">{st.strategy_id}</div>
                     </td>
                     <td className="text-muted">{st.family}</td>
-                    <td><Badge color={st.stage === "E_PROMOTION_ELIGIBLE" || st.stage === "F_LIVE_ELIGIBLE" ? "#3fb68b" : "#d6a24a"}>{st.stage ? st.stage.split("_")[0] : "—"}</Badge></td>
-                    <td><Badge color={STATUS_COLOR[st.empirical_status] ?? "#8b8f98"}>{st.empirical_status}</Badge></td>
-                    <td><Badge color={STATUS_COLOR[st.runtime_status] ?? "#8b8f98"}>{st.runtime_status}</Badge></td>
-                    <td className="mono text-right">{st.experiments}</td>
-                    <td className="pl-2 text-[10px] text-muted">{st.blocking[0] ?? "—"}</td>
+                    <td><Badge color={st.stage === "E_PROMOTION_ELIGIBLE" || st.stage === "F_LIVE_ELIGIBLE" ? "var(--color-up)" : "var(--color-warn)"}>{st.stage ? st.stage.split("_")[0] : "—"}</Badge></td>
+                    <td><Badge color={STATUS_COLOR[st.empirical_status] ?? "var(--color-muted)"}>{st.empirical_status}</Badge></td>
+                    <td><Badge color={STATUS_COLOR[st.runtime_status] ?? "var(--color-muted)"}>{st.runtime_status}</Badge></td>
+                    <td className="mono text-end">{st.experiments}</td>
+                    <td className="ps-2 text-[10px] text-muted">{st.blocking[0] ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -179,7 +179,7 @@ export default function BrainPage() {
             <Panel title="strategies by runtime status">
               {Object.entries(d.strategies_by_runtime).map(([k, n]) => (
                 <div key={k} className="flex items-center justify-between py-0.5 text-[11.5px]">
-                  <Badge color={STATUS_COLOR[k] ?? "#8b8f98"}>{k}</Badge>
+                  <Badge color={STATUS_COLOR[k] ?? "var(--color-muted)"}>{k}</Badge>
                   <span className="mono">{n}</span>
                 </div>
               ))}

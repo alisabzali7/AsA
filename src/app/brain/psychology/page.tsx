@@ -15,7 +15,7 @@ interface Policy {
 interface Shape { ok: boolean; psychology_policies: Policy[] }
 
 const EFFECT: Record<string, string> = {
-  BLOCK: "#d05f5f", REDUCE_SCORE: "#d6a24a", REQUIRE_CHECKLIST: "#7bc47f", FLAG: "#8b8f98",
+  BLOCK: "#d05f5f", REDUCE_SCORE: "var(--color-warn)", REQUIRE_CHECKLIST: "#7bc47f", FLAG: "var(--color-muted)",
 };
 
 export default function PsychologyPolicyPage() {
@@ -34,7 +34,7 @@ export default function PsychologyPolicyPage() {
       </p>
       <div className="grid gap-2 md:grid-cols-2">
         {rows.map((p) => (
-          <Panel key={p.policy_id} title={p.canonical_name} right={<Badge color={EFFECT[p.effect] ?? "#8b8f98"}>{p.effect}</Badge>}>
+          <Panel key={p.policy_id} title={p.canonical_name} right={<Badge color={EFFECT[p.effect] ?? "var(--color-muted)"}>{p.effect}</Badge>}>
             <div className="mono mb-1 text-[9px] text-muted">{p.policy_id}</div>
             <div dir="auto" className="text-[11px] leading-relaxed">{p.description}</div>
             <div className="mono mt-1.5 rounded px-1.5 py-1 text-[10px] text-muted" style={{ background: "rgba(255,255,255,0.03)" }}>

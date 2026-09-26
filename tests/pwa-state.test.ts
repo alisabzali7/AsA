@@ -78,7 +78,8 @@ describe("conn i18n (en/fa parity)", () => {
       const a = en[k];
       const b = fa[k];
       const isObj = (v: unknown) => v !== null && typeof v === "object" && !Array.isArray(v);
-      if (isObj(a) && isObj(b)) {
+      if (isObj(a)) {
+        expect(isObj(b), `fa must define namespace "${k}" (Persian is first-class)`).toBe(true);
         expect(Object.keys(b as object).sort(), `fa key parity for "${k}"`).toEqual(Object.keys(a as object).sort());
       }
     }

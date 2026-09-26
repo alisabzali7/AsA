@@ -10,9 +10,9 @@ import { Badge, Panel } from "@/components/ui";
 interface Hit { file: string; line: number; text: string; class: string; tags: string[]; quarantined: boolean }
 
 const CLASS_COLOR: Record<string, string> = {
-  RULE_CANDIDATE: "#3fb68b", STRATEGY_DECL: "#3fb68b", UNKNOWN_MARKER: "#d6a24a",
-  CONFLICT_MARKER: "#d05f5f", CLAIM: "#d6a24a", META_COMMENTARY: "#8b8f98",
-  PSYCHOLOGY: "#7bc47f", RISK: "#7bc47f", SECTION_HEADER: "#8b8f98", NARRATIVE: "#8b8f98",
+  RULE_CANDIDATE: "var(--color-up)", STRATEGY_DECL: "var(--color-up)", UNKNOWN_MARKER: "var(--color-warn)",
+  CONFLICT_MARKER: "#d05f5f", CLAIM: "var(--color-warn)", META_COMMENTARY: "var(--color-muted)",
+  PSYCHOLOGY: "#7bc47f", RISK: "#7bc47f", SECTION_HEADER: "var(--color-muted)", NARRATIVE: "var(--color-muted)",
 };
 
 export default function BrainSearchPage() {
@@ -58,7 +58,7 @@ export default function BrainSearchPage() {
             <div key={i} className="border-t py-1.5 first:border-0" style={{ borderColor: "var(--color-line)" }}>
               <div className="mb-0.5 flex flex-wrap items-center gap-1">
                 <span className="mono text-[9.5px] text-muted">{h.file}:{h.line}</span>
-                <Badge color={CLASS_COLOR[h.class] ?? "#8b8f98"}>{h.class}</Badge>
+                <Badge color={CLASS_COLOR[h.class] ?? "var(--color-muted)"}>{h.class}</Badge>
                 {h.quarantined && <Badge color="#d05f5f">QUARANTINED — never executable</Badge>}
                 {h.tags.slice(0, 4).map((t) => <Badge key={t}>{t}</Badge>)}
               </div>

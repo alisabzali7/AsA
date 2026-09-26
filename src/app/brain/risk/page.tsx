@@ -18,8 +18,8 @@ interface Policy {
 interface Shape { ok: boolean; risk_policies: Policy[] }
 
 const C: Record<string, string> = {
-  SOURCE_VERIFIED: "#3fb68b", SOURCE_INFERRED: "#d6a24a", CONFLICT: "#d05f5f", CLAIM: "#d6a24a",
-  CANDIDATE: "#d6a24a", DISABLED: "#8b8f98", LIVE_ADVISORY_ONLY: "#3fb68b",
+  SOURCE_VERIFIED: "var(--color-up)", SOURCE_INFERRED: "var(--color-warn)", CONFLICT: "#d05f5f", CLAIM: "var(--color-warn)",
+  CANDIDATE: "var(--color-warn)", DISABLED: "var(--color-muted)", LIVE_ADVISORY_ONLY: "var(--color-up)",
 };
 const num = (v: number | null) => (v === null ? <span className="text-muted">—</span> : <span className="mono">{v}%</span>);
 
@@ -42,13 +42,13 @@ export default function RiskPage() {
         <table className="w-full text-[11px]">
           <thead>
             <tr className="text-muted">
-              <th className="text-left font-medium">policy</th>
-              <th className="text-right font-medium">per trade</th>
-              <th className="text-right font-medium">daily</th>
-              <th className="text-right font-medium">account</th>
-              <th className="text-right font-medium">period</th>
-              <th className="text-left font-medium pl-2">source</th>
-              <th className="text-left font-medium">runtime</th>
+              <th className="text-start font-medium">policy</th>
+              <th className="text-end font-medium">per trade</th>
+              <th className="text-end font-medium">daily</th>
+              <th className="text-end font-medium">account</th>
+              <th className="text-end font-medium">period</th>
+              <th className="text-start font-medium ps-2">source</th>
+              <th className="text-start font-medium">runtime</th>
             </tr>
           </thead>
           <tbody>
@@ -58,12 +58,12 @@ export default function RiskPage() {
                   <div className="text-[11.5px]">{p.canonical_name}</div>
                   <div className="mono text-[9px] text-muted">{p.policy_id}</div>
                 </td>
-                <td className="text-right">{num(p.risk_per_trade_pct)}</td>
-                <td className="text-right">{num(p.daily_loss_limit_pct)}</td>
-                <td className="text-right">{num(p.max_account_risk_pct)}</td>
-                <td className="text-right">{num(p.period_loss_limit_pct)}</td>
-                <td className="pl-2"><Badge color={C[p.source_status] ?? "#8b8f98"}>{p.source_status.replace("SOURCE_", "")}</Badge></td>
-                <td><Badge color={C[p.runtime_status] ?? "#8b8f98"}>{p.runtime_status}</Badge></td>
+                <td className="text-end">{num(p.risk_per_trade_pct)}</td>
+                <td className="text-end">{num(p.daily_loss_limit_pct)}</td>
+                <td className="text-end">{num(p.max_account_risk_pct)}</td>
+                <td className="text-end">{num(p.period_loss_limit_pct)}</td>
+                <td className="ps-2"><Badge color={C[p.source_status] ?? "var(--color-muted)"}>{p.source_status.replace("SOURCE_", "")}</Badge></td>
+                <td><Badge color={C[p.runtime_status] ?? "var(--color-muted)"}>{p.runtime_status}</Badge></td>
               </tr>
             ))}
           </tbody>
@@ -83,7 +83,7 @@ export default function RiskPage() {
               ))}
             </div>
           ) : (
-            <div className="text-[10.5px]" style={{ color: "#d6a24a" }}>
+            <div className="text-[10.5px]" style={{ color: "var(--color-warn)" }}>
               no source refs — this policy is an explicit engineering assumption, not an instructor statement
             </div>
           )}

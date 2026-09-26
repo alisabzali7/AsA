@@ -34,7 +34,7 @@ export default function ConflictsPage() {
         <Panel
           key={g.conflict_group_id}
           title={g.topic}
-          right={<Badge color={g.resolution === "UNRESOLVED" ? "#d6a24a" : "#3fb68b"}>{g.resolution}</Badge>}
+          right={<Badge color={g.resolution === "UNRESOLVED" ? "var(--color-warn)" : "var(--color-up)"}>{g.resolution}</Badge>}
         >
           <div className="mono mb-1.5 text-[9.5px] text-muted">{g.conflict_group_id}</div>
           <div className="grid gap-1.5 md:grid-cols-2">
