@@ -6,7 +6,7 @@
  */
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_CONFIGURED, TELEGRAM_DRY_RUN } from "../env";
 import { getRepo } from "../../db/sqlite";
-import type { ChartEvidence } from "../chart/evidence";
+import type { ChartEvidence, SnapshotCheckState } from "../chart/evidence";
 import type { OutboxRow, OutboxClaim, Repo } from "../../db/repo";
 import { OUTBOX_CLAIM_LEASE_MS, OUTBOX_MAX_ATTEMPTS } from "../../db/repo";
 import { eventBus } from "../events";
@@ -209,13 +209,19 @@ export function formatSignalText(p: TelegramSignalPayload): string {
   return lines.filter(Boolean).join("\n");
 }
 
+/** The PNG has no text rasteriser: an unverified chart window is disclosed in the caption. */
+export function photoCaption(caption: string, state: SnapshotCheckState): string {
+  if (state === "VERIFIED") return caption;
+  return `[chart window ${state}: record has no decision snapshot, the image cannot be proven to be the decision window]\n${caption}`;
+}
+
 /**
  * Render the annotated advisory chart for an outbox payload.
  * Uses the SAME ChartEvidence + renderer as the web chart route, so the image
  * a user receives is exactly what the decision was based on. Returns null when
  * the opportunity has no stored evidence — we never invent a picture.
  */
-async function renderAdvisoryPng(payload: TelegramSignalPayload): Promise<Uint8Array | null> {
+async function renderAdvisoryPng(payload: TelegramSignalPayload): Promise<{ png: Uint8Array; state: SnapshotCheckState } | null> {
   const oppId = payload.opportunity_id;
   if (!oppId) return null;
   try {
@@ -234,8 +240,17 @@ async function renderAdvisoryPng(payload: TelegramSignalPayload): Promise<Uint8A
     if (!isTimeframe(evidence.timeframe)) return null;
     const series = await candleManager.ensureSeries(evidence.symbol, evidence.timeframe, true);
     if (!series || series.symbol !== evidence.symbol || series.timeframe !== evidence.timeframe) return null;
+    // Task 10: the image claims to be "what the decision was based on" — so it
+    // must be the decision window. A re-fetched series whose window no longer
+    // reproduces the stored fingerprint is NOT sent as if it were.
+    const { verifyDecisionSnapshot } = await import("../chart/evidence");
+    const check = verifyDecisionSnapshot(evidence, series.candles);
+    // MISMATCH: the window changed. UNVERIFIABLE: the fetched history no
+    // longer holds the decision window, so the image could not be it. Only
+    // VERIFIED, or a LEGACY record (disclosed in the caption), is sent.
+    if (check.state === "MISMATCH" || check.state === "UNVERIFIABLE") return null;
     const { renderEvidencePng } = await import("../chart/render");
-    return renderEvidencePng(evidence, series.candles);
+    return { png: renderEvidencePng(evidence, series.candles, { snapshotState: check.state }), state: check.state };
   } catch {
     return null; // never block the advisory text on a rendering failure
   }
@@ -346,11 +361,11 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
     // be produced the photo is not part of this item's contract — unless one
     // WAS produced earlier, in which case it stays required until delivered.
     if (!progress.photo_sent) {
-      const png = await renderAdvisoryPng(payload);
-      if (png) {
+      const rendered = await renderAdvisoryPng(payload);
+      if (rendered) {
         progress.photo_required = true;
         recordAttempt(); // entering transport: the provider request follows
-        if (await sendTelegramPhoto(png, caption)) {
+        if (await sendTelegramPhoto(rendered.png, photoCaption(caption, rendered.state))) {
           progress.photo_sent = true;
         } else {
           failures.push("photo not accepted");

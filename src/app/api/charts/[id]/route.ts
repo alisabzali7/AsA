@@ -19,7 +19,7 @@ import { isOperationalSymbol } from "@/lib/market/operational-universe";
 import { renderEvidenceSvg, renderEvidencePng } from "@/lib/chart/render";
 import { getHistoryStore } from "@/lib/market/history-store";
 import type { ChartEvidence } from "@/lib/chart/evidence";
-import { chartEvidenceMatches } from "@/lib/chart/evidence";
+import { chartEvidenceMatches, verifyDecisionSnapshot } from "@/lib/chart/evidence";
 import type { TimeframeId } from "@/lib/domain/timeframes";
 
 export const dynamic = "force-dynamic";
@@ -100,19 +100,22 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     series = live ? { native: live.native, fetched_at_ms: live.fetched_at_ms } : null;
   }
   const bounds = store.bounds(opp.symbol, tf);
+  // Task 10: prove (or fail to prove) that these candles contain the decision window
+  const snapshot_check = verifyDecisionSnapshot(evidence, candles);
 
   if (format === "svg") {
-    const svg = renderEvidenceSvg(evidence, candles, { title: opp.id });
+    const svg = renderEvidenceSvg(evidence, candles, { title: opp.id, snapshotState: snapshot_check.state });
     return new NextResponse(svg, {
       status: 200,
-      headers: { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "no-store" },
+      headers: { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "no-store", "X-Snapshot-Check": snapshot_check.state },
     });
   }
   if (format === "png") {
-    const png = renderEvidencePng(evidence, candles);
+    // the PNG rasteriser has no text, so the verification state travels in a header
+    const png = renderEvidencePng(evidence, candles, { snapshotState: snapshot_check.state });
     return new NextResponse(Buffer.from(png), {
       status: 200,
-      headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
+      headers: { "Content-Type": "image/png", "Cache-Control": "no-store", "X-Snapshot-Check": snapshot_check.state },
     });
   }
 
@@ -132,6 +135,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     rules: evidence.rules,
     assumptions: evidence.assumptions,
     lineage_complete: evidence.lineage_complete,
+    // Task 10: decision-window identity + whether the candles below reproduce it.
+    // Renderers (svg/png) never draw bars after snapshot.as_of_t / bar_time.
+    snapshot: evidence.snapshot ?? null,
+    snapshot_check,
+    decision_bar_t: evidence.snapshot?.as_of_t ?? evidence.bar_time,
     candles,
     candles_provenance: {
       native: series?.native ?? true,

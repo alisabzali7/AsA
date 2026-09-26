@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { ensureEngineBooted } from "@/lib/state";
 import { loadMtf } from "@/lib/analysis/load";
 import { buildPsychology } from "@/lib/psychology/engine";
-import { runAi, type AiEvidence } from "@/lib/ai";
+import { runAi, analyzedTimeframes, type AiEvidence } from "@/lib/ai";
 import type { AiMode } from "@/lib/env";
 import { guardMutation, readBody } from "@/lib/api-common";
 import { isOperationalSymbol, universeMeta } from "@/lib/market/operational-universe";
@@ -15,6 +15,7 @@ import { isTimeframe } from "@/lib/domain/timeframes";
 import { getRepo } from "@/db/sqlite";
 import { getNewsContext } from "@/lib/fundamental/context";
 import { getAiProviderPref } from "@/lib/prefs";
+import { inputErrorClass } from "@/lib/analysis/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -49,9 +50,12 @@ export async function POST(req: Request): Promise<NextResponse> {
   const symbol = symbolRaw;
   const { mtf, parts } = await loadMtf(symbol);
   const macro = parts[0].bundle, context = parts[1].bundle, trigger = parts[2].bundle;
-  if (!trigger) {
-    return NextResponse.json({ ok: false, error: "insufficient candle data to analyze yet (backfill in progress)" }, { status: 409 });
+  if (!trigger || !trigger.candle_window) {
+    const trig = parts[2];
+    const error_class = inputErrorClass(trig.input, trig.error) ?? "NO_DATA";
+    return NextResponse.json({ ok: false, error_class, error: trig.input.reason ?? "insufficient candle data to analyze yet (backfill in progress)" }, { status: error_class === "UPSTREAM_FAILURE" ? 502 : 409 });
   }
+  const window = trigger.candle_window;
   const psychology = buildPsychology(symbol);
   const fundamental = getNewsContext(symbol);
   const evidence: AiEvidence = {
@@ -65,9 +69,10 @@ export async function POST(req: Request): Promise<NextResponse> {
     risk: null,
     strategy: null,
     fundamental,
-    // SOURCE timestamp of the evidence (oldest component close), not compute time
-    data_timestamp: mtf.oldest_source_ts_ms ?? trigger.provenance.source_ts_ms ?? Date.now(),
-    window: trigger.candle_window,
+    // SOURCE timestamp of the evidence (oldest component close), not compute
+    // time; null when unknown — never backfilled with Date.now() (Task 09)
+    data_timestamp: mtf.oldest_source_ts_ms ?? trigger.provenance.source_ts_ms ?? null,
+    window,
   };
   const result = await runAi(evidence, provider);
   // persist audit row (no secrets; no chain-of-thought)
@@ -80,5 +85,5 @@ export async function POST(req: Request): Promise<NextResponse> {
     structured_json: JSON.stringify(result.response),
     error: result.error,
   });
-  return NextResponse.json({ ok: true, symbol, timeframe: tf, ...result });
+  return NextResponse.json({ ok: true, symbol, timeframe: tf, requested_timeframe: tf, analyzed_timeframes: analyzedTimeframes(), mtf_as_of_ms: mtf.as_of_ms, ...result });
 }

@@ -30,6 +30,7 @@
 import { createHash } from "node:crypto";
 import type { Candle } from "../domain/types";
 import { getTimeframe, type TimeframeId } from "../domain/timeframes";
+import { ohlcvDefect } from "../domain/candle-validity";
 import { parseUdfHistory } from "../ttt/udf";
 import { tttRequest, TttHttpError } from "../ttt/http";
 import { PRIORITY } from "../ttt/scheduler";
@@ -168,11 +169,8 @@ export function detectGaps(candles: Candle[], tfMinutes: number): HistoryGap[] {
 export function validateCandles(candles: Candle[]): { valid: Candle[]; invalid: number } {
   let invalid = 0;
   const valid = candles.filter((c) => {
-    const ok =
-      Number.isFinite(c.t) && c.t > 0 &&
-      Number.isFinite(c.o) && Number.isFinite(c.h) && Number.isFinite(c.l) && Number.isFinite(c.c) &&
-      c.h >= c.l && c.h >= c.o && c.h >= c.c && c.l <= c.o && c.l <= c.c &&
-      c.o > 0 && c.c > 0 && c.l > 0 && (c.v === undefined || c.v >= 0);
+    // canonical bar rule (domain/candle-validity); history keeps its DROP policy
+    const ok = Number.isFinite(c.t) && c.t > 0 && ohlcvDefect(c) === null;
     if (!ok) invalid++;
     return ok;
   });
