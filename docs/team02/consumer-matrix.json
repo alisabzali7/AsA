@@ -1,0 +1,170 @@
+{
+ "schema": "asa.team02.consumer-matrix.v1",
+ "generated": "2026-09-26 (Team 02 absolute-final pass)",
+ "status_legend": {
+  "COMPLIANT": "consumes Team 02 evidence through the canonical path, carries identity, never treats unavailable as neutral",
+  "COMPLIANT_LEGACY_UNWIRED": "compliant library with no production caller",
+  "NOT_A_TEAM02_CONSUMER": "reads no Team 02 technical output",
+  "DEFERRED": "consumer path intentionally not built; dependency recorded",
+  "LEGACY_CONFIRMED": "no production caller, PROVEN by an import scan test (tests/team02-import-topology.test.ts)"
+ },
+ "consumers": [
+  {
+   "consumer": "strategy (compiled evaluateCompiled / evaluateRuntime)",
+   "code": "src/lib/strategy/compiled/index.ts",
+   "technical_inputs": "features/detectors (swings, levels, touch, ATR, RSI, EMA, fib, double, ABCD)",
+   "snapshot_identity": "provided by callers (orchestrator snapshot, backtest dataset_fingerprint)",
+   "as_of": "last candle of the window passed in (bar_time)",
+   "freshness": "caller's responsibility (prepareAnalysisInput upstream)",
+   "error_class": "feature valid=false + data_quality + reason; setup outcome UNKNOWN/BLOCKED",
+   "unknown_behavior": "gates on .valid; unavailable never neutral",
+   "status": "COMPLIANT"
+  },
+  {
+   "consumer": "pipeline orchestrator (live opportunities)",
+   "code": "src/lib/pipeline/orchestrator.ts",
+   "technical_inputs": "prepareAnalysisInput → closed candles → evaluateRuntime",
+   "snapshot_identity": "DecisionSnapshot (decisionSnapshot helper) stored as chart_evidence.snapshot",
+   "as_of": "snapshot.as_of_t / knowable_at_ms = last closed bar close",
+   "freshness": "input.freshness !== FRESH → stale → admission blocked",
+   "error_class": "input reason_code; admission reasons",
+   "unknown_behavior": "unknown required fields listed; never admitted around",
+   "status": "COMPLIANT"
+  },
+  {
+   "consumer": "backtest engine / strategy-runner",
+   "code": "src/lib/backtest/strategy-runner.ts, engine.ts",
+   "technical_inputs": "evaluateCompiled on candles.slice(0, i+1)",
+   "snapshot_identity": "dataset_fingerprint of the exact series (experiments.ts)",
+   "as_of": "decision bar close; entry at bar i+1 open",
+   "freshness": "historical replay (not applicable)",
+   "error_class": "per-trade exit reasons",
+   "unknown_behavior": "strategy UNKNOWN outcomes are not trades",
+   "status": "COMPLIANT"
+  },
+  {
+   "consumer": "validation pipeline / experiments",
+   "code": "src/lib/backtest/validation.ts, validation-pipeline.ts, experiments.ts",
+   "technical_inputs": "backtest results",
+   "snapshot_identity": "dataset_fingerprint recomputed and compared (fingerprint_recomputed)",
+   "as_of": "dataset range",
+   "freshness": "data-freshness.ts",
+   "error_class": "validation verdicts",
+   "unknown_behavior": "no promotion without evidence",
+   "status": "COMPLIANT"
+  },
+  {
+   "consumer": "AI analyzer (/api/ai/analyze, heuristic + LLM)",
+   "code": "src/lib/ai/index.ts, src/app/api/ai/analyze/route.ts",
+   "technical_inputs": "loadMtf → buildMtfAsOf bundles (macro/context/trigger)",
+   "snapshot_identity": "per-component input_fingerprint in serializeEvidence and factual_evidence",
+   "as_of": "data_timestamp = oldest component close (never reply time)",
+   "freshness": "MTF STALE → neutral, score null",
+   "error_class": "409 NO_DATA / 502 UPSTREAM_FAILURE / 503 MARKET_SOURCE_UNAVAILABLE; mutation guard fail-closed without ASA_API_TOKEN",
+   "unknown_behavior": "release-gate: factual_evidence (engine) separated from interpretation (semantics.*); score provenance ENGINEERING_DEFINED_UNCALIBRATED / PROVIDER_SELF_REPORTED_UNCALIBRATED / NOT_PRODUCED; no substituted 50; unscored MTF verdicts → null not 0 · absolute-final: MTF UNAVAILABLE/INSUFFICIENT/STALE → direction 'unavailable' (not 'neutral'), score null; semantics.calibration CALIBRATION_UNVERIFIED / NOT_APPLICABLE",
+   "status": "COMPLIANT"
+  },
+  {
+   "consumer": "AI Clone (/api/ai-clone)",
+   "code": "src/app/api/ai-clone/route.ts",
+   "technical_inputs": "none from Team 02 (venue stats, truth registry, board state)",
+   "snapshot_identity": "n/a",
+   "as_of": "stats provenance fetched_at_ms + age",
+   "freshness": "stats age labelled",
+   "error_class": "UNAVAILABLE fact lines; LLM FAILED label",
+   "unknown_behavior": "facts verbatim, LLM text in separate `explanation`",
+   "status": "NOT_A_TEAM02_CONSUMER"
+  },
+  {
+   "consumer": "analysis API (/api/analysis/{symbol}/{tf})",
+   "code": "src/app/api/analysis/[symbol]/[tf]/route.ts",
+   "technical_inputs": "loadTf → prepareAnalysisInput → buildArtifactsFromInput → buildChartOverlay",
+   "snapshot_identity": "bundle.provenance.input_fingerprint = overlay.bundle_fingerprint",
+   "as_of": "bundle.as_of_t, provenance.source_ts_ms",
+   "freshness": "provenance.freshness (server)",
+   "error_class": "see docs/team02/technical-evidence-contract.md §API · absolute-final HTTP table (inputHttpStatus): INVALID_SERIES 502, SERIES_UNAVAILABLE 503, NO_CLOSED_BARS 200 available:false",
+   "unknown_behavior": "available:false with error_class + reason_code; overlay.unavailable_layers",
+   "status": "COMPLIANT"
+  },
+  {
+   "consumer": "MTF API (/api/analysis/mtf/{symbol})",
+   "code": "src/app/api/analysis/mtf/[symbol]/route.ts",
+   "technical_inputs": "loadMtf → buildMtfAsOf (same prepare/build functions as the single-tf route; equivalence test)",
+   "snapshot_identity": "mtf.components[].input_fingerprint",
+   "as_of": "mtf.as_of_ms (one clock)",
+   "freshness": "per component",
+   "error_class": "502 only when all components failed; per-component error_class/reason_code",
+   "unknown_behavior": "INSUFFICIENT/STALE/UNAVAILABLE verdicts",
+   "status": "COMPLIANT"
+  },
+  {
+   "consumer": "chart evidence API (/api/charts/{id} JSON/SVG/PNG)",
+   "code": "src/app/api/charts/[id]/route.ts",
+   "technical_inputs": "stored chart_evidence + re-fetched candles",
+   "snapshot_identity": "verifyDecisionSnapshot → VERIFIED / MISMATCH / UNVERIFIABLE / UNVERIFIABLE_LEGACY_RECORD",
+   "as_of": "decision_bar_t; renderers cut at snapshot.as_of_t",
+   "freshness": "candles_provenance",
+   "error_class": "404 not found; snapshot_check; X-Snapshot-Check header on SVG and PNG (release-gate: PNG previously carried no state)",
+   "unknown_behavior": "legacy record labelled, never fabricated",
+   "status": "COMPLIANT"
+  },
+  {
+   "consumer": "web chart (/chart, chart-view.tsx + adapter.ts)",
+   "code": "src/components/chart-view.tsx, src/lib/chart/adapter.ts, src/lib/poll-sequence.ts",
+   "technical_inputs": "server bundle + overlay only (no domain calculation)",
+   "snapshot_identity": "gateAnalysis: symbol/tf identity + overlay fingerprint/as_of must equal the bundle's",
+   "as_of": "last bar opened / knowable at close (UTC)",
+   "freshness": "server verdict; failed refresh → '<F> · LAST GOOD'",
+   "error_class": "HTTP status + error_class shown",
+   "unknown_behavior": "— for warmup; 'analysis unavailable — not neutral, not zero'; spec-missing layers listed; zones time-bounded · zones drawn only when status HISTORICAL_ONLY (adapter fails closed otherwise)",
+   "status": "COMPLIANT"
+  },
+  {
+   "consumer": "web chart strategy markers",
+   "code": "n/a",
+   "technical_inputs": "would be chart_evidence of an opportunity",
+   "snapshot_identity": "would need chart window ⊇ snapshot window check",
+   "as_of": "n/a",
+   "freshness": "n/a",
+   "error_class": "n/a",
+   "unknown_behavior": "not drawn",
+   "status": "DEFERRED",
+   "deferred_reason": "DEFERRED_STRATEGY_MARKERS_WEB — needs an opportunity-selection contract for /chart, a window-identity check, and a product decision to show entry/stop/target on the terminal chart; the evidence is available via /api/charts/{id}"
+  },
+  {
+   "consumer": "Telegram advisory (photo + text)",
+   "code": "src/lib/notify/telegram.ts",
+   "technical_inputs": "stored chart_evidence + re-fetched series",
+   "snapshot_identity": "verifyDecisionSnapshot",
+   "as_of": "renderer cut at snapshot.as_of_t",
+   "freshness": "advisory payload",
+   "error_class": "outbox states",
+   "unknown_behavior": "release-gate: photo only for VERIFIED or UNVERIFIABLE_LEGACY_RECORD (caption discloses); UNVERIFIABLE/MISMATCH → no photo, text only",
+   "status": "COMPLIANT"
+  },
+  {
+   "consumer": "SVG/PNG renderer",
+   "code": "src/lib/chart/render.ts",
+   "technical_inputs": "ChartEvidence + candles",
+   "snapshot_identity": "footer prints decision window, knowable, fp, snapshot state (SVG); PNG has no text rasteriser",
+   "as_of": "decisionWindow() cut — no future bars",
+   "freshness": "n/a",
+   "error_class": "'no valid candles available'",
+   "unknown_behavior": "off-scale annotations clamped + marked; release-gate: label de-overlap",
+   "status": "COMPLIANT"
+  },
+  {
+   "consumer": "brain opportunity scanner",
+   "code": "src/lib/pipeline/brain-scanner.ts",
+   "technical_inputs": "prepareAnalysisInput → evaluateCompiled",
+   "snapshot_identity": "release-gate: ScanCandidate.snapshot (same decisionSnapshot helper and engines-string format as the orchestrator)",
+   "as_of": "bar_time = snapshot.as_of_t",
+   "freshness": "input freshness + tfStalenessMs → stale blocks admission",
+   "error_class": "skipped reasons; admission reasons",
+   "unknown_behavior": "unknown fields listed; hard gate on setup PASS",
+   "status": "LEGACY_CONFIRMED",
+   "note": "no production caller (tests only); placeholder native/source never reach output",
+   "evidence": "import scan over src/** and scripts/** (.ts/.tsx/.mjs/.cjs): zero value importers of src/lib/pipeline/brain-scanner.ts; only tests/scanner-safety.test.ts and tests/setup-admission-gate.test.ts import it. Pinned by tests/team02-import-topology.test.ts — becoming a production consumer fails that test and forces a consumer-contract review"
+  }
+ ]
+}

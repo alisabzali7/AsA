@@ -106,7 +106,8 @@ describe("Task B: BOS Semantics", () => {
     const st = analyzeStructure(candles);
     expect(st.last_swing_high).toBe(120);
     // Last swing is high (index 15), close is 125 > 120 => BOS UP
-    expect(st.last_bos).toEqual({ direction: "up", t: candles[24].t, price: 120 });
+    // canonical event carries kind + break bar + broken swing lineage
+    expect(st.last_bos).toMatchObject({ kind: "BOS", direction: "up", t: candles[24].t, index: 24, price: 120, broken_swing_index: 15, prior_trend: null });
     expect(st.last_choch).toBeNull();
   });
 
@@ -121,7 +122,7 @@ describe("Task B: BOS Semantics", () => {
     }
     const st = analyzeStructure(candles);
     expect(st.last_swing_low).toBe(80);
-    expect(st.last_bos).toEqual({ direction: "down", t: candles[24].t, price: 80 });
+    expect(st.last_bos).toMatchObject({ kind: "BOS", direction: "down", t: candles[24].t, index: 24, price: 80, broken_swing_index: 15 });
     expect(st.last_choch).toBeNull();
   });
 
@@ -140,9 +141,10 @@ describe("Task B: BOS Semantics", () => {
 });
 
 describe("Task C: CHoCH Semantics", () => {
-  it("detects CHoCH when price breaks the opposite confirmed swing against the last swing direction", () => {
-    // Last swing is LOW (index 15 at price 80). Prior swing high is at 120 (index 10).
-    // A close above 120 breaks structure counter to the last swing -> CHoCH up
+  it("a first break with NO prevailing trend is a BOS, not a CHoCH (RAW_5:674: CHoCH is the first break AGAINST a trend)", () => {
+    // Pre-recovery this scenario was labelled CHoCH because the LAST SWING was a low.
+    // Swing sequence low 70 -> high 120 -> higher low 80 is bullish, and no
+    // structural break precedes bar 24, so breaking 120 cannot be a change of character.
     const candles: Candle[] = [];
     for (let i = 0; i < 25; i++) {
       if (i === 5) candles.push(makeCandle(1000 + i * 60, 100, 101, 70, 75));
@@ -152,8 +154,25 @@ describe("Task C: CHoCH Semantics", () => {
       else candles.push(makeCandle(1000 + i * 60, 100, 102, 98, 100));
     }
     const st = analyzeStructure(candles);
-    expect(st.last_bos).toBeNull();
-    expect(st.last_choch).toEqual({ direction: "up", t: candles[24].t, price: 120 });
+    expect(st.last_choch).toBeNull();
+    expect(st.last_bos).toMatchObject({ kind: "BOS", direction: "up", price: 120, prior_trend: null });
+  });
+
+  it("detects CHoCH when an established up-structure breaks its last confirmed low", () => {
+    const candles: Candle[] = [];
+    for (let i = 0; i < 40; i++) {
+      if (i === 5) candles.push(makeCandle(1000 + i * 60, 100, 110, 99, 105)); // swing high 110
+      else if (i === 10) candles.push(makeCandle(1000 + i * 60, 100, 101, 90, 95)); // swing low 90
+      else if (i === 14) candles.push(makeCandle(1000 + i * 60, 105, 116, 104, 115)); // close 115 > 110 -> BOS up
+      else if (i >= 15 && i < 20) candles.push(makeCandle(1000 + i * 60, 112, 114, 111, 112));
+      else if (i === 22) candles.push(makeCandle(1000 + i * 60, 108, 109, 95, 96)); // swing low 95 (confirmed at 24)
+      else if (i === 30) candles.push(makeCandle(1000 + i * 60, 100, 101, 88, 89)); // close 89 < 95 -> CHoCH down
+      else candles.push(makeCandle(1000 + i * 60, 100, 102, 98, 100));
+    }
+    const st = analyzeStructure(candles);
+    const kinds = st.events.map((e) => `${e.kind}:${e.direction}:${e.index}`);
+    expect(kinds[0]).toBe("BOS:up:14");
+    expect(st.last_choch).toMatchObject({ kind: "CHOCH", direction: "down", index: 30, price: 95, prior_trend: "up" });
   });
 
   it("BOS and CHoCH are mutually exclusive for the same bar break", () => {
@@ -167,35 +186,46 @@ describe("Task C: CHoCH Semantics", () => {
   });
 });
 
-describe("Task D: Support / Resistance Levels", () => {
-  it("clusters swing points within 0.3% price tolerance, sorting by touch count", () => {
-    // 40 bars. Swings near 100.0, 100.2, and 100.1 (all within 0.3% band)
+describe("Task D: Support / Resistance Levels (ATR-scaled clustering, repository spec FTR-SR)", () => {
+  // Pre-recovery the bundle clustered at a fixed 0.3% band while the strategy
+  // layer (FTR-LEVELS) clustered at 0.35·ATR14 — two different "S/R" sets.
+  // Both now call analysis/structure:clusterSwingLevels with the SAME tolerance.
+  const build = (peaks: Record<number, number>, len = 40) => {
     const candles: Candle[] = [];
-    for (let i = 0; i < 40; i++) {
-      if (i === 5) candles.push(makeCandle(1000 + i * 60, 95, 100.0, 94, 96));
-      else if (i === 15) candles.push(makeCandle(1000 + i * 60, 95, 100.2, 94, 96));
-      else if (i === 25) candles.push(makeCandle(1000 + i * 60, 95, 100.1, 94, 96));
-      else candles.push(makeCandle(1000 + i * 60, 90, 92, 88, 90));
+    for (let i = 0; i < len; i++) {
+      const p = peaks[i];
+      candles.push(p !== undefined ? makeCandle(1000 + i * 60, 95, p, 94, 96) : makeCandle(1000 + i * 60, 90, 92, 88, 90));
     }
+    return candles;
+  };
+
+  it("clusters swing highs within 0.35·ATR14, strength = touches, sorted by touch count", () => {
+    const candles = build({ 5: 100.0, 15: 100.2, 25: 100.1 });
     const st = analyzeStructure(candles);
-    expect(st.sr_levels.length).toBeGreaterThan(0);
-    const topLevel = st.sr_levels[0];
-    expect(topLevel.kind).toBe("resistance");
-    expect(topLevel.strength).toBe(3);
-    expect(Math.abs(topLevel.price - 100.1)).toBeLessThan(0.1);
+    const a = atr(candles, 14)[candles.length - 1]!;
+    expect(0.2).toBeLessThanOrEqual(a * 0.35); // the fixture is inside tolerance
+    const top = st.sr_levels[0];
+    expect(top.kind).toBe("resistance");
+    expect(top.touches).toBe(3);
+    expect(top.strength).toBe(3);
+    expect(top.price).toBeCloseTo((100 + 100.2 + 100.1) / 3, 10);
+    expect(top.last_touch_t).toBe(candles[25].t);
   });
 
-  it("levels outside 0.3% do not cluster together", () => {
-    // Swings at 100.0 and 101.5 (difference 1.5% > 0.3%)
-    const candles: Candle[] = [];
-    for (let i = 0; i < 35; i++) {
-      if (i === 5) candles.push(makeCandle(1000 + i * 60, 95, 100.0, 94, 96));
-      else if (i === 15) candles.push(makeCandle(1000 + i * 60, 95, 101.5, 94, 96));
-      else candles.push(makeCandle(1000 + i * 60, 90, 92, 88, 90));
-    }
-    const st = analyzeStructure(candles);
-    // Requires count >= 2 to become an sr_level; neither has a partner within 0.3%, so count is 1
-    expect(st.sr_levels).toEqual([]);
+  it("swings farther apart than the ATR tolerance do not merge (single touches are not levels)", () => {
+    const candles = build({ 5: 100.0, 15: 108.0 }, 35);
+    const a = atr(candles, 14)[candles.length - 1]!;
+    expect(8).toBeGreaterThan(a * 0.35);
+    expect(analyzeStructure(candles).sr_levels).toEqual([]);
+  });
+
+  it("bundle S/R levels are exactly the FTR-LEVELS clusters the strategy layer consults", async () => {
+    const { detectLevels } = await import("../src/lib/features/detectors");
+    const candles = build({ 5: 100.0, 15: 100.2, 25: 100.1, 33: 100.15 }, 45);
+    const strat = detectLevels(candles, "1h");
+    const chart = analyzeStructure(candles).sr_levels;
+    const stratMulti = (strat.value ?? []).filter((l) => l.touches >= 2).slice(0, 8);
+    expect(chart.map((l) => [l.price, l.touches, l.kind])).toEqual(stratMulti.map((l) => [l.price, l.touches, l.kind]));
   });
 });
 
@@ -229,62 +259,129 @@ describe("Task E: Fair Value Gap (FVG)", () => {
   });
 });
 
-describe("Task F: Order Blocks", () => {
-  it("identifies opposite-colored candle preceding a clean impulse candle (body > 90% range)", () => {
+describe("Task F: Order Blocks (RAW_5:679 an OB MUST lead to a BOS; RAW_5:957 zone = node High/Low)", () => {
+  it("an impulse candle WITHOUT a structural break produces no order block", () => {
+    // Pre-recovery: any opposite candle before a >90%-body candle was an "OB".
     const candles: Candle[] = [];
     for (let i = 0; i < 25; i++) {
-      if (i === 22) candles.push(makeCandle(1000 + i * 60, 105, 106, 99, 100)); // Red candle: O=105, C=100
-      else if (i === 23) candles.push(makeCandle(1000 + i * 60, 100, 120, 100, 120)); // Green impulse: body 20, range 20
+      if (i === 22) candles.push(makeCandle(1000 + i * 60, 105, 106, 99, 100));
+      else if (i === 23) candles.push(makeCandle(1000 + i * 60, 100, 120, 100, 120));
+      else candles.push(makeCandle(1000 + i * 60, 100, 102, 98, 100));
+    }
+    // no confirmed swing exists (flat ties) -> no BOS -> no OB
+    expect(analyzeStructure(candles).order_blocks).toEqual([]);
+  });
+
+  it("identifies the last opposing candle at the extreme of the leg that broke structure", () => {
+    const candles: Candle[] = [];
+    for (let i = 0; i < 30; i++) {
+      if (i === 5) candles.push(makeCandle(1000 + i * 60, 100, 110, 99, 105)); // swing high 110
+      else if (i === 12) candles.push(makeCandle(1000 + i * 60, 99, 99.5, 94, 95)); // bearish node, leg low 94
+      else if (i === 13) candles.push(makeCandle(1000 + i * 60, 95, 104, 95, 103));
+      else if (i === 14) candles.push(makeCandle(1000 + i * 60, 103, 114, 102, 113)); // close 113 > 110 -> BOS up
       else candles.push(makeCandle(1000 + i * 60, 100, 102, 98, 100));
     }
     const st = analyzeStructure(candles);
-    expect(st.order_blocks.length).toBeGreaterThan(0);
+    expect(st.last_bos).toMatchObject({ kind: "BOS", direction: "up", index: 14, price: 110 });
     const ob = st.order_blocks[0];
-    expect(ob.direction).toBe("up");
-    expect(ob.top).toBe(105);
-    expect(ob.bottom).toBe(100);
-    expect(ob.t).toBe(candles[22].t);
+    expect(ob).toMatchObject({ direction: "up", index: 12, t: candles[12].t, top: 99.5, bottom: 94, break_kind: "BOS", break_index: 14, broken_level: 110 });
+    // bars 15.. trade 98..102 -> first re-entry into [94, 99.5] is bar 15
+    expect(ob.mitigated_index).toBe(15);
+    expect(ob.displacement_atr).not.toBeNull();
   });
 });
 
-describe("Task G: Fibonacci Retracements", () => {
-  it("derives all 7 contract levels (0, 0.236, 0.382, 0.5, 0.618, 0.786, 1) across last 2 confirmed swings", () => {
+describe("Task G: Fibonacci Retracements (last confirmed ALTERNATING leg)", () => {
+  it("two consecutive swing HIGHS are not a leg: no Fibonacci is fabricated", () => {
+    // Pre-recovery this produced a 100->200 'leg' between two highs.
     const candles: Candle[] = [];
     for (let i = 0; i < 30; i++) {
-      if (i === 10) candles.push(makeCandle(1000 + i * 60, 95, 100, 95, 96)); // Swing high at 100 (neighbors 95)
-      else if (i === 20) candles.push(makeCandle(1000 + i * 60, 150, 200, 140, 195)); // Swing high at 200
+      if (i === 10) candles.push(makeCandle(1000 + i * 60, 95, 100, 95, 96));
+      else if (i === 20) candles.push(makeCandle(1000 + i * 60, 150, 200, 140, 195));
       else candles.push(makeCandle(1000 + i * 60, 90, 92, 88, 90));
     }
     const st = analyzeStructure(candles);
-    expect(st.fib.length).toBe(7);
+    expect(st.fib).toEqual([]);
+    expect(st.fib_leg).toBeNull();
+  });
+
+  it("up leg (low->high): level 0 at the high, level 1 at the low, all 7 contract levels", () => {
+    const candles: Candle[] = [];
+    for (let i = 0; i < 30; i++) {
+      if (i === 10) candles.push(makeCandle(1000 + i * 60, 91, 92, 50, 90)); // swing low 50
+      else if (i === 20) candles.push(makeCandle(1000 + i * 60, 90, 150, 89, 91)); // swing high 150
+      else candles.push(makeCandle(1000 + i * 60, 90, 92, 88, 90));
+    }
+    const st = analyzeStructure(candles);
+    expect(st.fib_leg).toMatchObject({ direction: "up", from: { index: 10, price: 50 }, to: { index: 20, price: 150 }, confirmed_t: candles[22].t });
     expect(st.fib.map((f) => f.level)).toEqual([0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]);
-    expect(st.fib[0].price).toBe(200); // Level 0 at highest peak (200)
-    expect(st.fib[6].price).toBe(100); // Level 1 at lowest anchor swing (100)
-    expect(st.fib[3].price).toBe(150); // Level 0.5 exactly midway
+    expect(st.fib[0].price).toBe(150);
+    expect(st.fib[3].price).toBe(100);
+    expect(st.fib[6].price).toBe(50);
+  });
+
+  it("down leg (high->low): level 0 at the LOW, level 1 at the high (pre-recovery was inverted)", () => {
+    const candles: Candle[] = [];
+    for (let i = 0; i < 30; i++) {
+      if (i === 10) candles.push(makeCandle(1000 + i * 60, 90, 150, 89, 91)); // swing high 150
+      else if (i === 20) candles.push(makeCandle(1000 + i * 60, 91, 92, 50, 90)); // swing low 50
+      else candles.push(makeCandle(1000 + i * 60, 90, 92, 88, 90));
+    }
+    const st = analyzeStructure(candles);
+    expect(st.fib_leg?.direction).toBe("down");
+    expect(st.fib[0].price).toBe(50);
+    expect(st.fib[4].price).toBeCloseTo(50 + 100 * 0.618, 10);
+    expect(st.fib[6].price).toBe(150);
   });
 });
 
-describe("Task H: Trend / Regime", () => {
-  it("classifies UP trend on BOS up + EMA20 > EMA50", () => {
-    // 50 candles with consistent upward drift
-    const candles = makeSeries(Array.from({ length: 50 }, (_, i) => 100 + i * 3));
-    const st = analyzeStructure(candles);
+describe("Task H: Trend (repository spec FTR-TREND: swing sequence confirmed by EMA20/EMA50)", () => {
+  // Midpoint opens avoid the tied-high artefact of open=previous close.
+  const zigSeries = (len: number, drift: number, period = 10) => {
+    const closes = Array.from({ length: len }, (_, i) => 200 + i * drift + 6 * Math.sin((2 * Math.PI * i) / period));
+    return closes.map((c, i) => {
+      const o = i > 0 ? (closes[i - 1] + c) / 2 : c;
+      return makeCandle(1_700_000_000 + i * 60, o, Math.max(o, c) + 1, Math.min(o, c) - 1, c);
+    });
+  };
+
+  it("UP = HH/HL swing sequence AND EMA20 > EMA50", () => {
+    const st = analyzeStructure(zigSeries(80, 0.8));
     expect(st.trend).toBe("up");
-    expect(st.reason).toMatch(/BOS up|positive drift/);
+    expect(st.trend_evidence).toMatchObject({ swing_bias: "HH_HL", ma_align: 1 });
   });
 
-  it("classifies DOWN trend on downward drift + EMA20 < EMA50", () => {
-    const candles = makeSeries(Array.from({ length: 50 }, (_, i) => 300 - i * 3));
-    const st = analyzeStructure(candles);
+  it("DOWN = LH/LL swing sequence AND EMA20 < EMA50", () => {
+    const st = analyzeStructure(zigSeries(80, -0.8));
     expect(st.trend).toBe("down");
-    expect(st.reason).toMatch(/BOS down|negative drift/);
+    expect(st.trend_evidence).toMatchObject({ swing_bias: "LH_LL", ma_align: -1 });
   });
 
-  it("falls back to RANGE when no directional break or flat drift", () => {
-    // Oscillating flat candles
-    const candles = makeSeries(Array.from({ length: 50 }, (_, i) => 100 + (i % 2 === 0 ? 0.5 : -0.5)));
-    const st = analyzeStructure(candles);
+  it("RANGE when swing sequence and MA alignment do not agree", () => {
+    const st = analyzeStructure(zigSeries(80, 0, 11));
     expect(st.trend).toBe("range");
+    expect(st.reason).toMatch(/no agreement/);
+  });
+
+  it("UNDETERMINED (not 'range') when there is no swing structure — a straight line has no fractal pivots", () => {
+    const st = analyzeStructure(makeSeries(Array.from({ length: 50 }, (_, i) => 100 + i * 3)));
+    expect(st.trend).toBe("undetermined");
+    expect(st.reason).toMatch(/swing/);
+  });
+
+  it("UNDETERMINED during EMA50 warmup even with swing structure", () => {
+    const st = analyzeStructure(zigSeries(45, 0.8));
+    expect(st.trend_evidence.ma_align).toBeNull();
+    expect(st.trend).toBe("undetermined");
+  });
+
+  it("pre-recovery defect: reason claimed 'EMA20>EMA50' without checking EMAs — every reason now matches evidence", () => {
+    for (const d of [0.8, -0.8, 0]) {
+      const st = analyzeStructure(zigSeries(80, d, d === 0 ? 11 : 10));
+      const ev = st.trend_evidence;
+      if (st.trend === "up") expect(ev.ema20! > ev.ema50!).toBe(true);
+      if (st.trend === "down") expect(ev.ema20! < ev.ema50!).toBe(true);
+    }
   });
 });
 
@@ -438,7 +535,7 @@ describe("Task L: All 9 Production Timeframes Verification", () => {
       expect(bundle.indicators.rsi14).not.toBeNull();
       expect(bundle.indicators.atr14).not.toBeNull();
       expect(bundle.structure).toBeDefined();
-      expect(["up", "down", "range"]).toContain(bundle.structure.trend);
+      expect(["up", "down", "range", "undetermined"]).toContain(bundle.structure.trend);
     }
   });
 });

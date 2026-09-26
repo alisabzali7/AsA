@@ -1,0 +1,367 @@
+{
+ "schema": "asa.team02.spec-ledger.v1",
+ "generated": "2026-09-26 (Team 02 absolute-final pass)",
+ "classification_legend": {
+  "SOURCE_DERIVED": "rule/value stated in knowledge/raw with a line reference",
+  "ENGINEERING_DEFINED": "chosen by engineering, documented, not claimed as source",
+  "LEGACY_BEHAVIOR": "pre-existing behaviour kept for compatibility, documented",
+  "UNKNOWN": "the source does not specify it; nothing is implemented in its place",
+  "CONFLICTED": "sources disagree; not silently resolved",
+  "BLOCKED": "cannot be decided/verified because an external dependency is unavailable"
+ },
+ "status_legend": [
+  "COMPLETE",
+  "SPEC-LOCKED",
+  "PARTIAL",
+  "UNKNOWN",
+  "BLOCKED",
+  "DEFERRED",
+  "LEGACY"
+ ],
+ "items": [
+  {
+   "item": "EMA20 / EMA50",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "src/lib/analysis/indicators.ts ema(); periods 20/50 engineering; warmup null (never 0); OverlaySeries omits warmup points (tests/team10-chart-e2e.test.ts)",
+   "consumer_impact": "bundle.indicators + overlay.series; chart draws the server series only",
+   "next_dependency": null
+  },
+  {
+   "item": "RSI14 (Wilder)",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "indicators.ts rsi(); period 14 engineering; null until warmup",
+   "consumer_impact": "bundle, divergence input, FTR-RSI14",
+   "next_dependency": null
+  },
+  {
+   "item": "RSI flat-series convention (avg gain = avg loss = 0 → 50)",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "SPEC-LOCKED",
+   "evidence": "indicators.ts:142/147; tests/indicators-robustness.test.ts:193 asserts it; platforms differ (100 / NaN). Release-gate: bundle.indicator_status.rsi14.reason now states the 0/0 convention (bundle.ts flatRsiStatus; tests/team02-release-gate.test.ts)",
+   "consumer_impact": "no consumer can read the 50 as a measured neutral without the reason",
+   "next_dependency": "source decision if a different convention is wanted"
+  },
+  {
+   "item": "ATR14 / ATR% (atr14_pct)",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "indicators.ts atr(); ATR% = ATR/last close·100, null when close ≤ 0; flat series gives true 0 (tests/team02-release-gate.test.ts)",
+   "consumer_impact": "bundle; volatility measure, never momentum",
+   "next_dependency": null
+  },
+  {
+   "item": "ATR-scaled tolerance on a flat series (ATR = 0)",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "features/detectors.ts atrGateFailure: warmup → INSUFFICIENT_BARS, ATR = 0 → UNAVAILABLE 'tolerance undefined' (was mislabelled INSUFFICIENT_BARS)",
+   "consumer_impact": "strategies gate on .valid; label-only change, regression digests unchanged",
+   "next_dependency": null
+  },
+  {
+   "item": "Volume avg20 / last volume ratio",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "bundle.ts: ratio null + UNDEFINED 'average volume is 0' when avg = 0 (never 0/Infinity)",
+   "consumer_impact": "bundle; chart volume pane uses venue v only",
+   "next_dependency": null
+  },
+  {
+   "item": "Volatility regime (FTR-VOL-REGIME)",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "detectors.ts detectVolatilityRegime; needs 30 ATR samples",
+   "consumer_impact": "strategy features",
+   "next_dependency": null
+  },
+  {
+   "item": "MACD",
+   "classification": "UNKNOWN",
+   "status": "UNKNOWN",
+   "evidence": "Source uses MACD (RAW_2 MACD Trend Identification [VERIFIED]: 'activate MACD') but the instructor states no periods. 12/26/9 appears ONLY at RAW_2.txt:666 inside section 18 'strategies convertible to code' (document-generated Pine Script defaults), not a [VERIFIED] instructor rule",
+   "consumer_impact": "not implemented; overlay.unavailable_layers MACD=PARAMETERS_UNSPECIFIED; divergence.unsupported.macd_confirmation=UNKNOWN",
+   "next_dependency": "instructor-confirmed MACD parameters"
+  },
+  {
+   "item": "Ichimoku",
+   "classification": "UNKNOWN",
+   "status": "UNKNOWN",
+   "evidence": "RAW_1 gives 5 signal conditions; no tenkan/kijun/senkou periods (grep 9/26/52: 0 hits); 26-bar displacement appears only in generated code",
+   "consumer_impact": "not implemented; unavailable_layers ICHIMOKU=PARAMETERS_UNSPECIFIED",
+   "next_dependency": "source periods"
+  },
+  {
+   "item": "ADX",
+   "classification": "UNKNOWN",
+   "status": "UNKNOWN",
+   "evidence": "2 corpus mentions, only as an example filter ('ADX below 20'); no period",
+   "consumer_impact": "not implemented; unavailable_layers ADX=PARAMETERS_UNSPECIFIED",
+   "next_dependency": "source period + rule"
+  },
+  {
+   "item": "Swings (fractal pivots, confirmed_index = i + right)",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "analysis/structure.ts; ONE swing detection feeds structure/momentum/divergence (Task 10 dedupe)",
+   "consumer_impact": "all structure consumers",
+   "next_dependency": null
+  },
+  {
+   "item": "BOS",
+   "classification": "SOURCE_DERIVED",
+   "status": "COMPLETE",
+   "evidence": "RAW_5:670; knowable at the breaking bar close",
+   "consumer_impact": "overlay markers (structure events, not entries)",
+   "next_dependency": null
+  },
+  {
+   "item": "CHoCH",
+   "classification": "SOURCE_DERIVED",
+   "status": "COMPLETE",
+   "evidence": "RAW_5:674",
+   "consumer_impact": "overlay markers; AI invalidation text is a structural reference only",
+   "next_dependency": null
+  },
+  {
+   "item": "Order blocks",
+   "classification": "SOURCE_DERIVED",
+   "status": "SPEC-LOCKED",
+   "evidence": "RAW_5:679/957; HISTORICAL_ONLY (unmitigated as of window end); no 'active' semantics",
+   "consumer_impact": "overlay zones, time-bounded from_t → as_of_t",
+   "next_dependency": "source mitigation/active semantics"
+  },
+  {
+   "item": "FVG",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "SPEC-LOCKED",
+   "evidence": "structure.ts; HISTORICAL_ONLY; mitigated gaps omitted with a counted reason",
+   "consumer_impact": "overlay zones; AI annotations use open gaps only",
+   "next_dependency": "source active/mitigation semantics"
+  },
+  {
+   "item": "Time-bounded zones",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "chart/adapter.ts overlayToRender: each FVG/OB edge is a 2-point series from_t → as_of_t, start-bar label marker; never before the zone, never into the forming bar (tests/team10-chart-e2e.test.ts)",
+   "consumer_impact": "web chart",
+   "next_dependency": null
+  },
+  {
+   "item": "Fib retracement of last confirmed leg",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "structure.ts fibOfLastLeg; levels STRUCTURE_PARAMS.fib_levels; FIB overlay lines now carry knowable_t = leg confirmed_t, marked 'fib leg confirmed' on that bar",
+   "consumer_impact": "web chart",
+   "next_dependency": null
+  },
+  {
+   "item": "Fib/zone labels",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "fib: in-pane price-line titles (no axis label stacking, Task 10 V2); zones: marker at from_t; SVG renderer de-overlaps annotation labels (render.ts, test in team02-release-gate)",
+   "consumer_impact": "web chart, SVG",
+   "next_dependency": null
+  },
+  {
+   "item": "S/R levels",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "structure.ts clustering; window-wide price lines with touch count",
+   "consumer_impact": "overlay lines",
+   "next_dependency": null
+  },
+  {
+   "item": "Trendlines",
+   "classification": "UNKNOWN",
+   "status": "SPEC-LOCKED",
+   "evidence": "corpus re-searched (148 hits): post-break behaviour only — 'the breakout zone is retested, not the line' (RAW_1:301, RAW_1:945); no rule for anchors, touch count, tolerance or validity",
+   "consumer_impact": "not drawn; unavailable_layers TRENDLINES=TRENDLINES_SPEC_LOCKED (renamed from TRENDLINE_SPEC_UNKNOWN)",
+   "next_dependency": "source trendline specification"
+  },
+  {
+   "item": "Liquidity (pools/sweeps)",
+   "classification": "UNKNOWN",
+   "status": "UNKNOWN",
+   "evidence": "corpus re-searched (129 hits): mostly cash-liquidity (money management); market liquidity only conceptual — stop hunting at range highs/lows (RAW_5:423, RAW_5:510); no computable pool/sweep definition",
+   "consumer_impact": "not drawn; unavailable_layers LIQUIDITY=LIQUIDITY_SPEC_UNKNOWN (renamed from UNKNOWN)",
+   "next_dependency": "source definition"
+  },
+  {
+   "item": "Momentum (last-leg slope + step size)",
+   "classification": "SOURCE_DERIVED",
+   "status": "PARTIAL",
+   "evidence": "RAW_4:1193/1196/1248; analysis/momentum.ts v1.1.0; not a trigger",
+   "consumer_impact": "bundle.momentum; chart 'last leg'/'leg ratio' stats",
+   "next_dependency": "strength threshold"
+  },
+  {
+   "item": "Momentum strength threshold",
+   "classification": "UNKNOWN",
+   "status": "UNKNOWN",
+   "evidence": "re-searched: 'strong momentum' used qualitatively only (RAW_4:1993); no numeric threshold",
+   "consumer_impact": "unavailable_layers MOMENTUM_STRENGTH=MOMENTUM_STRENGTH_THRESHOLD_UNKNOWN; no fake confidence",
+   "next_dependency": "source threshold"
+  },
+  {
+   "item": "FTR-MOMENTUM-CANDLE (1.5x average body)",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "LEGACY",
+   "evidence": "detectors.ts; not the source Marubozu (RAW_1:1103, RAW_2:1210-1212); no strategy consumer",
+   "consumer_impact": "none",
+   "next_dependency": null
+  },
+  {
+   "item": "RSI divergence (regular bull/bear, hidden bull)",
+   "classification": "SOURCE_DERIVED",
+   "status": "PARTIAL",
+   "evidence": "RAW_1:891/892/899/912/787; divergence.ts spec_status PARTIAL; hidden_bearish NOT_IN_SOURCE; knowable at the confirming pivot; no reversal implication",
+   "consumer_impact": "overlay markers; AI note 'not a reversal signal, no confidence'",
+   "next_dependency": "MACD confirmation (UNKNOWN)"
+  },
+  {
+   "item": "MTF 4H/1H/15M",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "mtf.ts buildMtfAsOf: one clock, closed-bar causality, identity + stale refusal; single-tf and MTF bundles proven deep-equal (tests/team02-release-gate.test.ts)",
+   "consumer_impact": "MTF route, AI, chart MTF panel",
+   "next_dependency": null
+  },
+  {
+   "item": "MTF verdict semantics (ALIGNED/PARTIAL/CONFLICT)",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "mtf.ts",
+   "consumer_impact": "AI heuristic direction only on ALIGNED + explicit bias",
+   "next_dependency": null
+  },
+  {
+   "item": "AI heuristic score constants 62/48/25",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "SPEC-LOCKED",
+   "evidence": "ai/index.ts HEURISTIC_SCORE_BY_VERDICT; semantics.score_provenance=ENGINEERING_DEFINED_UNCALIBRATED; INSUFFICIENT/STALE/UNAVAILABLE → score null (was 0); heuristic confidence null (was a copy of score)",
+   "consumer_impact": "AI route JSON + ai_calls audit",
+   "next_dependency": "calibration study (none exists)"
+  },
+  {
+   "item": "AI setup_quality thresholds (70 medium / 55 low)",
+   "classification": "LEGACY_BEHAVIOR",
+   "status": "LEGACY",
+   "evidence": "ai/index.ts; 'medium' unreachable because max heuristic score is 62",
+   "consumer_impact": "AI interpretation field only",
+   "next_dependency": "product decision"
+  },
+  {
+   "item": "LLM score/confidence defaults",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "coerceAiResponse: missing → null + missing_data note (was silent 50; score no longer falls back to confidence)",
+   "consumer_impact": "AI route",
+   "next_dependency": null
+  },
+  {
+   "item": "Legacy records without a decision snapshot",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "chart/evidence.ts verifyDecisionSnapshot → UNVERIFIABLE_LEGACY_RECORD; X-Snapshot-Check header on SVG/PNG; Telegram caption discloses it; UNVERIFIABLE/MISMATCH → no photo",
+   "consumer_impact": "charts/[id], telegram",
+   "next_dependency": null
+  },
+  {
+   "item": "Feature data_quality 'OK' with valid=false",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "absolute-final: explicit FeatureValue.state VALUE / ABSENT / UNDEFINED_ON_DATA / UNAVAILABLE (features/types featureStateOf). ABSENT → rule FAIL; UNDEFINED_ON_DATA / UNAVAILABLE → rule UNKNOWN (never PASS/FAIL). Metadata only; no outcome change",
+   "consumer_impact": "strategies",
+   "next_dependency": null
+  },
+  {
+   "item": "DoublePattern neckline",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "source: M/W shapes (RAW_1:1217-1218, RAW_2:1231); 'neckline' computation defined only for Head & Shoulders (RAW_4:2314). Canonical reading = most extreme CONFIRMED opposite swing between peaks. Absolute-final: the BAR_EXTREME fallback (non-canonical second computation) removed → neckline null, neckline_source UNKNOWN",
+   "consumer_impact": "no production consumer reads neckline (prz-levels uses kind only); regression 28/28 unchanged",
+   "next_dependency": null
+  },
+  {
+   "item": "ABCD swings (raw non-alternating) / correction_frac > 1",
+   "classification": "UNKNOWN",
+   "status": "UNKNOWN",
+   "evidence": "RAW_4:2425-2460 does not settle alternation or over-100% corrections; kept as-is (no invented rule)",
+   "consumer_impact": "harmonic-abcd strategy",
+   "next_dependency": "source clarification"
+  },
+  {
+   "item": "Web strategy markers",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "DEFERRED",
+   "evidence": "DEFERRED_STRATEGY_MARKERS_WEB: the /chart page shows the analysis bundle window, not an opportunity; drawing strategy levels needs (1) an opportunity-selection contract on /chart, (2) a window-identity check chart window ⊇ snapshot window (verifyDecisionSnapshot exists server-side), (3) a product decision to show entry/stop/target levels on the terminal chart",
+   "consumer_impact": "strategy evidence remains available via /api/charts/{id} (JSON/SVG/PNG) and Telegram",
+   "next_dependency": "product decision + chart route contract"
+  },
+  {
+   "item": "Freshness thresholds (STALE after N bars)",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "analysis/input.ts STALE_BARS; no invented threshold added in this pass",
+   "consumer_impact": "all",
+   "next_dependency": null
+  },
+  {
+   "item": "Upstream failure retryability",
+   "classification": "UNKNOWN",
+   "status": "UNKNOWN",
+   "evidence": "errors.ts: UPSTREAM_FAILURE not labelled temporary",
+   "consumer_impact": "API 502",
+   "next_dependency": "venue error taxonomy"
+  },
+  {
+   "item": "Input bar validity at the analysis boundary",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "domain/candle-validity ohlcvDefect — the Team 01 venue-normaliser rule (finite OHLCV, prices > 0, volume ≥ 0, high/low bound open/close) now shared by ttt/udf.ts, market/history.ts and analysis/input.ts; analysis boundary REFUSES (INVALID_SERIES) incl. misaligned open times and bars opening after the observation instant",
+   "consumer_impact": "every analysis producer; API 502 INVALID_SOURCE_DATA",
+   "next_dependency": null
+  },
+  {
+   "item": "ABCD CD-slope rule (source condition 4)",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "SPEC-LOCKED",
+   "evidence": "source names the CD slope (RAW_4:2425-2460); CD has not formed at the evaluation bar, so the predicate measures slope_bc as a PROXY — labelled in RulePredicate.proxy {measured: slope_bc, stands_for: slope_cd, classification: ENGINEERING_DEFINED} and exported in the machine rule graph; slope_cd stays null; tolerance 0.25 ENGINEERING_PARAMS",
+   "consumer_impact": "STR ABCD deep-correction strategies; outcome unchanged (regression 28/28)",
+   "next_dependency": "strategy-owner decision whether BC is the intended proxy"
+  },
+  {
+   "item": "AI direction when MTF evidence is unavailable",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "absolute-final: direction 'unavailable' for MTF UNAVAILABLE / INSUFFICIENT / STALE (heuristic and LLM override); 'neutral' kept only for no-stance on available evidence (PARTIAL/CONFLICT)",
+   "consumer_impact": "AI route, research page colouring",
+   "next_dependency": null
+  },
+  {
+   "item": "AI score calibration",
+   "classification": "UNKNOWN",
+   "status": "UNKNOWN",
+   "evidence": "no outcome study exists; semantics.calibration = CALIBRATION_UNVERIFIED for any produced score/confidence, NOT_APPLICABLE when none",
+   "consumer_impact": "AI consumers must not read scores as probabilities",
+   "next_dependency": "outcome-calibration study"
+  },
+  {
+   "item": "API HTTP status per input class",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "analysis/errors inputHttpStatus: upstream 502 · IDENTITY_MISMATCH 500 · INVALID_SERIES 502 · SERIES_UNAVAILABLE 503 · UNSUPPORTED_TIMEFRAME 400 · NO_CLOSED_BARS 200 available:false · OK 200. AFTER_AS_OF is an MTF component state (no as-of API parameter); UNVERIFIABLE_LEGACY_RECORD is a chart-evidence state (X-Snapshot-Check)",
+   "consumer_impact": "chart-view usePoll surfaces error_class from non-2xx bodies",
+   "next_dependency": null
+  },
+  {
+   "item": "FVG / OB overlay zone status",
+   "classification": "ENGINEERING_DEFINED",
+   "status": "COMPLETE",
+   "evidence": "OverlayZone.status = HISTORICAL_ONLY (always); adapter refuses to draw any other status (counted in unplaced); source defines no active/live/entry semantics",
+   "consumer_impact": "web chart",
+   "next_dependency": "source mitigation/active semantics (UNKNOWN)"
+  }
+ ]
+}

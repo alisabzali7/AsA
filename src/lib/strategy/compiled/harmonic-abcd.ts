@@ -138,7 +138,9 @@ function harmonicRules(o: HarmonicOpts): RuleDefinition[] {
   if (o.wantDeepCorrection) {
     rules.push({
       id: `${o.idPrefix}-SLOPE`,
-      description: "the CD leg's slope is equal to or shallower than AB's (source condition 4)",
+      // Source condition 4 names the CD slope; the predicate measures the BC
+      // slope as a PROXY (see predicate.proxy). Rule description says so.
+      description: "source condition 4 (CD slope ≤ AB slope) evaluated through a PROXY: the BC slope stands in for the not-yet-formed CD leg (ENGINEERING_DEFINED proxy, strategy-owner decision)",
       source_text: o.sourceTexts.slope ?? "",
       source_refs: o.refs,
       source_status: "SOURCE_VERIFIED",
@@ -151,13 +153,23 @@ function harmonicRules(o: HarmonicOpts): RuleDefinition[] {
       unresolved: [],
       version: HARMONIC_RULE_VERSION,
       predicates: [{
-        expr: `FTR-ABCD.slope_cd <= FTR-ABCD.slope_ab * (1 + ${ENGINEERING_PARAMS.abcd_slope_tol})`,
+        // Task 10 (labelling only — comparison unchanged): the CD leg has not
+        // formed when this rule runs at C, so the strategy compares the BC
+        // slope as its proxy. FTR-ABCD.slope_cd is null (not measurable).
+        // Whether BC is the intended proxy is a STRATEGY-OWNER decision.
+        expr: `FTR-ABCD.slope_bc <= FTR-ABCD.slope_ab * (1 + ${ENGINEERING_PARAMS.abcd_slope_tol})`,
         requires: ["FTR-ABCD"],
+        proxy: {
+          measured: "FTR-ABCD.slope_bc",
+          stands_for: "FTR-ABCD.slope_cd",
+          classification: "ENGINEERING_DEFINED",
+          reason: "the CD leg has not formed at the evaluation bar C, so slope_cd is null (not measurable); the tolerance abcd_slope_tol is ENGINEERING_PARAMS",
+        },
         test: (bag) => {
           const p = val<AbcdPattern | null>(bag, "FTR-ABCD");
           if (!p) return { ok: false, detail: "no ABCD pattern" };
-          const ok = p.slope_cd <= p.slope_ab * (1 + ENGINEERING_PARAMS.abcd_slope_tol);
-          return { ok, detail: `slope CD ${p.slope_cd.toFixed(6)} vs AB ${p.slope_ab.toFixed(6)} (tol ${ENGINEERING_PARAMS.abcd_slope_tol})` };
+          const ok = p.slope_bc <= p.slope_ab * (1 + ENGINEERING_PARAMS.abcd_slope_tol);
+          return { ok, detail: `slope BC ${p.slope_bc.toFixed(6)} (proxy — CD not yet formed) vs AB ${p.slope_ab.toFixed(6)} (tol ${ENGINEERING_PARAMS.abcd_slope_tol})` };
         },
       }],
     });

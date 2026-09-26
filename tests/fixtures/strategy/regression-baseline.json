@@ -1,0 +1,150 @@
+{
+  "walk": {
+    "STR-RAW-2-581/SET-STR-RAW-2-581": {
+      "evaluated": 201,
+      "passes": 3,
+      "digest": "8557ae87"
+    },
+    "STR-RAW-2-803/SET-STR-RAW-2-803": {
+      "evaluated": 201,
+      "passes": 36,
+      "digest": "6e2a16f2"
+    },
+    "STR-RAW-2-926/SET-STR-RAW-2-926": {
+      "evaluated": 201,
+      "passes": 36,
+      "digest": "c6f53589"
+    },
+    "STR-RAW-2-1258/SET-STR-RAW-2-1258-short": {
+      "evaluated": 201,
+      "passes": 19,
+      "digest": "5cc734bb"
+    },
+    "STR-RAW-2-1258/SET-STR-RAW-2-1258-long": {
+      "evaluated": 201,
+      "passes": 4,
+      "digest": "f6fedf33"
+    },
+    "STR-RAW-4-2425/SET-STR-RAW-4-2425": {
+      "evaluated": 201,
+      "passes": 54,
+      "digest": "6e28b53c"
+    },
+    "STR-RAW-4-2449/SET-STR-RAW-4-2449": {
+      "evaluated": 201,
+      "passes": 4,
+      "digest": "f0b30263"
+    }
+  },
+  "sine": {
+    "STR-RAW-2-581/SET-STR-RAW-2-581": {
+      "evaluated": 201,
+      "passes": 0,
+      "digest": "fcb9af3c"
+    },
+    "STR-RAW-2-803/SET-STR-RAW-2-803": {
+      "evaluated": 201,
+      "passes": 12,
+      "digest": "3a11aec6"
+    },
+    "STR-RAW-2-926/SET-STR-RAW-2-926": {
+      "evaluated": 201,
+      "passes": 12,
+      "digest": "043e8f30"
+    },
+    "STR-RAW-2-1258/SET-STR-RAW-2-1258-short": {
+      "evaluated": 201,
+      "passes": 10,
+      "digest": "d7632817"
+    },
+    "STR-RAW-2-1258/SET-STR-RAW-2-1258-long": {
+      "evaluated": 201,
+      "passes": 0,
+      "digest": "af2cf140"
+    },
+    "STR-RAW-4-2425/SET-STR-RAW-4-2425": {
+      "evaluated": 201,
+      "passes": 189,
+      "digest": "39cfa581"
+    },
+    "STR-RAW-4-2449/SET-STR-RAW-4-2449": {
+      "evaluated": 201,
+      "passes": 0,
+      "digest": "77fbd532"
+    }
+  },
+  "crash": {
+    "STR-RAW-2-581/SET-STR-RAW-2-581": {
+      "evaluated": 201,
+      "passes": 0,
+      "digest": "fcb9af3c"
+    },
+    "STR-RAW-2-803/SET-STR-RAW-2-803": {
+      "evaluated": 201,
+      "passes": 4,
+      "digest": "b63e75c5"
+    },
+    "STR-RAW-2-926/SET-STR-RAW-2-926": {
+      "evaluated": 201,
+      "passes": 4,
+      "digest": "a09cf160"
+    },
+    "STR-RAW-2-1258/SET-STR-RAW-2-1258-short": {
+      "evaluated": 201,
+      "passes": 3,
+      "digest": "9fdf98ef"
+    },
+    "STR-RAW-2-1258/SET-STR-RAW-2-1258-long": {
+      "evaluated": 201,
+      "passes": 0,
+      "digest": "5437b5a2"
+    },
+    "STR-RAW-4-2425/SET-STR-RAW-4-2425": {
+      "evaluated": 201,
+      "passes": 95,
+      "digest": "1858ef02"
+    },
+    "STR-RAW-4-2449/SET-STR-RAW-4-2449": {
+      "evaluated": 201,
+      "passes": 8,
+      "digest": "f412db48"
+    }
+  },
+  "spiky": {
+    "STR-RAW-2-581/SET-STR-RAW-2-581": {
+      "evaluated": 201,
+      "passes": 19,
+      "digest": "0750d2c0"
+    },
+    "STR-RAW-2-803/SET-STR-RAW-2-803": {
+      "evaluated": 201,
+      "passes": 14,
+      "digest": "39af5fd7"
+    },
+    "STR-RAW-2-926/SET-STR-RAW-2-926": {
+      "evaluated": 201,
+      "passes": 14,
+      "digest": "7b540d05"
+    },
+    "STR-RAW-2-1258/SET-STR-RAW-2-1258-short": {
+      "evaluated": 201,
+      "passes": 2,
+      "digest": "e63028df"
+    },
+    "STR-RAW-2-1258/SET-STR-RAW-2-1258-long": {
+      "evaluated": 201,
+      "passes": 10,
+      "digest": "45fdcd87"
+    },
+    "STR-RAW-4-2425/SET-STR-RAW-4-2425": {
+      "evaluated": 201,
+      "passes": 8,
+      "digest": "54a3f6c4"
+    },
+    "STR-RAW-4-2449/SET-STR-RAW-4-2449": {
+      "evaluated": 201,
+      "passes": 3,
+      "digest": "a30d8546"
+    }
+  }
+}

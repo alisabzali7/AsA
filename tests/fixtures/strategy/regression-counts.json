@@ -1,0 +1,122 @@
+{
+ "walk": {
+  "STR-RAW-2-581/SET-STR-RAW-2-581": [
+   201,
+   3
+  ],
+  "STR-RAW-2-803/SET-STR-RAW-2-803": [
+   201,
+   36
+  ],
+  "STR-RAW-2-926/SET-STR-RAW-2-926": [
+   201,
+   36
+  ],
+  "STR-RAW-2-1258/SET-STR-RAW-2-1258-short": [
+   201,
+   19
+  ],
+  "STR-RAW-2-1258/SET-STR-RAW-2-1258-long": [
+   201,
+   4
+  ],
+  "STR-RAW-4-2425/SET-STR-RAW-4-2425": [
+   201,
+   54
+  ],
+  "STR-RAW-4-2449/SET-STR-RAW-4-2449": [
+   201,
+   4
+  ]
+ },
+ "sine": {
+  "STR-RAW-2-581/SET-STR-RAW-2-581": [
+   201,
+   0
+  ],
+  "STR-RAW-2-803/SET-STR-RAW-2-803": [
+   201,
+   12
+  ],
+  "STR-RAW-2-926/SET-STR-RAW-2-926": [
+   201,
+   12
+  ],
+  "STR-RAW-2-1258/SET-STR-RAW-2-1258-short": [
+   201,
+   10
+  ],
+  "STR-RAW-2-1258/SET-STR-RAW-2-1258-long": [
+   201,
+   0
+  ],
+  "STR-RAW-4-2425/SET-STR-RAW-4-2425": [
+   201,
+   189
+  ],
+  "STR-RAW-4-2449/SET-STR-RAW-4-2449": [
+   201,
+   0
+  ]
+ },
+ "crash": {
+  "STR-RAW-2-581/SET-STR-RAW-2-581": [
+   201,
+   0
+  ],
+  "STR-RAW-2-803/SET-STR-RAW-2-803": [
+   201,
+   4
+  ],
+  "STR-RAW-2-926/SET-STR-RAW-2-926": [
+   201,
+   4
+  ],
+  "STR-RAW-2-1258/SET-STR-RAW-2-1258-short": [
+   201,
+   3
+  ],
+  "STR-RAW-2-1258/SET-STR-RAW-2-1258-long": [
+   201,
+   0
+  ],
+  "STR-RAW-4-2425/SET-STR-RAW-4-2425": [
+   201,
+   95
+  ],
+  "STR-RAW-4-2449/SET-STR-RAW-4-2449": [
+   201,
+   8
+  ]
+ },
+ "spiky": {
+  "STR-RAW-2-581/SET-STR-RAW-2-581": [
+   201,
+   19
+  ],
+  "STR-RAW-2-803/SET-STR-RAW-2-803": [
+   201,
+   14
+  ],
+  "STR-RAW-2-926/SET-STR-RAW-2-926": [
+   201,
+   14
+  ],
+  "STR-RAW-2-1258/SET-STR-RAW-2-1258-short": [
+   201,
+   2
+  ],
+  "STR-RAW-2-1258/SET-STR-RAW-2-1258-long": [
+   201,
+   10
+  ],
+  "STR-RAW-4-2425/SET-STR-RAW-4-2425": [
+   201,
+   8
+  ],
+  "STR-RAW-4-2449/SET-STR-RAW-4-2449": [
+   201,
+   3
+  ]
+ }
+}
