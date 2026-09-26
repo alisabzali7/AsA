@@ -85,3 +85,29 @@ No browser binary in this sandbox → **REAL BROWSER VERIFICATION BLOCKED**: no 
 visual/animation-frame confirmation, no devtools console/network panel evidence; runtime verification is
 jsdom-against-real-server + curl SSR/API level. RTL rendering is verified at CSS/token/source level and in
 code review, not in a viewport screenshot. Existing PWA PNG icons retained (no raster toolchain here).
+
+## F. Integration with main after PR #20 (Team-02 chain closure)
+
+`main` was rewritten to a single orphan root (`025933c`) when Team-02's PR merged, making
+PR #21 unmergeable (no common history). Integration performed on this branch:
+
+- Merge commit with `main` as second parent; main's 127 non-conflicting files adopted verbatim
+  (backend closure, poll-sequence guard, chart adapter/technical layer, their test suites, artifacts).
+- 5 overlapping files hand-merged:
+  · `chart-view.tsx` — their superior renderer kept (server-built overlay contract, volume pane,
+    identity guards, all my pass-1 durable-history pins intact); my cinematic layer re-applied on
+    top: selection-store derivation, canvas-token twins, logical properties, and the normalized
+    `TruthState` overlay restored (UNAVAILABLE/OFFLINE/ERROR with retry, honest EMPTY distinction).
+  · `hooks.tsx` — their URL-identity rule + sequence guard folded into the resource-state
+    `usePoll` (state model preserved: data/error/status/failure/age all URL-scoped; failure still
+    never clears the last good payload; Team-10's 2-accept-site pin satisfied).
+  · `page.tsx` (Home) — Team-02's health-chip truth fix ported (`healthDisplayState` +
+    `SystemHealthShape`); SSE chip reworded to CONNECTED/DISCONNECTED so "LIVE" never describes a
+    socket. `backtest`/`research` — `formatPrice` and verdict-color ports.
+- One pass-1 contract test updated to the merged `setSnap` architecture (same guard, new shape);
+  no test weakened or skipped.
+
+Post-integration verification (server running the integrated build): typecheck ✓ · lint ✓ ·
+**1350/1350 tests / 70 files** · build ✓ · 21/21 routes 200 · truth matrix unchanged-honest
+(board 503 NETWORK_FAILURE · symbols 200 count:0 · opportunities 200 true-empty · health
+CONNECTING) · mutations 401 without token / 200 with · live DOM suites (board + palette) pass.

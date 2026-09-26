@@ -37,10 +37,12 @@ describe("provider layer", () => {
   });
 
   it("failure never clears the last authoritative payload (cached-not-live, not fake-fresh)", () => {
-    // the failure branch must not setData(null)
+    // the failure branch must not clear the retained payload and must carry
+    // the server's verdict through (merged setSnap architecture — same guard)
     const fail = hooks.match(/} else \{[^]*?\n      \}/)?.[0] ?? "";
     expect(fail).not.toContain("setData(null)");
-    expect(fail).toContain('setStatus(r.status)');
+    expect(fail).toMatch(/data: p\.url === url \? p\.data : null/);
+    expect(fail).toContain("status: r.status");
   });
 
   it("mutations attach the operator token and surface denials (no silent catch-all)", () => {

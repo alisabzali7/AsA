@@ -7,24 +7,25 @@
 import Link from "next/link";
 import { useCallback, useState, type ReactNode } from "react";
 import { useLang } from "@/components/lang";
-import { usePoll, useSse, fmtAge } from "@/components/hooks";
+import { usePoll, useSse, fmtAge, formatPrice } from "@/components/hooks";
 import { Metric, Panel, StatusBadge, SectionHeader, Timeline } from "@/components/ui";
 import { TruthState, StatusWord } from "@/components/data-state";
-import { topByPrice, topGainers, effectiveAgeMs, displayStateFor } from "@/components/board-selectors";
+import { topByPrice, topGainers, effectiveAgeMs, displayStateFor, healthDisplayState, type SystemHealthShape } from "@/components/board-selectors";
 import { useSelection } from "@/components/selection";
 import { openPalette } from "@/components/chrome";
 import { IconChart, IconMarket, IconPulse, IconSearch, IconZap } from "@/components/icons";
 
 interface BoardRow { symbol: string; price: number | null; change24hPct: number | null; state: string; age_ms: number | null }
 interface BoardShape { ok: boolean; rows: BoardRow[]; stats_age_ms: number | null }
-interface HealthShape { ok: boolean; booted: boolean; market: string; reason?: string; ts: number }
 
 const PIPELINE = ["LIVE MARKET (TTT)", "DATA → HISTORY", "MULTI-TF 4H/1H/15M", "STRATEGY", "PSYCHOLOGY", "ANALYSIS", "DERIVATIVES (verified)", "FUNDAMENTAL/NEWS", "OPPORTUNITY → RISK", "SIGNAL → CHART", "TELEGRAM", "HUMAN EXECUTES"];
 
 export default function DashboardPage() {
   const { t } = useLang();
   const board = usePoll<BoardShape>("/api/market/board", 7000);
-  const health = usePoll<HealthShape>("/api/system/health", 10000);
+  // health endpoint contract — one shape shared with board-selectors so the
+// chip and its display helper can never drift apart
+const health = usePoll<SystemHealthShape>("/api/system/health", 10000);
   const [busEvents, setBusEvents] = useState<{ at: number; text: ReactNode }[]>([]);
   const onEvent = useCallback((e: { type: string; ts: number }) => {
     setBusEvents((xs) => [{ at: e.ts, text: e.type }, ...xs].slice(0, 8));
@@ -41,7 +42,12 @@ export default function DashboardPage() {
   const sweepEff = board.status === "OK" ? effectiveAgeMs(board.data?.stats_age_ms ?? null, board.age_ms) : null;
   const boardReady = board.status === "OK";
   const marketState = health.status === "OK" ? health.data?.market ?? "—" : null;
-  const healthChip = health.status !== "OK" ? health.status : health.data?.market ?? "CONNECTING";
+  // TRUTH FIX (merged from Team-02): the chip renders the HEALTH ENDPOINT's
+  // own market state with age decay — never socket connectivity, never the
+  // bare presence of a payload
+  const healthChip = !health.data
+    ? health.status === "LOADING" ? "CONNECTING" : health.status
+    : healthDisplayState(health.data, health.status !== "OK", health.age_ms);
   const marketLive = boardReady && sweepEff !== null && sweepEff < 30000;
   const terminalHref = sel.symbol ? `/chart?symbol=${sel.symbol}` : "/chart";
 
@@ -145,7 +151,7 @@ export default function DashboardPage() {
                   {boardReady && movers.map((r) => (
                     <tr key={r.symbol}>
                       <td><Link className="focus-ring rounded px-1 font-semibold hover:text-gold" href={`/chart?symbol=${r.symbol}`}>{r.symbol}</Link></td>
-                      <td className="mono text-end">{r.price === null ? "—" : r.price.toLocaleString("en-US", { maximumFractionDigits: r.price < 1 ? 6 : 2 })}</td>
+                      <td className="mono text-end">{formatPrice(r.price)}</td>
                       <td className="mono text-end" style={{ color: r.change24hPct === null ? "var(--color-muted)" : r.change24hPct >= 0 ? "var(--color-up)" : "var(--color-down)" }}>{r.change24hPct === null ? "—" : `${r.change24hPct.toFixed(2)}%`}</td>
                       <td><StatusBadge state={displayStateFor(r.state, effectiveAgeMs(r.age_ms, board.age_ms))} /></td>
                     </tr>
@@ -183,7 +189,7 @@ export default function DashboardPage() {
             <Panel
               title="event bus"
               icon={<IconPulse size={12} />}
-              right={<StatusBadge state={sse.connected ? "LIVE" : "OFFLINE"} label={sse.connected ? "SSE live" : "SSE down"} />}
+              right={<StatusBadge state={sse.connected ? "CONNECTED" : "DISCONNECTED"} label={sse.connected ? "SSE socket on" : "SSE socket off"} />}
             >
               <Timeline items={busEvents} />
             </Panel>

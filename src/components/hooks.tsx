@@ -9,6 +9,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fmtAge } from "@/lib/i18n/strings";
+import { createSequenceGuard } from "@/lib/poll-sequence";
+import { decimalsFor } from "@/lib/chart/adapter";
 import { loadResource, type ResourceFailure, type ResourceStatus } from "./resource-state";
 
 export interface ApiState<T> {
@@ -30,14 +32,16 @@ export interface ApiState<T> {
  *  the correct place for components to react to fresh data without calling
  *  setState synchronously inside an effect. */
 export function usePoll<T>(url: string | null, intervalMs = 7000, enabled = true, onData?: (d: T) => void): ApiState<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState<ResourceStatus>("LOADING");
-  const [failure, setFailure] = useState<ResourceFailure | null>(null);
-  const [age, setAge] = useState<number | null>(null);
-  const [staleAge, setStaleAge] = useState<number | null>(null);
-  const lastOkAtRef = useRef<number | null>(null);
+  /**
+   * IDENTITY RULE (merged from the Team-02 closure): the snapshot is stored
+   * WITH the URL that produced it, and every field is returned only while
+   * that URL is still the requested one. Switching symbol/timeframe can
+   * therefore never keep painting the previous series' data.
+   */
+  const [snap, setSnap] = useState<{ url: string | null; data: T | null; error: string | null; status: ResourceStatus; failure: ResourceFailure | null }>({ url: null, data: null, error: null, status: "LOADING", failure: null });
+  const [age, setAge] = useState<{ url: string | null; ms: number | null }>({ url: null, ms: null });
+  const [staleAge, setStaleAge] = useState<{ url: string | null; ms: number | null }>({ url: null, ms: null });
+  const lastOkAtRef = useRef<{ url: string; ms: number } | null>(null);
   const [tick, setTick] = useState(0);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const onDataRef = useRef(onData);
@@ -45,32 +49,33 @@ export function usePoll<T>(url: string | null, intervalMs = 7000, enabled = true
   useEffect(() => {
     if (!enabled || !url) return;
     let dead = false;
+    // overlapping polls of this URL may resolve out of order — only the newest
+    // issued request may write state (response-ordering guard)
+    const seq = createSequenceGuard();
     const load = async () => {
+      const ticket = seq.issue();
       const r = await loadResource(url);
-      if (dead) return;
       if (r.status === "OK") {
-        setData(r.data as T);
-        setError(null);
-        setFailure(null);
-        setAge(0);
-        setStatus("OK");
-        lastOkAtRef.current = r.at_ms;
-        setStaleAge(0);
-        onDataRef.current?.(r.data as T);
+        if (!dead && seq.accept(ticket)) {
+          setSnap({ url, data: r.data as T, error: null, status: "OK", failure: null });
+          setAge({ url, ms: 0 });
+          lastOkAtRef.current = { url, ms: r.at_ms };
+          setStaleAge({ url, ms: 0 });
+          onDataRef.current?.(r.data as T);
+        }
       } else {
-        // never clear the last authoritative payload — the UI keeps showing it
-        // with a decaying age (cached-not-live), which is the truthful behavior
-        setStatus(r.status);
-        setFailure(r.failure);
-        setError(r.failure ? r.failure.message : "request failed");
+        // never clear the last authoritative payload FOR THIS URL — the UI keeps
+        // showing it with a decaying age (cached-not-live), which is truthful;
+        // another URL's payload is NEVER inherited
+        if (!dead && seq.accept(ticket)) setSnap((p) => ({ url, data: p.url === url ? p.data : null, error: r.failure ? r.failure.message : "request failed", status: r.status, failure: r.failure }));
       }
-      setLoading(false);
     };
     void load();
     timer.current = setInterval(() => void load(), intervalMs);
     const ageTimer = setInterval(() => {
-      setAge((a) => (a === null ? null : a + 1000));
-      setStaleAge(lastOkAtRef.current === null ? null : Date.now() - lastOkAtRef.current);
+      setAge((a) => (a.ms === null ? a : { url: a.url, ms: a.ms + 1000 }));
+      const ok = lastOkAtRef.current;
+      setStaleAge(ok ? { url: ok.url, ms: Date.now() - ok.ms } : { url: null, ms: null });
     }, 1000);
     // OFFLINE recovery: the moment the browser is back, re-ask the server
     // instead of waiting for the next poll tick to flip the state.
@@ -89,7 +94,17 @@ export function usePoll<T>(url: string | null, intervalMs = 7000, enabled = true
     };
   }, [url, intervalMs, enabled, tick]);
   const refresh = useCallback(() => setTick((x) => x + 1), []);
-  return { data, error, loading, age_ms: age, refresh, status, failure, stale_age_ms: staleAge };
+  const current = snap.url === url;
+  return {
+    data: current ? snap.data : null,
+    error: current ? snap.error : null,
+    loading: !current || snap.status === "LOADING",
+    age_ms: age.url === url ? age.ms : null,
+    refresh,
+    status: current ? snap.status : "LOADING",
+    failure: current ? snap.failure : null,
+    stale_age_ms: staleAge.url === url ? staleAge.ms : null,
+  };
 }
 
 /* ------------------------------------------------------------------ mutations
@@ -220,13 +235,11 @@ export function stateColor(state: string): string {
 
 export function formatPrice(p: number | null | undefined, tick?: number | null): string {
   if (p === null || p === undefined || !Number.isFinite(p)) return "—";
-  let digits = 2;
-  if (tick !== null && tick !== undefined && tick > 0 && tick < 1) digits = Math.min(10, Math.max(0, -Math.floor(Math.log10(tick))));
-  else if (p < 0.01) digits = 6;
-  else if (p < 1) digits = 4;
-  else if (p < 1000) digits = 2;
-  else digits = 1;
-  return p.toLocaleString("en-US", { maximumFractionDigits: digits, minimumFractionDigits: digits > 4 ? 4 : 2 });
+  let digits: number;
+  if (tick !== null && tick !== undefined && tick > 0 && tick < 1) digits = Math.min(12, Math.max(0, -Math.floor(Math.log10(tick))));
+  else if (Math.abs(p) >= 1000) digits = 1;
+  else digits = decimalsFor(p);
+  return p.toLocaleString("en-US", { maximumFractionDigits: digits, minimumFractionDigits: Math.min(digits, 2) });
 }
 
 export { fmtAge };
