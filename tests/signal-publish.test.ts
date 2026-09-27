@@ -24,7 +24,7 @@
  * NOTE on isolation: env-dependent paths are set BEFORE any src module is
  * dynamically imported (same pattern as audit-regressions.test.ts).
  */
-import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { describe, expect, it, beforeAll, afterAll, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -34,6 +34,28 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "asa-sigpub-"));
 process.env.ASA_DB_PATH = path.join(TMP, "asa.db");
 process.env.ASA_HISTORY_DB_PATH = path.join(TMP, "history.db");
 process.env.ASA_BRAIN_DB_PATH = path.join(TMP, "brain.db");
+
+// Synthetic authority exists only inside this publisher regression suite; it
+// exercises the durable publication transaction without making any shipped
+// strategy source-faithful or promotion-eligible.
+const publicationAuthority = vi.hoisted(() => ({
+  setups: new Map<string, unknown>(),
+  statuses: new Map<string, string>(),
+}));
+vi.mock("../src/lib/strategy/runtime", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/strategy/runtime")>();
+  return {
+    ...mod,
+    getRuntimeStrategy: (id: string) => publicationAuthority.setups.get(id) as ReturnType<typeof mod.getRuntimeStrategy> ?? mod.getRuntimeStrategy(id),
+  };
+});
+vi.mock("../src/lib/backtest/promotion", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/backtest/promotion")>();
+  return {
+    ...mod,
+    promotedRuntimeStatus: (id: string) => (publicationAuthority.statuses.get(id) ?? mod.promotedRuntimeStatus(id)) as ReturnType<typeof mod.promotedRuntimeStatus>,
+  };
+});
 
 type Repo = import("../src/db/repo").Repo;
 type SignalRow = import("../src/db/repo").SignalRow;
@@ -64,6 +86,24 @@ afterAll(() => {
 let seq = 0;
 function makeOpp(overrides: Partial<OpportunityPayload> = {}): OpportunityPayload {
   seq += 1;
+  const strategyId = "STR-PUBLISH-TEST";
+  const setupId = "SET-PUBLISH-TEST";
+  const ruleIds = ["RULE-PUBLISH-TEST"];
+  const ruleVersions = ["1.0.0"];
+  publicationAuthority.setups.set(setupId, {
+    strategy_id: strategyId,
+    setup_id: setupId,
+    direction: "long",
+    timeframe: "1h",
+    strategy_version: "1.0.0",
+    rule_ids: ruleIds,
+    rule_versions: ruleVersions,
+    availability: "EXECUTABLE",
+    source_contract_status: "SOURCE_FAITHFUL",
+    source_contract_blockers: [],
+    blocked_reason: null,
+  });
+  publicationAuthority.statuses.set(strategyId, "LIVE_ADVISORY_ONLY");
   return {
     id: `opptest${seq}`,
     symbol: "BTCUSDT",
@@ -77,7 +117,12 @@ function makeOpp(overrides: Partial<OpportunityPayload> = {}): OpportunityPayloa
     stop: null,
     targets: [],
     rr: null,
-    strategy_id: "STR-RAW-2-803",
+    strategy_id: strategyId,
+    strategy_version: "1.0.0",
+    rule_ids: ruleIds,
+    rule_versions: ruleVersions,
+    source_contract_status: "SOURCE_FAITHFUL",
+    source_contract_blockers: [],
     mode: "live",
     state: "READY",
     anchor_ts_ms: 0,
@@ -93,13 +138,13 @@ function makeOpp(overrides: Partial<OpportunityPayload> = {}): OpportunityPayloa
     source_refs: [],
     data_quality: { bars: 1, stale: false, age_ms: 0, state: "FRESH" },
     psychology: null,
-    portfolio: null,
-    setup_id: null,
+    portfolio: { verdict: "pass", reasons: ["test-only measured portfolio pass"], unenforced: [] },
+    setup_id: setupId,
     score_semantics: "s",
     chart_evidence: null,
     // FIX (T05 T2): an explicit valid risk-PASS is the ONLY publishable risk
     // state — fixtures must never rely on a missing risk object.
-    risk: { verdict: "pass", reasons: ["risk checks passed"], numbers: {} },
+    risk: { verdict: "pass", reasons: ["risk checks passed"], numbers: { risk_notional: 100 } },
     ai: null,
     provenance: {
       generated_at_ms: 0,
@@ -110,7 +155,7 @@ function makeOpp(overrides: Partial<OpportunityPayload> = {}): OpportunityPayloa
 }
 
 const RISK_BLOCK = { verdict: "block", reasons: ["LONG requires stop < entry"], numbers: {} };
-const RISK_PASS = { verdict: "pass", reasons: ["risk checks passed"], numbers: {} };
+const RISK_PASS = { verdict: "pass", reasons: ["risk checks passed"], numbers: { risk_notional: 100 } };
 
 /** Outbox rows queued for ONE opportunity — the duplicate-delivery detector. */
 function outboxRowsFor(oppId: string) {
@@ -119,6 +164,47 @@ function outboxRowsFor(oppId: string) {
     .filter((r) => r.kind === "signal")
     .filter((r) => (JSON.parse(r.payload_json) as { opportunity_id?: string }).opportunity_id === oppId);
 }
+
+describe("final live admission boundary: portfolio, source binding, and promotion", () => {
+  it("missing, UNKNOWN, or BLOCKED portfolio results cannot publish", () => {
+    const refused = [
+      makeOpp({ portfolio: null }),
+      makeOpp({ portfolio: { verdict: "unknown", reasons: ["book UNKNOWN"], unenforced: [] } }),
+      makeOpp({ portfolio: { verdict: "block", reasons: ["heat cap"], unenforced: [] } }),
+    ];
+    for (const opp of refused) {
+      const result = publishSignal(opp);
+      expect(result.published).toBe(false);
+      expect(result.reason).toMatch(/portfolio.*explicit portfolio PASS/);
+      expect(repo.signalByOpp(opp.id)).toBeNull();
+      expect(outboxRowsFor(opp.id)).toHaveLength(0);
+    }
+  });
+
+  it("requires the current exact compiled setup, source-faithful status, and matching versions", () => {
+    const wrongSource = makeOpp({ source_contract_status: "INCOMPLETE" as never });
+    const wrongVersion = makeOpp({ strategy_version: "0.9.0" });
+    const missingSetup = makeOpp({ setup_id: null });
+    for (const opp of [wrongSource, wrongVersion, missingSetup]) {
+      const result = publishSignal(opp);
+      expect(result.published).toBe(false);
+      expect(result.reason).toMatch(/source|compiled setup|runtime identity/i);
+      expect(repo.signalByOpp(opp.id)).toBeNull();
+      expect(outboxRowsFor(opp.id)).toHaveLength(0);
+    }
+  });
+
+  it("rechecks the current promotion gate instead of trusting READY or payload eligibility", () => {
+    const opp = makeOpp();
+    publicationAuthority.statuses.set(opp.strategy_id, "DISABLED");
+    const result = publishSignal(opp);
+    expect(result.published).toBe(false);
+    expect(result.reason).toMatch(/promotion gate reports DISABLED/);
+    expect(repo.signalByOpp(opp.id)).toBeNull();
+    expect(outboxRowsFor(opp.id)).toHaveLength(0);
+    publicationAuthority.statuses.set(opp.strategy_id, "LIVE_ADVISORY_ONLY");
+  });
+});
 
 describe("T05 publish boundary: lifecycle classification", () => {
   it("classifies every SIGNAL_STATES value; unknown states fail SAFE as terminal", () => {
@@ -139,6 +225,15 @@ describe("T05 publish boundary: lifecycle classification", () => {
 });
 
 describe("T05 publish boundary: exactly-once publication (closure §V)", () => {
+  it("research-mode opportunities cannot cross the live signal boundary", () => {
+    const opp = makeOpp({ mode: "research", risk: RISK_PASS });
+    const result = publishSignal(opp);
+    expect(result.published).toBe(false);
+    expect(result.reason).toMatch(/research-only/);
+    expect(repo.signalByOpp(opp.id)).toBeNull();
+    expect(outboxRowsFor(opp.id)).toHaveLength(0);
+  });
+
   it("repeated publishes of one opportunity yield ONE signal row and ONE outbox row", () => {
     const opp = makeOpp({ risk: RISK_PASS });
     const r1 = publishSignal(opp);
@@ -280,6 +375,7 @@ describe("T05 publish boundary: FINAL hard risk boundary (strict)", () => {
       ["empty object", {}],
       ["non-string verdict", { verdict: 123, reasons: [] }],
       ["no reasons", { verdict: "pass" }],
+      ["pass without a risk notional", { verdict: "pass", reasons: [] }],
       ["reasons not an array", { verdict: "pass", reasons: "not-an-array" }],
       ["risk is a string", "pass"],
       ["risk is a number", 7],
@@ -333,7 +429,7 @@ describe("T05 publish boundary: FINAL hard risk boundary (strict)", () => {
   });
 
   it("published payload retains full decision provenance", () => {
-    const opp = makeOpp({ risk: RISK_PASS, setup_id: "SET-X", thesis: "level touch" });
+    const opp = makeOpp({ risk: RISK_PASS, thesis: "level touch" });
     publishSignal(opp);
     const row = repo.signalByOpp(opp.id)!;
     expect(row.symbol).toBe(opp.symbol);
@@ -342,7 +438,7 @@ describe("T05 publish boundary: FINAL hard risk boundary (strict)", () => {
     const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
     expect(payload.id).toBe(opp.id);
     expect(payload.thesis).toBe("level touch");
-    expect(payload.setup_id).toBe("SET-X");
+    expect(payload.setup_id).toBe(opp.setup_id);
     expect(typeof payload.published_at_ms).toBe("number");
     // the queued advisory row is traceable to this opportunity
     const outbox = outboxRowsFor(opp.id)[0];

@@ -31,7 +31,7 @@ describe("evaluateRisk", () => {
     expect(r.numbers.liq_estimate!).toBeLessThan(base.entry); // long: liq below entry
   });
 
-  it("blocks when estimated leverage exceeds the AsA cap", () => {
+  it("blocks when estimated leverage exceeds the configured cap", () => {
     // leverage is determined by stop width: lev = riskPct * entry / stopAbs
     // (equity cancels out), so we vary the stop, not the equity.
     // exactly at the cap: stopAbs = 0.01*100000/5 = 200 -> stop 99_800
@@ -41,7 +41,7 @@ describe("evaluateRisk", () => {
     // above the cap: stopAbs 190 -> lev ~5.26x
     const over = evaluateRisk({ ...base, stop: 99_810 });
     expect(over.verdict).toBe("block");
-    expect(over.reasons.join(" ")).toContain("AsA cap");
+    expect(over.reasons.join(" ")).toContain("configured cap 5x");
   });
 
   it("blocks when the stop sits beyond the ESTIMATE liquidation price", () => {

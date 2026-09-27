@@ -14,6 +14,8 @@ import { guardMutation, readBody } from "@/lib/api-common";
 import { isOperationalSymbol, universeMeta } from "@/lib/market/operational-universe";
 import { runBacktest, type BacktestInput } from "@/lib/backtest/engine";
 import { getRuntimeStrategy } from "@/lib/strategy/runtime";
+import { getProductionRiskPolicy } from "@/lib/risk/policy";
+import { getRiskPrefs } from "@/lib/prefs";
 
 export const dynamic = "force-dynamic";
 
@@ -31,17 +33,41 @@ export async function POST(req: Request): Promise<NextResponse> {
       { status: 409 },
     );
   }
-  const rawSym = typeof body.symbol === "string" ? body.symbol.toUpperCase() : "BTCUSDT";
+  const rawSym = typeof body.symbol === "string" ? body.symbol.toUpperCase() : "";
+  if (!rawSym) return NextResponse.json({ ok: false, error: "symbol is required" }, { status: 400 });
+  if (!isOperationalSymbol(rawSym)) {
+    const meta = universeMeta();
+    return NextResponse.json({ ok: false, error: "symbol not in the operational TTT universe", universe: meta }, { status: meta.discovery_complete ? 400 : 503 });
+  }
+  if (body.sameBarPolicy !== "target_first" && body.sameBarPolicy !== "stop_first") {
+    return NextResponse.json({ ok: false, error: "sameBarPolicy must be explicitly selected as stop_first or target_first" }, { status: 400 });
+  }
+  const sameBarPolicy = body.sameBarPolicy;
+  const feeRoundTripPct = typeof body.feeRoundTripPct === "number" ? body.feeRoundTripPct : Number.NaN;
+  const slippagePct = typeof body.slippagePct === "number" ? body.slippagePct : Number.NaN;
+  const maxHoldBars = typeof body.maxHoldBars === "number" ? body.maxHoldBars : Number.NaN;
+  if (!Number.isFinite(feeRoundTripPct) || feeRoundTripPct < 0 || !Number.isFinite(slippagePct) || slippagePct < 0) {
+    return NextResponse.json({ ok: false, error: "feeRoundTripPct and slippagePct must be explicitly supplied as finite non-negative percentages" }, { status: 400 });
+  }
+  if (!Number.isSafeInteger(maxHoldBars) || maxHoldBars <= 0) {
+    return NextResponse.json({ ok: false, error: "maxHoldBars must be explicitly supplied as a positive integer" }, { status: 400 });
+  }
+  const policy = getProductionRiskPolicy();
+  if (policy.selection_status !== "SELECTED" || policy.source_status !== "SOURCE_VERIFIED" || policy.source_refs.length === 0 || policy.conflict_group_id !== null) {
+    return NextResponse.json({ ok: false, error: `risk policy blocks research backtest: ${policy.selection_reason}`, risk_policy: policy }, { status: 409 });
+  }
+  const riskPrefs = getRiskPrefs();
+  const accountEquity = typeof body.accountEquity === "number" ? body.accountEquity : riskPrefs.equity;
+  const riskPerTradePct = policy.risk_per_trade_pct ?? riskPrefs.perTradePct;
+  const maxLeverage = policy.max_leverage ?? riskPrefs.maxLeverage;
+  if (accountEquity === null || !Number.isFinite(accountEquity) || accountEquity <= 0 || riskPerTradePct === null || !Number.isFinite(riskPerTradePct) || riskPerTradePct <= 0 || maxLeverage === null || !Number.isFinite(maxLeverage) || maxLeverage <= 0) {
+    return NextResponse.json({ ok: false, error: "risk sizing is unconfigured; provide explicit account equity, per-trade risk, maximum leverage, and an eligible selected policy", risk_preferences: riskPrefs, risk_policy: policy }, { status: 409 });
+  }
   try {
     await ensureEngineBooted();
   } catch {
     /* degraded — surfaced through validation/data-freshness below */
   }
-  if (!isOperationalSymbol(rawSym)) {
-    const meta = universeMeta();
-    return NextResponse.json({ ok: false, error: "symbol not in the operational TTT universe", universe: meta }, { status: meta.discovery_complete ? 400 : 503 });
-  }
-  const sameBarPolicy = body.sameBarPolicy === "target_first" ? "target_first" : "stop_first";
   // AUDIT FIX (P0-7): the previous code accepted `dataMode: "fixture"` from the
   // body while ALWAYS reading candles from the TTT history store — the lineage
   // could claim "fixture" over TTT data. The data mode is now fixed to what the
@@ -100,10 +126,13 @@ export async function POST(req: Request): Promise<NextResponse> {
     dataMode,
     dataFreshness: freshness,
     sameBarPolicy,
+    maxHoldBars,
     warningsSeed: requestedRangeNote ? [requestedRangeNote] : undefined,
-    feeRoundTripPct: typeof body.feeRoundTripPct === "number" ? body.feeRoundTripPct : undefined,
-    slippagePct: typeof body.slippagePct === "number" ? body.slippagePct : undefined,
-    accountEquity: typeof body.accountEquity === "number" ? body.accountEquity : undefined,
+    feeRoundTripPct,
+    slippagePct,
+    accountEquity,
+    riskPerTradePct,
+    maxLeverage,
   };
   const jobId = `bt-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
   const repo = getRepo();
@@ -114,7 +143,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     symbol: rawSym,
     timeframe: strat.timeframe,
     strategy_id: strategyId,
-    params_json: JSON.stringify({ days, sameBarPolicy, dataMode, fresh_sync_status: freshness.fresh_sync_status }),
+    params_json: JSON.stringify({ days, sameBarPolicy, feeRoundTripPct, slippagePct, maxHoldBars, dataMode, risk_policy_id: policy.policy_id, risk_policy_version: policy.policy_version, accountEquity, riskPerTradePct, maxLeverage, fresh_sync_status: freshness.fresh_sync_status }),
     result_json: null,
     error: null,
   });
@@ -123,8 +152,11 @@ export async function POST(req: Request): Promise<NextResponse> {
     // old slice-index -> timestamp remapping step is gone entirely.
     const result = runBacktest(input);
     repo.backtestUpdate(jobId, result.ok ? "done" : "error", JSON.stringify(result), result.ok ? null : (result.error ?? "unknown"));
+    if (!result.ok) {
+      return NextResponse.json({ ok: false, jobId, status: "error", error: result.error ?? "backtest blocked", result }, { status: 409 });
+    }
     return NextResponse.json({
-      ok: true, jobId, status: result.ok ? "done" : "error",
+      ok: true, jobId, status: "done",
       data_freshness: {
         fresh_sync_status: freshness.fresh_sync_status,
         fresh_sync_error: freshness.fresh_sync_error,

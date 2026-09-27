@@ -5,11 +5,33 @@
  *  - warmup/insufficient data handled explicitly, not silently
  *  - lineage documents assumptions (funding not modeled, same-bar policy)
  */
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import type { BacktestInput } from "../src/lib/backtest/engine";
+import { getRepo } from "../src/db/sqlite";
+
+vi.hoisted(() => {
+  process.env.ASA_DB_PATH = ":memory:";
+  process.env.ASA_HISTORY_DB_PATH = ":memory:";
+  process.env.ASA_BRAIN_DB_PATH = ":memory:";
+});
 import { runBacktest } from "../src/lib/backtest/engine";
 import { aggregateClosed } from "../src/lib/analysis/aggregate";
 import { COMPILED_STRATEGIES } from "../src/lib/strategy/compiled";
 import type { Candle } from "../src/lib/domain/types";
+
+vi.mock("../src/lib/risk/policy", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/risk/policy")>();
+  const source = mod.selectableRiskPolicies().find((policy) => policy.policy_id === "RISK-DAILY-5PCT")!;
+  const testOnlyPolicy = {
+    ...source,
+    selection_status: "SELECTED" as const,
+    selected_by: "operator_pref" as const,
+    selection_reason: "TEST ONLY: production source-completeness gate bypassed for deterministic backtest math",
+    policy_version: mod.RISK_POLICY_VERSION,
+    source_completeness: mod.riskPolicyEligibility(source).source_completeness,
+  };
+  return { ...mod, getProductionRiskPolicy: () => testOnlyPolicy };
+});
 
 /** Deterministic synthetic 15m candles: trend + sine + deterministic wobble. */
 function synthCandles(bars: number, startT: number, seed = 7): Candle[] {
@@ -84,22 +106,43 @@ describe("runBacktest determinism & lineage (Brain-backed engine)", () => {
   // runtime, which is the same path advisory uses.
   const SETUP = COMPILED_STRATEGIES.find((x) => x.strategy_id === "STR-RAW-2-803")!.setup_id;
   const candles = synthCandles(900, 1_700_000_000);
+  const backtestInput = (over: Partial<BacktestInput> = {}): BacktestInput => ({
+    strategyId: SETUP,
+    symbol: "BTCUSDT",
+    candles,
+    feeRoundTripPct: 0.08,
+    slippagePct: 0.02,
+    sameBarPolicy: "stop_first",
+    dataMode: "fixture",
+    maxHoldBars: 120,
+    accountEquity: 10_000,
+    riskPerTradePct: 1,
+    maxLeverage: 5,
+    ...over,
+  });
+
+  beforeAll(() => {
+    // The test-only module seam selects the real daily policy's shape while
+    // bypassing production source-completeness eligibility; no account-limit
+    // claim is inferred from the 11% test-account observation.
+    getRepo().configSet("pref.risk.policyId", "RISK-DAILY-5PCT");
+  });
 
   it("is deterministic: identical input -> identical positions", () => {
-    const a = runBacktest({ strategyId: SETUP, symbol: "BTCUSDT", candles, dataMode: "fixture" });
-    const b = runBacktest({ strategyId: SETUP, symbol: "BTCUSDT", candles, dataMode: "fixture" });
+    const a = runBacktest(backtestInput());
+    const b = runBacktest(backtestInput());
     expect(a.ok).toBe(true);
     expect(JSON.stringify(a.positions)).toBe(JSON.stringify(b.positions));
     expect(JSON.stringify(a.metrics)).toBe(JSON.stringify(b.metrics));
   });
 
   it("entry never uses the signal bar (fills at the NEXT bar)", () => {
-    const r = runBacktest({ strategyId: SETUP, symbol: "BTCUSDT", candles, dataMode: "fixture" });
+    const r = runBacktest(backtestInput());
     for (const p of r.positions) expect(p.entry_ts).toBeGreaterThan(p.signal_ts);
   });
 
   it("exit timestamps are absolute, never slice-relative indexes", () => {
-    const r = runBacktest({ strategyId: SETUP, symbol: "BTCUSDT", candles, dataMode: "fixture" });
+    const r = runBacktest(backtestInput());
     const first = candles[0].t, last = candles[candles.length - 1].t;
     for (const p of r.positions) {
       expect(p.exit_ts).toBeGreaterThanOrEqual(first);
@@ -112,34 +155,34 @@ describe("runBacktest determinism & lineage (Brain-backed engine)", () => {
   });
 
   it("declares funding as not modelled and records the same-bar policy", () => {
-    const r = runBacktest({ strategyId: SETUP, symbol: "BTCUSDT", candles, dataMode: "fixture", sameBarPolicy: "stop_first" });
+    const r = runBacktest(backtestInput({ sameBarPolicy: "stop_first" }));
     expect(r.warnings.join(" ")).toMatch(/funding is NOT modelled/i);
     expect(r.same_bar_policy).toBe("stop_first");
     expect(r.assumptions.join(" ")).toMatch(/same-bar/i);
   });
 
   it("carries full reproducibility lineage", () => {
-    const r = runBacktest({ strategyId: SETUP, symbol: "BTCUSDT", candles, dataMode: "fixture" });
+    const r = runBacktest(backtestInput());
     for (const k of ["dataset_fingerprint", "strategy_version", "risk_policy_id", "app_version", "git_commit", "build_id", "date_range"]) {
       expect(r.lineage[k], k).toBeDefined();
     }
   });
 
   it("uses the strategy's OWN timeframe, not a hard-coded 15m", () => {
-    const r = runBacktest({ strategyId: SETUP, symbol: "BTCUSDT", candles, dataMode: "fixture" });
+    const r = runBacktest(backtestInput());
     const strat = COMPILED_STRATEGIES.find((x) => x.setup_id === SETUP)!;
     expect(r.timeframe).toBe(strat.timeframe);
   });
 
   it("reports insufficient data explicitly instead of fake results", () => {
-    const r = runBacktest({ strategyId: SETUP, symbol: "BTCUSDT", candles: candles.slice(0, 40), dataMode: "fixture" });
+    const r = runBacktest(backtestInput({ candles: candles.slice(0, 40) }));
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/insufficient/i);
     expect(r.positions).toEqual([]);
   });
 
   it("rejects an unknown strategy id rather than silently defaulting", () => {
-    const r = runBacktest({ strategyId: "does-not-exist", symbol: "BTCUSDT", candles, dataMode: "fixture" });
+    const r = runBacktest(backtestInput({ strategyId: "does-not-exist" }));
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/unknown strategy/i);
   });

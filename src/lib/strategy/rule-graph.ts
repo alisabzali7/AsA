@@ -33,6 +33,7 @@
  * machine-checkable.
  */
 import { COMPILED_STRATEGIES, type CompiledStrategy } from "./compiled";
+import { compiledSourceContractFor, sourceContractBlockersFor, sourceContractStatusFor } from "./compiled/source-contract";
 import type { RuleDefinition } from "../rules/engine";
 import type { RuleBinding, RuleSpec, SourceRef, StrategyRecord } from "../brain/types";
 
@@ -67,8 +68,15 @@ export interface MachineRuleNode {
   timeframe: string;
   /** source semantics that could not be formalized; non-empty ⇒ blocked */
   unresolved: string[];
-  /** derived: deterministic AND formalized ⇒ executable */
+  source_contract_status: "SOURCE_FAITHFUL" | "INCOMPLETE" | "CONFLICTING" | "UNKNOWN";
+  source_contract_blockers: string[];
+  consumer: RuleBinding["consumer"];
+  /** bound setup and rule versions; distinct from source/empirical status */
+  strategy_version: string;
+  rule_version: string;
+  /** true only when code is computable AND source-parity contract is complete */
   executable: boolean;
+  /** compatibility alias for the rule version */
   version: string;
 }
 
@@ -116,8 +124,12 @@ export interface MachineRuleGraph {
 
 function nodeFor(
   strat: CompiledStrategy,
+  setupVersion: string,
   rule: RuleDefinition,
 ): MachineRuleNode {
+  const sourceContractStatus = sourceContractStatusFor(strat.strategy_id);
+  const sourceContractBlockers = sourceContractBlockersFor(strat.strategy_id);
+  const executable = rule.unresolved.length === 0 && rule.predicates.length > 0 && sourceContractStatus === "SOURCE_FAITHFUL";
   return {
     rule_id: rule.id,
     strategy_id: strat.strategy_id,
@@ -134,7 +146,12 @@ function nodeFor(
     direction: rule.direction,
     timeframe: rule.timeframe,
     unresolved: [...rule.unresolved],
-    executable: rule.unresolved.length === 0 && rule.predicates.length > 0,
+    source_contract_status: sourceContractStatus,
+    source_contract_blockers: sourceContractBlockers,
+    consumer: executable ? "evaluateRuntime" : "evaluateResearchRuntime",
+    strategy_version: setupVersion,
+    rule_version: rule.version,
+    executable,
     version: rule.version,
   };
 }
@@ -153,8 +170,9 @@ export function buildMachineRuleGraph(strategies: CompiledStrategy[] = COMPILED_
   for (const strat of strategies) {
     strategyIds.add(strat.strategy_id);
     edges.push({ from: strat.setup_id, to: strat.strategy_id, kind: "SETUP_IN_STRATEGY" });
-    for (const rule of strat.setup().rules) {
-      const node = nodeFor(strat, rule);
+    const setup = strat.setup();
+    for (const rule of setup.rules) {
+      const node = nodeFor(strat, setup.version, rule);
       nodes.push(node);
       edges.push({ from: node.rule_id, to: strat.setup_id, kind: "RULE_IN_STAGE" });
       for (const fid of node.feature_dependencies) {
@@ -200,14 +218,18 @@ export function machineRuleRegistryRows(graph: MachineRuleGraph = buildMachineRu
       strategy_id: n.strategy_id,
       setup_id: n.setup_id,
       stage: n.stage,
-      consumer: "evaluateRuntime",
+      consumer: n.consumer,
+      strategy_version: n.strategy_version,
+      rule_version: n.rule_version,
     };
     return {
       rule_id: n.rule_id,
       rule_class: "MACHINE_EXECUTABLE_RULE",
       non_executable_reason: n.executable
         ? null
-        : `source semantics not formalized: ${n.unresolved.join("; ") || "no predicates"}`,
+        : n.unresolved.length
+          ? `source semantics not formalized: ${n.unresolved.join("; ")}`
+          : `source contract ${n.source_contract_status}: ${n.source_contract_blockers.join("; ") || "source-to-code parity not established"}`,
       binding,
       description: n.description,
       predicates: n.predicates.map((p) => p.expr),
@@ -342,12 +364,13 @@ export function verifyRuleRegistryClosure(opts: {
       });
     }
     const b = row.binding;
-    if (!b || b.strategy_id !== n.strategy_id || b.setup_id !== n.setup_id || b.stage !== n.stage) {
+    if (!b || b.strategy_id !== n.strategy_id || b.setup_id !== n.setup_id || b.stage !== n.stage || b.consumer !== n.consumer ||
+      b.strategy_version !== n.strategy_version || b.rule_version !== n.rule_version) {
       violations.push({
         kind: "BINDING_MISMATCH",
         rule_id: n.rule_id,
         strategy_id: n.strategy_id,
-        detail: `registry binding ${JSON.stringify(b)} != runtime binding {strategy:${n.strategy_id}, setup:${n.setup_id}, stage:${n.stage}}`,
+        detail: `registry binding ${JSON.stringify(b)} != runtime binding {strategy:${n.strategy_id}, setup:${n.setup_id}, stage:${n.stage}, consumer:${n.consumer}, strategy_version:${n.strategy_version}, rule_version:${n.rule_version}}`,
       });
     }
     const expectedStatus = n.executable ? "CANDIDATE" : "DISABLED";

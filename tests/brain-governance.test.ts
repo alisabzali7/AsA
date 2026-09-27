@@ -13,7 +13,7 @@ import { ingestCorpus } from "../src/lib/brain/ingest";
 import { evaluateGate, clampRuntimeStatus, canGoLive } from "../src/lib/brain/gate";
 import { CORPUS_FILES } from "../src/lib/brain/corpus-manifest";
 import { classifyLine, parseStrategyBlocks, unknownCriticalFields } from "../src/lib/brain/classify";
-import { buildRiskPolicies, RISK_CONFLICT_GROUP } from "../src/lib/brain/policies";
+import { buildConflictGroups, buildPsychologyPolicies, buildRiskPolicies, RISK_CONFLICT_GROUP } from "../src/lib/brain/policies";
 import { buildFeatures, buildPrimitives } from "../src/lib/brain/primitives";
 
 const CORPUS_DIR = path.resolve("knowledge/raw");
@@ -52,11 +52,19 @@ describe.runIf(hasCorpus)("corpus ingestion completeness", () => {
     for (const d of report.documents) expect(d.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("flags the three upstream-truncated files honestly", () => {
+  it("flags only the three source-manifest TRUNCATED files honestly", () => {
     const truncated = report.documents.filter((d) => d.truncated).map((d) => d.file_id).sort();
     expect(truncated).toEqual(["1.txt", "2.txt", "4.txt"]);
     for (const doc of store.documents()) {
-      if (doc.truncated) expect(doc.truncation_note).toContain("not reconstructed");
+      const manifest = CORPUS_FILES.find((source) => source.file_id === doc.file_id)!;
+      expect(doc.truncated).toBe(manifest.completeness === "TRUNCATED");
+      if (manifest.completeness === "TRUNCATED") {
+        expect(doc.truncation_note).toContain("cutoff cause");
+        expect(doc.truncation_note).toContain("not reconstructed");
+        expect(doc.truncation_note).not.toMatch(/upstream|cap/i);
+      } else {
+        expect(doc.truncation_note).toBeNull();
+      }
     }
   });
 
@@ -108,6 +116,27 @@ describe.runIf(hasCorpus)("UNKNOWN / CONFLICT / CLAIM preservation", () => {
     expect(perTrade).not.toContain(1.5);
   });
 
+  it("does not convert the observed 11% test-account result into a production account-risk limit", () => {
+    const observed = buildRiskPolicies().find((policy) => policy.policy_id === "RISK-ACCOUNT-11PCT")!;
+    expect(observed.source_status).toBe("CLAIM");
+    expect(observed.max_account_risk_pct).toBeNull();
+    expect(observed.runtime_status).toBe("DISABLED");
+    expect(observed.conflict_group_id).toBe("CFG-ACCOUNT-RISK-CONTEXT");
+    expect(observed.notes).toMatch(/not a source-backed maximum/);
+
+    const group = buildConflictGroups([]).find((entry) => entry.conflict_group_id === "CFG-ACCOUNT-RISK-CONTEXT");
+    expect(group?.resolution).toBe("UNRESOLVED");
+    expect(group?.chosen_variant).toBeNull();
+    expect(group?.variants.map((variant) => variant.label).join(" ")).toMatch(/11%/);
+    expect(group?.variants.map((variant) => variant.label).join(" ")).toMatch(/5–6%/);
+    for (const variant of group?.variants ?? []) {
+      for (const ref of variant.source_refs) {
+        const lines = fs.readFileSync(path.join(CORPUS_DIR, `RAW_${ref.file}`), "utf8").split("\n");
+        expect(lines.slice(ref.start_line - 1, ref.end_line).join("\n"), `${ref.file}:${ref.start_line}-${ref.end_line}`).toContain(ref.quote);
+      }
+    }
+  });
+
   it("marks the engineering default as INFERRED, never as a source fact", () => {
     const d = buildRiskPolicies().find((p) => p.policy_id === "RISK-ASA-CONSERVATIVE-DEFAULT");
     expect(d).toBeDefined();
@@ -138,6 +167,19 @@ describe.runIf(hasCorpus)("commentary never becomes an executable rule", () => {
         for (const f of frags) expect(f.quarantined).toBe(false);
       }
     }
+  });
+});
+
+describe.runIf(hasCorpus)("psychology policies require complete cited sources", () => {
+  it("forces a stale persisted LIVE status to DISABLED when RAW_4 is TRUNCATED", () => {
+    const policy = buildPsychologyPolicies().find((row) => row.policy_id === "PSY-DAILY-LOSS")!;
+    expect(policy.source_status).toBe("SOURCE_VERIFIED");
+    expect(policy.source_refs.map((ref) => ref.start_line)).toEqual([351, 1313]);
+    expect(policy.runtime_status).toBe("DISABLED");
+
+    store.putPsychologyPolicies([{ ...policy, runtime_status: "LIVE_ADVISORY_ONLY" }]);
+    const persisted = store.psychologyPolicies().find((row) => row.policy_id === "PSY-DAILY-LOSS")!;
+    expect(persisted.runtime_status).toBe("DISABLED");
   });
 });
 
@@ -319,15 +361,19 @@ describe("multi-line field values are not lost", () => {
 });
 
 describe.runIf(hasCorpus)("gate and compiler agree", () => {
-  it("a strategy has an executable spec if and only if no critical field is UNKNOWN", () => {
+  it("a formalized source record is not an executable spec, even when no critical field is UNKNOWN", () => {
     const compiled = JSON.parse(store.meta("compiled_specs_full") ?? "[]") as {
-      strategy_id: string; executable: boolean;
+      strategy_id: string; executable: boolean; blocked_because: string[];
     }[];
     const byId = new Map(compiled.map((c) => [c.strategy_id, c]));
     for (const s of store.strategies()) {
       const spec = byId.get(s.strategy_id);
       if (!spec) continue;
-      expect(spec.executable, `${s.strategy_id} gate/compile disagreement`).toBe(s.unknown_critical.length === 0);
+      expect(spec.executable, `${s.strategy_id} remains source-only until parity and version-bound validation`).toBe(false);
+      expect(spec.blocked_because.join(" ")).toContain("SOURCE_SPEC_ONLY");
+      if (s.unknown_critical.length > 0) {
+        expect(spec.blocked_because.join(" ")).toMatch(/UNKNOWN|NOT_PRESENT/);
+      }
     }
   });
 });

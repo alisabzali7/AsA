@@ -34,6 +34,8 @@ interface BTResult {
       profit_factor: number | null; max_drawdown_r: number; max_drawdown_pct: number | null;
       longest_loss_streak: number; return_pct: number | null; sufficient_sample: boolean;
     };
+    portfolio_verdicts: { pass: number; block: number; unknown: number };
+    psychology_context: { status: string; mode: string; note: string };
     positions: {
       direction: string; signal_ts: number; entry_ts: number; exit_ts: number;
       entry_price: number; avg_exit_price: number; r_multiple: number; pnl_quote: number;
@@ -48,9 +50,10 @@ export default function BacktestPage() {
   const strats = usePoll<StrategyList>("/api/research/strategies", 120_000);
   const syms = usePoll<SymList>("/api/market/symbols", 600_000);
   const [symbol, setSymbol] = useState("BTCUSDT");
-  const [fee, setFee] = useState(0.08);
-  const [slip, setSlip] = useState(0.02);
-  const [policy, setPolicy] = useState<"stop_first" | "target_first">("stop_first");
+  const [fee, setFee] = useState("");
+  const [slip, setSlip] = useState("");
+  const [policy, setPolicy] = useState<"" | "stop_first" | "target_first">("");
+  const [maxHoldBars, setMaxHoldBars] = useState("");
   const [days, setDays] = useState(180);
   const [strategyId, setStrategyId] = useState<string>("");
   const [job, setJob] = useState<BTResult | null>(null);
@@ -62,12 +65,15 @@ export default function BacktestPage() {
 
   const run = async () => {
     if (!chosen) { setErr("no executable strategy available"); return; }
+    if (!policy || fee.trim() === "" || slip.trim() === "" || maxHoldBars.trim() === "") {
+      setErr("select a same-bar policy and provide fee, slippage, and maximum holding bars; no defaults are substituted"); return;
+    }
     setBusy(true); setErr(null); setJob(null);
     try {
       const res = await fetch("/api/research/backtest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ strategyId: chosen, symbol, sameBarPolicy: policy, feeRoundTripPct: fee, slippagePct: slip, days }),
+        body: JSON.stringify({ strategyId: chosen, symbol, sameBarPolicy: policy, feeRoundTripPct: Number(fee), slippagePct: Number(slip), maxHoldBars: Number(maxHoldBars), days }),
       });
       const j = (await res.json()) as BTResult & { error?: string };
       if (!res.ok || j.error) { setErr(j.error ?? `HTTP ${res.status}`); return; }
@@ -98,18 +104,20 @@ export default function BacktestPage() {
             </select>
           </label>
           <label className="flex flex-col gap-1"><span className="eyebrow">days</span><input className="input w-[70px]" type="number" min={1} value={days} onChange={(e) => setDays(Number(e.target.value))} /></label>
-          <label className="flex flex-col gap-1"><span className="eyebrow">fee % (round trip)</span><input className="input w-[80px]" type="number" step="0.01" value={fee} onChange={(e) => setFee(Number(e.target.value))} /></label>
-          <label className="flex flex-col gap-1"><span className="eyebrow">slippage %</span><input className="input w-[80px]" type="number" step="0.005" value={slip} onChange={(e) => setSlip(Number(e.target.value))} /></label>
+          <label className="flex flex-col gap-1"><span className="eyebrow">fee % (round trip)</span><input className="input w-[90px]" type="number" min="0" step="0.01" placeholder="required" value={fee} onChange={(e) => setFee(e.target.value)} /></label>
+          <label className="flex flex-col gap-1"><span className="eyebrow">slippage % (per side input)</span><input className="input w-[90px]" type="number" min="0" step="0.005" placeholder="required" value={slip} onChange={(e) => setSlip(e.target.value)} /></label>
+          <label className="flex flex-col gap-1"><span className="eyebrow">max holding bars</span><input className="input w-[90px]" type="number" min="1" step="1" placeholder="required" value={maxHoldBars} onChange={(e) => setMaxHoldBars(e.target.value)} /></label>
           <label className="flex flex-col gap-1"><span className="eyebrow">same-bar policy</span>
-            <select className="input w-[130px]" value={policy} onChange={(e) => setPolicy(e.target.value === "target_first" ? "target_first" : "stop_first")}>
-              <option value="stop_first">STOP first (conservative)</option>
-              <option value="target_first">target first (optimistic)</option>
+            <select className="input w-[150px]" value={policy} onChange={(e) => setPolicy(e.target.value === "target_first" || e.target.value === "stop_first" ? e.target.value : "")}>
+              <option value="">select explicitly</option>
+              <option value="stop_first">STOP first</option>
+              <option value="target_first">target first</option>
             </select>
           </label>
-          <button className="btn-gold btn" disabled={busy} onClick={() => void run()}>{busy ? "running…" : "run"}</button>
+          <button className="btn-gold btn" disabled={busy || !chosen} onClick={() => void run()}>{busy ? "running…" : "run"}</button>
         </div>
         <p className="mt-2 text-[10px] text-dim">
-          Strategy evaluated on CLOSED bars of its OWN timeframe · entry at next open ± slippage · same-bar ambiguity policy is explicit and recorded in lineage · funding NOT modelled (flagged) · no result here is a profit guarantee.
+          Research-only: source-backed risk policy and saved sizing inputs are required. Fee, slippage, same-bar policy, and holding horizon must be explicitly entered; unknown daily/period loss blocks affected candidates. Historical user psychology is not reconstructed; funding is not modelled.
         </p>
       </Panel>
       {err && <div className="text-[11px]" style={{ color: "#d9605e" }}>{err}</div>}
@@ -139,6 +147,13 @@ export default function BacktestPage() {
             <p className="mt-1 text-[10px] text-dim">
               sample sufficiency (≥30 positions): {r.metrics.sufficient_sample ? "yes" : "NO — treat as anecdote"} · win rate {r.metrics.wins}/{r.metrics.trade_count} · longest loss streak {r.metrics.longest_loss_streak}
             </p>
+          </Panel>
+          <Panel title="governance scope">
+            <div className="flex flex-wrap gap-2 text-[10.5px]">
+              <Badge color={r.portfolio_verdicts.unknown > 0 ? "#d6a24a" : "#3fb68b"}>{`portfolio pass/block/unknown: ${r.portfolio_verdicts.pass}/${r.portfolio_verdicts.block}/${r.portfolio_verdicts.unknown}`}</Badge>
+              <Badge color="#8b8f99">{`psychology ${r.psychology_context.status} · ${r.psychology_context.mode}`}</Badge>
+            </div>
+            <p className="mt-1 text-[10px] text-dim">{r.psychology_context.note}</p>
           </Panel>
           <Panel title="warnings (read these)">
             <ul className="list-disc pl-5 text-[11px] text-warn">{r.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>

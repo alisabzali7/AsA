@@ -140,7 +140,7 @@ describe("Case E — scanner parity: non-PASS setups never reach ScanResult.admi
           riskPolicy: POLICY,
           psychologyPolicies: buildPsychologyPolicies(),
           psychologyState: {
-            declared_state: "ok", consecutive_losses: 0, minutes_since_last_loss: null,
+            declared_state: "ok", journal_coverage: "COMPLETE", consecutive_losses: 0, minutes_since_last_loss: null,
             daily_loss_pct: 0, trades_today: 0, max_trades_per_day: 5, cooldown_min: 60,
             checklist_completed: true, security_checklist_completed: true, standards_declared: true,
             unreviewed_closed_trades: 0, distance_from_entry_zone_atr: null, daily_loss_limit_pct: 5,

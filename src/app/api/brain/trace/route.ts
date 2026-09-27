@@ -45,8 +45,12 @@ export async function GET(req: Request): Promise<NextResponse> {
       min_bars: s.min_bars,
       availability: s.availability,
       blocked_reason: s.blocked_reason,
-      version: s.version,
+      strategy_version: s.strategy_version,
+      rule_versions: s.rule_versions,
+      source_contract_status: s.source_contract_status,
+      source_contract_blockers: s.source_contract_blockers,
       rules: rules.map((r) => ({
+        rule_version: r.version,
         rule_id: r.id,
         stage: r.kind,
         direction: r.direction,

@@ -1,5 +1,16 @@
 # Brain Closure Audit — Rule Registry → Machine Rule Graph → Runtime Strategy
 
+> **SUPERSEDED HISTORICAL SNAPSHOT (2026-09-27).** This 2026-09-14 report is
+> retained as an audit artifact, not current proof of source-to-runtime closure.
+> Its `CLOSED`, `COMPLETE`, `EXECUTABLE/CANDIDATE`, and lineage-chain labels
+> predate field-level source-contract and supplied-source completeness checks;
+> do not use them as current readiness claims. The current truth is
+> `docs/roadmap/ASA_100_PERCENT_CONTRACT.md`, the generated
+> `docs/brain/AUDIT.md` / `MACHINE_READABLE_STATUS.json`, and
+> `npm run closure:validate`. All six current source strategy contracts are
+> `INCOMPLETE`; none is `SOURCE_FAITHFUL` executable or promotion/live eligible.
+> This correction does not fill source gaps or reconstruct any missing semantics.
+
 **Repository:** `alisabzali7/AsA`
 **Branch:** `arena/01a0a02d-asa`
 **Audit base commit:** `1d9d5df` (HEAD of `main` at audit start) — the closure milestone is contained in the single commit that adds this artifact.

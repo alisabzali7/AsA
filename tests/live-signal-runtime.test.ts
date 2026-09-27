@@ -33,11 +33,96 @@ process.env.TELEGRAM_BOT_TOKEN = "test-token";
 process.env.TELEGRAM_CHAT_ID = "123456789";
 process.env.TELEGRAM_DRY_RUN = "0"; // real send mode — the HTTP transport is stubbed
 
+const syntheticRuntimes = vi.hoisted(() => new Map<string, unknown>());
+vi.mock("../src/lib/strategy/runtime", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/strategy/runtime")>();
+  return {
+    ...mod,
+    getRuntimeStrategy: (id: string) => syntheticRuntimes.get(id) as ReturnType<typeof mod.getRuntimeStrategy> ?? mod.getRuntimeStrategy(id),
+  };
+});
+
 vi.mock("../src/lib/backtest/promotion", async (importOriginal) => {
   const mod = await importOriginal<typeof import("../src/lib/backtest/promotion")>();
   return {
     ...mod,
     promotedRuntimeStatus: (id: string) => (id === "STR-T4-LIVE" ? "LIVE_ADVISORY_ONLY" : mod.promotedRuntimeStatus(id)),
+  };
+});
+
+vi.mock("../src/lib/risk/policy", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/risk/policy")>();
+  const source = mod.selectableRiskPolicies().find((policy) => policy.policy_id === "RISK-DAILY-5PCT")!;
+  const testOnlyPolicy = {
+    ...source,
+    selection_status: "SELECTED" as const,
+    selected_by: "operator_pref" as const,
+    selection_reason: "TEST ONLY: production source-completeness gate bypassed for scanner lifecycle coverage",
+    policy_version: mod.RISK_POLICY_VERSION,
+    source_completeness: mod.riskPolicyEligibility(source).source_completeness,
+  };
+  return { ...mod, getProductionRiskPolicy: () => testOnlyPolicy };
+});
+
+// The publication lifecycle needs one active psychology policy so it can
+// exercise the real gate while isolating delivery. This synthetic, complete
+// test source is not RAW_4 and cannot affect production eligibility.
+vi.mock("../src/lib/brain/corpus-manifest", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/brain/corpus-manifest")>();
+  return {
+    ...mod,
+    sourceCompletenessFor: (fileId: string) => fileId === "TEST-LIVE-PSYCHOLOGY" ? "COMPLETE" : mod.sourceCompletenessFor(fileId),
+  };
+});
+vi.mock("../src/lib/brain/policies", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/brain/policies")>();
+  return {
+    ...mod,
+    buildPsychologyPolicies: () => [{
+      policy_id: "PSY-DAILY-LOSS",
+      canonical_name: "Test-only daily loss stop",
+      description: "TEST ONLY synthetic policy for publication lifecycle coverage",
+      effect: "BLOCK" as const,
+      score_penalty: 0,
+      trigger_condition: "daily_loss_pct >= risk_policy.daily_loss_limit_pct",
+      source_refs: [{ file: "TEST-LIVE-PSYCHOLOGY", start_line: 1, end_line: 1, quote: "test-only fixture" }],
+      source_status: "SOURCE_VERIFIED" as const,
+      runtime_status: "LIVE_ADVISORY_ONLY" as const,
+      user_overridable: false,
+    }],
+  };
+});
+
+// Test-only measured context keeps this integration test focused on the
+// publication transaction. Production has no account-currency PnL source and
+// therefore remains UNKNOWN unless the real gate context can establish it.
+vi.mock("../src/lib/pipeline/live-gates", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/pipeline/live-gates")>();
+  return {
+    ...mod,
+    loadLiveGateContext: (_repo: unknown, _nowMs: number, opts: { daily_loss_limit_pct: number | null }) => ({
+      psychology: {
+        declared_state: "ok" as const,
+        journal_coverage: "COMPLETE" as const,
+        consecutive_losses: 0,
+        minutes_since_last_loss: 60,
+        daily_loss_pct: 0,
+        trades_today: 0,
+        max_trades_per_day: null,
+        cooldown_min: null,
+        checklist_completed: true,
+        security_checklist_completed: true,
+        standards_declared: true,
+        unreviewed_closed_trades: 0,
+        distance_from_entry_zone_atr: 0,
+        daily_loss_limit_pct: opts.daily_loss_limit_pct,
+      },
+      open_risks: [],
+      daily_realized_loss: 0,
+      period_realized_loss: 0,
+      daily_loss_reason: "test fixture provides an explicit measurement",
+      open_book_reason: "test fixture provides an explicit empty measured book",
+    }),
   };
 });
 
@@ -111,10 +196,11 @@ function strategy(strategyId: string, setupId: string, levelsMode: "pass" | "blo
     rules: [rule(`${setupId}-CTX`, "context"), rule(`${setupId}-LOC`, "location"), rule(`${setupId}-STR`, "structure"),
       rule(`${setupId}-TRG`, "trigger"), rule(`${setupId}-CONF`, "confirmation")],
   };
-  return {
+  const definition: StrategyRuntimeDefinition = {
     strategy_id: strategyId, setup_id: setupId, name: `T4 ${setupId}`, family: "test", direction: "long", timeframe: "1h",
-    min_bars: 120, availability: "EXECUTABLE", blocked_reason: null, version: "1.0.0",
-    rule_ids: setupDef.rules.map((r) => r.id), source_refs: SRC as never,
+    min_bars: 120, availability: "EXECUTABLE", blocked_reason: null,
+    source_contract_status: "SOURCE_FAITHFUL", source_contract_blockers: [], strategy_version: "1.0.0", version: "1.0.0",
+    rule_ids: setupDef.rules.map((r) => r.id), rule_versions: [...new Set(setupDef.rules.map((r) => r.version))], source_refs: SRC as never,
     impl: {
       strategy_id: strategyId, setup_id: setupId, name: `T4 ${setupId}`, family: "test", direction: "long", timeframe: "1h", min_bars: 120,
       build: (c, tf) => MapFeatureBag.from([["FTR-T4", okFeature("FTR-T4", tf, 1, c[c.length - 1]?.t ?? 0, c.length, "1.0.0", ["candles"])]]),
@@ -127,6 +213,8 @@ function strategy(strategyId: string, setupId: string, levelsMode: "pass" | "blo
       },
     },
   };
+  syntheticRuntimes.set(setupId, definition);
+  return definition;
 }
 
 const LIVE_OK = () => strategy("STR-T4-LIVE", "SET-T4-LIVE", "pass");
@@ -180,6 +268,11 @@ afterAll(() => {
 beforeEach(() => {
   photoCalls = 0; textCalls = 0; photoResults = []; textResults = [];
   live.resetLiveScanDedupe();
+  // Select explicit source-backed test risk inputs; production does not choose a default.
+  repo.configSet("pref.risk.policyId", "RISK-DAILY-5PCT");
+  repo.configSet("pref.risk.equity", "10000");
+  repo.configSet("pref.risk.perTradePct", "1");
+  repo.configSet("pref.risk.maxLeverage", "5");
   // Isolate each case from the advisory open book of previous cases. Concurrency
   // / heat of still-published signals is covered in decision-truth-recovery.
   for (const s of repo.signalList(500)) {

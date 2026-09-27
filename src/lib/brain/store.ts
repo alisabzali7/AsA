@@ -13,19 +13,23 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { ASA_BRAIN_DB_PATH } from "../env";
+import { sourceCompletenessFor } from "./corpus-manifest";
 import type {
   BrainStats,
   ClaimRecord,
   ConflictGroup,
+  ConflictHistoryRecord,
   FeatureSpec,
   KnowledgeItem,
   Primitive,
   PsychologyPolicy,
+  PsychologyPrincipleRecord,
   RiskPolicy,
   RuleSpec,
   SetupSpec,
   SourceDocument,
   SourceFragment,
+  SourceRef,
   StrategyRecord,
 } from "./types";
 
@@ -33,7 +37,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS source_documents (
   file_id TEXT PRIMARY KEY, filename TEXT NOT NULL, source_hash TEXT NOT NULL,
   source_version TEXT NOT NULL, immutable INTEGER NOT NULL DEFAULT 1,
-  total_lines INTEGER NOT NULL, total_chars INTEGER NOT NULL,
+  total_lines INTEGER NOT NULL, total_chars INTEGER NOT NULL, total_bytes INTEGER NOT NULL DEFAULT 0,
   ingestion_timestamp INTEGER NOT NULL,
   truncated INTEGER NOT NULL DEFAULT 0, truncation_note TEXT
 );
@@ -110,11 +114,23 @@ CREATE TABLE IF NOT EXISTS psychology_policies (
   source_status TEXT NOT NULL, runtime_status TEXT NOT NULL,
   user_overridable INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS psychology_source_principles (
+  principle_id TEXT PRIMARY KEY, category TEXT NOT NULL, statement TEXT NOT NULL,
+  source_refs TEXT NOT NULL, source_status TEXT NOT NULL, semantic_status TEXT NOT NULL,
+  runtime_status TEXT NOT NULL, executable INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS conflict_groups (
   conflict_group_id TEXT PRIMARY KEY, topic TEXT NOT NULL,
   variants TEXT NOT NULL DEFAULT '[]', resolution TEXT NOT NULL DEFAULT 'UNRESOLVED',
   chosen_variant TEXT, resolved_by TEXT, resolved_at_ms INTEGER
 );
+CREATE TABLE IF NOT EXISTS conflict_adjudication_history (
+  history_id TEXT PRIMARY KEY, conflict_group_id TEXT NOT NULL, topic TEXT NOT NULL,
+  variants TEXT NOT NULL, resolution TEXT NOT NULL, chosen_variant TEXT,
+  resolved_by TEXT, resolved_at_ms INTEGER, prior_source_manifest_sha256 TEXT,
+  lifecycle TEXT NOT NULL, replaced_by TEXT, recorded_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conflict_history_group ON conflict_adjudication_history(conflict_group_id, recorded_at_ms);
 CREATE TABLE IF NOT EXISTS claims (
   claim_id TEXT PRIMARY KEY, statement TEXT NOT NULL, quantitative_hint TEXT,
   source_refs TEXT NOT NULL DEFAULT '[]', empirical_status TEXT NOT NULL,
@@ -150,9 +166,13 @@ export class BrainStore {
    * ever ADD optional columns — never rewrite stored provenance.
    */
   private migrate(): void {
-    const cols = this.db.prepare("PRAGMA table_info(rules)").all() as { name: string }[];
-    if (!cols.some((c) => c.name === "binding")) {
+    const ruleCols = this.db.prepare("PRAGMA table_info(rules)").all() as { name: string }[];
+    if (!ruleCols.some((c) => c.name === "binding")) {
       this.db.exec("ALTER TABLE rules ADD COLUMN binding TEXT");
+    }
+    const documentCols = this.db.prepare("PRAGMA table_info(source_documents)").all() as { name: string }[];
+    if (!documentCols.some((c) => c.name === "total_bytes")) {
+      this.db.exec("ALTER TABLE source_documents ADD COLUMN total_bytes INTEGER NOT NULL DEFAULT 0");
     }
   }
 
@@ -164,11 +184,16 @@ export class BrainStore {
     this.db.prepare("INSERT INTO brain_meta (k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(k, v);
   }
 
+  /** Run an entire ingest/rebuild atomically; nested table writes use savepoints. */
+  transaction<T>(work: () => T): T {
+    return this.db.transaction(work)();
+  }
+
   /** Reset knowledge tables. The RAW corpus itself is never mutated on disk. */
   resetKnowledge(): void {
     for (const t of [
       "source_documents", "source_fragments", "knowledge_items", "primitives", "features",
-      "rules", "setups", "strategies", "risk_policies", "psychology_policies",
+      "rules", "setups", "strategies", "risk_policies", "psychology_policies", "psychology_source_principles",
       "conflict_groups", "claims",
     ]) {
       this.db.exec(`DELETE FROM ${t}`);
@@ -178,10 +203,10 @@ export class BrainStore {
   putDocument(d: SourceDocument): void {
     this.db.prepare(
       `INSERT OR REPLACE INTO source_documents
-       (file_id,filename,source_hash,source_version,immutable,total_lines,total_chars,ingestion_timestamp,truncated,truncation_note)
-       VALUES (?,?,?,?,1,?,?,?,?,?)`,
+       (file_id,filename,source_hash,source_version,immutable,total_lines,total_chars,total_bytes,ingestion_timestamp,truncated,truncation_note)
+       VALUES (?,?,?,?,1,?,?,?,?,?,?)`,
     ).run(d.file_id, d.filename, d.source_hash, d.source_version, d.total_lines, d.total_chars,
-      d.ingestion_timestamp, d.truncated ? 1 : 0, d.truncation_note);
+      d.total_bytes, d.ingestion_timestamp, d.truncated ? 1 : 0, d.truncation_note);
   }
 
   putFragments(rows: SourceFragment[]): void {
@@ -332,6 +357,28 @@ export class BrainStore {
     })(rows);
   }
 
+  putPsychologyPrinciples(rows: PsychologyPrincipleRecord[]): void {
+    const st = this.db.prepare(
+      `INSERT OR REPLACE INTO psychology_source_principles
+       (principle_id,category,statement,source_refs,source_status,semantic_status,runtime_status,executable)
+       VALUES (?,?,?,?,?,?,?,0)`,
+    );
+    this.db.transaction((list: PsychologyPrincipleRecord[]) => {
+      for (const p of list) st.run(p.principle_id, p.category, p.statement, J(p.source_refs),
+        p.source_status, p.semantic_status, p.runtime_status);
+    })(rows);
+  }
+
+  psychologyPrinciples(): PsychologyPrincipleRecord[] {
+    const rows = this.db.prepare("SELECT * FROM psychology_source_principles ORDER BY principle_id").all() as Record<string, unknown>[];
+    return rows.map((r) => ({
+      principle_id: String(r.principle_id), category: String(r.category), statement: String(r.statement),
+      source_refs: P(r.source_refs as string, []), source_status: String(r.source_status) as PsychologyPrincipleRecord["source_status"],
+      semantic_status: String(r.semantic_status) as PsychologyPrincipleRecord["semantic_status"],
+      runtime_status: "DISABLED" as const, executable: false as const,
+    }));
+  }
+
   putConflicts(rows: ConflictGroup[]): void {
     const st = this.db.prepare(
       `INSERT OR REPLACE INTO conflict_groups (conflict_group_id,topic,variants,resolution,chosen_variant,resolved_by,resolved_at_ms)
@@ -361,7 +408,7 @@ export class BrainStore {
     return rows.map((r) => ({
       file_id: String(r.file_id), filename: String(r.filename), source_hash: String(r.source_hash),
       source_version: String(r.source_version), immutable: true as const,
-      total_lines: Number(r.total_lines), total_chars: Number(r.total_chars),
+      total_lines: Number(r.total_lines), total_chars: Number(r.total_chars), total_bytes: Number(r.total_bytes ?? 0),
       ingestion_timestamp: Number(r.ingestion_timestamp),
       truncated: Number(r.truncated) === 1, truncation_note: (r.truncation_note as string) ?? null,
     }));
@@ -405,14 +452,22 @@ export class BrainStore {
 
   psychologyPolicies(): PsychologyPolicy[] {
     const rows = this.db.prepare("SELECT * FROM psychology_policies ORDER BY policy_id").all() as Record<string, unknown>[];
-    return rows.map((r) => ({
-      policy_id: String(r.policy_id), canonical_name: String(r.canonical_name),
-      description: String(r.description), effect: String(r.effect) as PsychologyPolicy["effect"],
-      score_penalty: Number(r.score_penalty), trigger_condition: String(r.trigger_condition),
-      source_refs: P(r.source_refs as string, []), source_status: String(r.source_status) as PsychologyPolicy["source_status"],
-      runtime_status: String(r.runtime_status) as PsychologyPolicy["runtime_status"],
-      user_overridable: Number(r.user_overridable) === 1,
-    }));
+    return rows.map((r) => {
+      const source_refs: SourceRef[] = P(r.source_refs as string, []);
+      const source_status = String(r.source_status) as PsychologyPolicy["source_status"];
+      const everySourceComplete = source_refs.length > 0 &&
+        source_refs.every((sourceRef) => sourceCompletenessFor(sourceRef.file) === "COMPLETE");
+      const runtime_status = source_status === "SOURCE_VERIFIED" && everySourceComplete
+        ? String(r.runtime_status) as PsychologyPolicy["runtime_status"]
+        : "DISABLED";
+      return {
+        policy_id: String(r.policy_id), canonical_name: String(r.canonical_name),
+        description: String(r.description), effect: String(r.effect) as PsychologyPolicy["effect"],
+        score_penalty: Number(r.score_penalty), trigger_condition: String(r.trigger_condition),
+        source_refs, source_status, runtime_status,
+        user_overridable: Number(r.user_overridable) === 1,
+      };
+    });
   }
 
   conflicts(): ConflictGroup[] {
@@ -422,6 +477,40 @@ export class BrainStore {
       variants: P(r.variants as string, []), resolution: String(r.resolution) as ConflictGroup["resolution"],
       chosen_variant: (r.chosen_variant as string) ?? null, resolved_by: (r.resolved_by as string) ?? null,
       resolved_at_ms: (r.resolved_at_ms as number) ?? null,
+    }));
+  }
+
+  recordConflictHistory(rows: ConflictHistoryRecord[]): void {
+    const st = this.db.prepare(
+      `INSERT OR IGNORE INTO conflict_adjudication_history
+       (history_id,conflict_group_id,topic,variants,resolution,chosen_variant,resolved_by,resolved_at_ms,prior_source_manifest_sha256,lifecycle,replaced_by,recorded_at_ms)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    );
+    for (const row of rows) st.run(row.history_id, row.conflict_group_id, row.topic, J(row.variants), row.resolution,
+      row.chosen_variant, row.resolved_by, row.resolved_at_ms, row.prior_source_manifest_sha256,
+      row.lifecycle, row.replaced_by, row.recorded_at_ms);
+  }
+
+  updateConflictHistoryLifecycle(historyId: string, lifecycle: ConflictHistoryRecord["lifecycle"], replacedBy: string | null): void {
+    this.db.prepare("UPDATE conflict_adjudication_history SET lifecycle=?,replaced_by=? WHERE history_id=?")
+      .run(lifecycle, replacedBy, historyId);
+  }
+
+  conflictHistory(limit = 2000): ConflictHistoryRecord[] {
+    const rows = this.db.prepare("SELECT * FROM conflict_adjudication_history ORDER BY recorded_at_ms DESC, history_id LIMIT ?").all(limit) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      history_id: String(r.history_id),
+      conflict_group_id: String(r.conflict_group_id),
+      topic: String(r.topic),
+      variants: P(r.variants as string, []),
+      resolution: String(r.resolution) as ConflictHistoryRecord["resolution"],
+      chosen_variant: (r.chosen_variant as string) ?? null,
+      resolved_by: (r.resolved_by as string) ?? null,
+      resolved_at_ms: (r.resolved_at_ms as number) ?? null,
+      prior_source_manifest_sha256: (r.prior_source_manifest_sha256 as string) ?? null,
+      lifecycle: String(r.lifecycle) as ConflictHistoryRecord["lifecycle"],
+      replaced_by: (r.replaced_by as string) ?? null,
+      recorded_at_ms: Number(r.recorded_at_ms),
     }));
   }
 
@@ -512,6 +601,7 @@ export class BrainStore {
       strategies: this.count("strategies"),
       risk_policies: this.count("risk_policies"),
       psychology_policies: this.count("psychology_policies"),
+      psychology_principles: this.count("psychology_source_principles"),
       conflicts: this.count("conflict_groups"),
       claims: this.count("claims"),
       unknowns: this.count("source_fragments", "WHERE fragment_class='UNKNOWN_MARKER'"),

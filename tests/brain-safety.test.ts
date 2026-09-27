@@ -11,8 +11,9 @@ import path from "node:path";
 import { UNIVERSE, isUniverseSymbol } from "../src/lib/domain/universe";
 import { evaluatePortfolio } from "../src/lib/risk/portfolio";
 import { evaluatePsychologyGate, defaultPsychologyState } from "../src/lib/psychology/gate";
-import { buildPsychologyPolicies, buildRiskPolicies } from "../src/lib/brain/policies";
+import { buildPsychologyPolicies } from "../src/lib/brain/policies";
 import { computeScore, admitOpportunity, SCORE_DISCLAIMER } from "../src/lib/brain/score";
+import { TEST_ONLY_SOURCE_DAILY_RISK_POLICY, TEST_ONLY_SOURCE_RISK_MATH_POLICY } from "./helpers/research-run-options";
 
 /** Walk the whole source tree once so scans are cheap. */
 function sourceFiles(dir = "src"): string[] {
@@ -166,11 +167,11 @@ describe("opportunity admission gates", () => {
 });
 
 describe("portfolio risk engine", () => {
-  const policy = buildRiskPolicies().find((p) => p.policy_id === "RISK-ASA-CONSERVATIVE-DEFAULT")!;
+  const policy = TEST_ONLY_SOURCE_RISK_MATH_POLICY;
 
-  it("blocks when the daily loss limit is already reached", () => {
+  it("blocks when the explicitly selected source-backed daily loss limit is already reached", () => {
     const r = evaluatePortfolio({
-      equity: 10_000, policy, open_risks: [],
+      equity: 10_000, policy: TEST_ONLY_SOURCE_DAILY_RISK_POLICY, open_risks: [],
       daily_realized_loss: 500, // 5% of 10k == the limit
       period_realized_loss: 0,
       candidate: { symbol: "BTCUSDT", risk_amount: 100, direction: "long" },
@@ -179,9 +180,10 @@ describe("portfolio risk engine", () => {
     expect(r.reasons.join(" ")).toContain("daily loss limit reached");
   });
 
-  it("blocks when portfolio heat would exceed the account ceiling", () => {
+  it("blocks when a test-only arithmetic ceiling is exceeded without treating it as source policy", () => {
+    const testMathPolicy = { ...policy, max_account_risk_pct: 10 };
     const r = evaluatePortfolio({
-      equity: 10_000, policy,
+      equity: 10_000, policy: testMathPolicy,
       open_risks: Array.from({ length: 10 }, (_, i) => ({ symbol: `S${i}USDT`, risk_amount: 100, direction: "long" as const })),
       daily_realized_loss: 0, period_realized_loss: 0,
       candidate: { symbol: "BTCUSDT", risk_amount: 300, direction: "long" },
@@ -237,40 +239,50 @@ describe("portfolio risk engine", () => {
 describe("psychology hard blocks", () => {
   const policies = buildPsychologyPolicies();
 
-  it("blocks revenge trading after consecutive losses inside the cooldown", () => {
+  it("does not activate an inferred revenge threshold from journal values alone", () => {
     const r = evaluatePsychologyGate(policies, {
-      ...defaultPsychologyState(), consecutive_losses: 3, minutes_since_last_loss: 5, cooldown_min: 60,
+      ...defaultPsychologyState(), journal_coverage: "COMPLETE", consecutive_losses: 3,
+      minutes_since_last_loss: 5, cooldown_min: 60,
     });
-    expect(r.verdict).toBe("block");
-    expect(r.blocks.some((b) => b.policy_id === "PSY-REVENGE")).toBe(true);
+    expect(r.verdict).toBe("unknown");
+    expect(r.active_policy_ids).not.toContain("PSY-REVENGE");
+    expect(r.blocks.some((b) => b.policy_id === "PSY-REVENGE")).toBe(false);
+    expect(r.not_evaluated.some((item) => item.policy_id === "PSY-DAILY-LOSS")).toBe(true);
   });
 
-  it("blocks on a user-declared unfit state without diagnosing anything", () => {
+  it("does not turn a user-declared state into a gate without an exact source-bound policy", () => {
     const r = evaluatePsychologyGate(policies, { ...defaultPsychologyState(), declared_state: "tilted" });
-    expect(r.verdict).toBe("block");
-    const block = r.blocks.find((b) => b.policy_id === "PSY-EMOTIONAL-STATE")!;
-    expect(block.reason).toContain("does not diagnose");
+    expect(r.verdict).toBe("unknown");
+    expect(r.active_policy_ids).not.toContain("PSY-EMOTIONAL-STATE");
+    expect(r.blocks.some((b) => b.policy_id === "PSY-EMOTIONAL-STATE")).toBe(false);
   });
 
-  it("reports an unevaluated guard rather than pretending it passed", () => {
+  it("reports that the daily guard is inactive because its cited source is truncated", () => {
     const r = evaluatePsychologyGate(policies, { ...defaultPsychologyState(), daily_loss_limit_pct: null });
     const skipped = r.not_evaluated.find((n) => n.policy_id === "PSY-DAILY-LOSS")!;
-    expect(skipped.reason).toContain("guard inactive, not satisfied");
+    expect(r.verdict).toBe("unknown");
+    expect(r.active_policy_ids).not.toContain("PSY-DAILY-LOSS");
+    expect(skipped.reason).toContain("4.txt=TRUNCATED");
+    expect(skipped.reason).toContain("policy remains DISABLED");
   });
 
-  it("applies score penalties for chasing rather than blocking", () => {
+  it("does not turn the source-only chasing concept into an inferred score penalty", () => {
     const r = evaluatePsychologyGate(policies, {
       ...defaultPsychologyState(), declared_state: "ok", distance_from_entry_zone_atr: 3,
     });
-    expect(r.score_penalty).toBeGreaterThan(0);
-    expect(r.penalties.some((p) => p.policy_id === "PSY-CHASE")).toBe(true);
+    expect(r.score_penalty).toBe(0);
+    expect(r.active_policy_ids).not.toContain("PSY-CHASE");
+    expect(r.penalties.some((p) => p.policy_id === "PSY-CHASE")).toBe(false);
     expect(r.blocks.some((b) => b.policy_id === "PSY-CHASE")).toBe(false);
   });
 
-  it("blocks when the daily loss limit is hit", () => {
+  it("does not activate the daily-loss gate from TRUNCATED RAW_4, even when supplied values would hit it", () => {
     const r = evaluatePsychologyGate(policies, {
       ...defaultPsychologyState(), declared_state: "ok", daily_loss_pct: 5, daily_loss_limit_pct: 5,
     });
-    expect(r.blocks.some((b) => b.policy_id === "PSY-DAILY-LOSS")).toBe(true);
+    expect(r.verdict).toBe("unknown");
+    expect(r.active_policy_ids).not.toContain("PSY-DAILY-LOSS");
+    expect(r.blocks.some((b) => b.policy_id === "PSY-DAILY-LOSS")).toBe(false);
+    expect(r.not_evaluated.find((item) => item.policy_id === "PSY-DAILY-LOSS")?.reason).toContain("4.txt=TRUNCATED");
   });
 });

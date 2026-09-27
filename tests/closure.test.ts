@@ -13,11 +13,18 @@
  *   - slice-relative exit indexes
  *   - partial exits counted as separate trades
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.hoisted(() => {
+  process.env.ASA_DB_PATH = ":memory:";
+  process.env.ASA_HISTORY_DB_PATH = ":memory:";
+  process.env.ASA_BRAIN_DB_PATH = ":memory:";
+});
+
 import fs from "node:fs";
 import { getStrategy, listStrategies, executableStrategyCandidates } from "../src/lib/strategy/registry";
 import { referenceStrategy } from "./fixtures/strategy/reference-strategy";
-import { listRuntimeStrategies, runtimeStrategyIds, executableStrategies, evaluateRuntime } from "../src/lib/strategy/runtime";
+import { listRuntimeStrategies, runtimeStrategyIds, executableStrategies, researchableStrategies, evaluateRuntime, evaluateResearchRuntime } from "../src/lib/strategy/runtime";
 import { evaluateRisk } from "../src/lib/risk/engine";
 import { getProductionRiskPolicy, selectableRiskPolicies } from "../src/lib/risk/policy";
 import { assertAllowedHost, TTT_ALLOWED_HOSTS } from "../src/lib/ttt/http";
@@ -27,6 +34,7 @@ import { buildPsychologyPolicies } from "../src/lib/brain/policies";
 import { buildReleaseIdentity } from "../src/lib/release";
 import { aggregateClosed } from "../src/lib/analysis/aggregate";
 import { runStrategyBacktest } from "../src/lib/backtest/strategy-runner";
+import { explicitResearchRunOptions } from "./helpers/research-run-options";
 import { COMPILED_STRATEGIES } from "../src/lib/strategy/compiled";
 import { parseUdfHistory } from "../src/lib/ttt/udf";
 import type { Candle } from "../src/lib/domain/types";
@@ -66,9 +74,15 @@ describe("§B Brain is the single strategy source of truth", () => {
     }
   });
 
-  it("a non-computable strategy is blocked with an exact reason, never guessed", () => {
+  it("source-incomplete strategies may be research-computable but never live-executable", () => {
+    expect(executableStrategies()).toEqual([]);
     for (const s of listRuntimeStrategies()) {
-      if (s.availability !== "EXECUTABLE") {
+      if (s.availability === "RESEARCH_ONLY") {
+        expect(s.blocked_reason, s.setup_id).toMatch(/source contract INCOMPLETE/);
+        expect(s.impl, s.setup_id).not.toBeNull();
+        expect(evaluateRuntime(s, "BTCUSDT", [], 1_700_000_000_000)).toMatchObject({ blocked: true });
+      } else {
+        expect(["DISABLED", "NON_COMPUTABLE"]).toContain(s.availability);
         expect(s.blocked_reason, s.setup_id).toBeTruthy();
         expect(s.impl).toBeNull();
       }
@@ -151,13 +165,17 @@ describe("§H risk engine: direction-safe and target-aware", () => {
 });
 
 describe("§H risk policy selection is explicit and versioned", () => {
-  it("defaults to the conservative composite and says why", () => {
-    expect(POLICY.policy_id).toBe("RISK-ASA-CONSERVATIVE-DEFAULT");
-    expect(POLICY.selection_reason).toMatch(/SOURCE_INFERRED|operator-selected/);
+  it("remains explicitly unselected by default and never falls back to an engineering composite", () => {
+    expect(POLICY.policy_id).toBe("RISK-POLICY-UNSELECTED");
+    expect(POLICY.selection_status).toBe("UNSELECTED");
+    expect(POLICY.source_status).toBe("UNKNOWN");
+    expect(POLICY.runtime_status).toBe("DISABLED");
+    expect(POLICY.source_refs).toEqual([]);
+    expect(POLICY.selection_reason).toMatch(/no risk policy selected/);
     expect(POLICY.policy_version).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it("keeps every conflicting source policy selectable, never averaged", () => {
+  it("keeps every conflicting source policy distinct in the audit catalog, never averaged", () => {
     const perTrade = selectableRiskPolicies().map((p) => p.risk_per_trade_pct).filter((x) => x !== null);
     expect(perTrade).toContain(1);
     expect(perTrade).toContain(2);
@@ -261,6 +279,10 @@ describe("§G psychology provenance honesty", () => {
     expect(p.source_status).toBe("SOURCE_VERIFIED");
     expect(p.source_refs.length).toBeGreaterThan(0);
     expect(p.source_refs[0].file).toBe("4.txt");
+    const rawLines = fs.readFileSync("knowledge/raw/RAW_4.txt", "utf8").split(/\r?\n/);
+    expect(p.source_refs.map((ref) => ref.start_line)).toEqual([351, 1313]);
+    for (const ref of p.source_refs) expect(rawLines[ref.start_line - 1]).toContain(ref.quote);
+    expect(p.runtime_status).toBe("DISABLED");
   });
 });
 
@@ -288,7 +310,7 @@ describe.runIf(hasReplay)("§M position vs fill accounting", () => {
   const strat = COMPILED_STRATEGIES.find((s) => s.strategy_id === "STR-RAW-2-803")!;
 
   it("a laddered exit is ONE position, not several trades", () => {
-    const r = runStrategyBacktest(strat, "BTCUSDT", replay(), { equity: 10_000, policy: POLICY });
+    const r = runStrategyBacktest(strat, "BTCUSDT", replay(), explicitResearchRunOptions({ equity: 10_000 }));
     expect(r.positions.length).toBe(r.metrics.trade_count);
     for (const p of r.positions) {
       const entries = p.fills.filter((f) => f.kind === "entry");
@@ -298,7 +320,7 @@ describe.runIf(hasReplay)("§M position vs fill accounting", () => {
   });
 
   it("exit quantities never exceed the entry quantity (no double counting)", () => {
-    const r = runStrategyBacktest(strat, "BTCUSDT", replay(), { equity: 10_000, policy: POLICY });
+    const r = runStrategyBacktest(strat, "BTCUSDT", replay(), explicitResearchRunOptions({ equity: 10_000 }));
     for (const p of r.positions) {
       const exited = p.fills.filter((f) => f.kind === "exit").reduce((a, f) => a + f.qty, 0);
       expect(exited).toBeLessThanOrEqual(p.qty * 1.0000001);
@@ -306,7 +328,7 @@ describe.runIf(hasReplay)("§M position vs fill accounting", () => {
   });
 
   it("fees are charged per fill on the actual filled notional", () => {
-    const r = runStrategyBacktest(strat, "BTCUSDT", replay(), { equity: 10_000, policy: POLICY });
+    const r = runStrategyBacktest(strat, "BTCUSDT", replay(), explicitResearchRunOptions({ equity: 10_000 }));
     for (const p of r.positions) {
       for (const f of p.fills) {
         const expected = f.price * f.qty * r.costs.fee_rate;
@@ -317,7 +339,7 @@ describe.runIf(hasReplay)("§M position vs fill accounting", () => {
 
   it("all fill timestamps are absolute and inside the series range", () => {
     const c = replay();
-    const r = runStrategyBacktest(strat, "BTCUSDT", c, { equity: 10_000, policy: POLICY });
+    const r = runStrategyBacktest(strat, "BTCUSDT", c, explicitResearchRunOptions({ equity: 10_000 }));
     const lo = c[0].t, hi = c[c.length - 1].t;
     for (const p of r.positions) for (const f of p.fills) {
       expect(f.ts).toBeGreaterThanOrEqual(lo);
@@ -326,14 +348,14 @@ describe.runIf(hasReplay)("§M position vs fill accounting", () => {
   });
 
   it("same-bar policy is explicit and recorded", () => {
-    const a = runStrategyBacktest(strat, "BTCUSDT", replay(), { equity: 10_000, policy: POLICY, sameBarPolicy: "stop_first" });
-    const b = runStrategyBacktest(strat, "BTCUSDT", replay(), { equity: 10_000, policy: POLICY, sameBarPolicy: "target_first" });
+    const a = runStrategyBacktest(strat, "BTCUSDT", replay(), explicitResearchRunOptions({ equity: 10_000, sameBarPolicy: "stop_first" }));
+    const b = runStrategyBacktest(strat, "BTCUSDT", replay(), explicitResearchRunOptions({ equity: 10_000, sameBarPolicy: "target_first" }));
     expect(a.same_bar_policy).toBe("stop_first");
     expect(b.same_bar_policy).toBe("target_first");
   });
 
   it("reports gross and net R separately plus fee/slippage impact", () => {
-    const r = runStrategyBacktest(strat, "BTCUSDT", replay(), { equity: 10_000, policy: POLICY });
+    const r = runStrategyBacktest(strat, "BTCUSDT", replay(), explicitResearchRunOptions({ equity: 10_000 }));
     expect(r.metrics.gross_total_r).not.toBe(r.metrics.total_r);
     expect(r.metrics.fee_impact_r).toBeGreaterThan(0);
     expect(r.metrics.slippage_impact_r).toBeGreaterThan(0);
@@ -341,19 +363,21 @@ describe.runIf(hasReplay)("§M position vs fill accounting", () => {
   });
 
   it("builds a true equity curve", () => {
-    const r = runStrategyBacktest(strat, "BTCUSDT", replay(), { equity: 10_000, policy: POLICY });
+    const r = runStrategyBacktest(strat, "BTCUSDT", replay(), explicitResearchRunOptions({ equity: 10_000 }));
     expect(r.equity_curve.length).toBe(r.positions.length);
     if (r.equity_curve.length > 1) expect(r.metrics.max_drawdown_pct).not.toBeNull();
   });
 });
 
 describe.runIf(hasReplay)("§K advisory and backtest share one evaluation path", () => {
-  it("evaluateRuntime returns the same verdict the backtester consumes", () => {
-    const def = executableStrategies().find((s) => s.strategy_id === "STR-RAW-2-803")!;
+  it("research evaluation is deterministic while the live evaluator refuses the incomplete source contract", () => {
+    const def = researchableStrategies().find((s) => s.strategy_id === "STR-RAW-4-2449")!;
+    expect(def.availability).toBe("RESEARCH_ONLY");
     const c = replay().slice(0, 400);
-    // pin the clock: only wall-time may differ between two identical runs
-    const a = evaluateRuntime(def, "BTCUSDT", c, 1_700_000_000_000);
-    const b = evaluateRuntime(def, "BTCUSDT", c, 1_700_000_000_000);
+    const live = evaluateRuntime(def, "BTCUSDT", c, 1_700_000_000_000);
+    expect(live).toMatchObject({ blocked: true });
+    const a = evaluateResearchRuntime(def, "BTCUSDT", c, 1_700_000_000_000);
+    const b = evaluateResearchRuntime(def, "BTCUSDT", c, 1_700_000_000_000);
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
     expect("blocked" in a).toBe(false);
   });

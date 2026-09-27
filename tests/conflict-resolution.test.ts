@@ -71,8 +71,14 @@ let BRAIN: BrainMod;
 let INGEST: IngestMod;
 
 const STRATEGY_ID = "STR-RAW-2-803";
+const SOURCE_TREE_SHA256 = "a".repeat(64);
+const SOURCE_CONTRACT_SHA256 = "b".repeat(64);
 const SETUP_ID = "SET-STR-RAW-2-803";
 const GROUP_ID = "CG-TEST-1";
+const TEST_COMPILED_BINDING = {
+  setup_id: SETUP_ID, direction: "short" as const, timeframe: "1h", strategy_version: "v-current",
+  rule_bindings: [{ rule_id: "R-1", rule_version: "1.0.0" }], source_contract_sha256: SOURCE_CONTRACT_SHA256,
+};
 
 beforeAll(async () => {
   P = await import("../src/lib/backtest/promotion");
@@ -199,8 +205,10 @@ function evidence(over: Partial<ExperimentEvidence> = {}): ExperimentEvidence {
       code_version: "abc1234",
       app_version: "6.0.1",
       build_id: "6.0.1+abc1234",
+      source_tree_sha256: SOURCE_TREE_SHA256,
+      source_tree_digest_status: "COMPLETE",
     },
-    params: { methodology: V.VALIDATION_METHODOLOGY },
+    params: { methodology: V.VALIDATION_METHODOLOGY, compiled_binding: TEST_COMPILED_BINDING },
     in_sample: metrics(),
     oos: metrics({
       trade_count: 40,
@@ -285,6 +293,8 @@ function gateInput(over: {
       source_refs: [{ file: "2.txt", start_line: 10, end_line: 20 }],
       name: "conflict fixture strategy",
       family: "level-reaction",
+      source_contract_status: "SOURCE_FAITHFUL",
+      source_contract_blockers: [],
     },
     governance: {
       record_present: true,
@@ -299,9 +309,13 @@ function gateInput(over: {
     evidence: over.evidence ?? [evidence()],
     versions: {
       code_version: "abc1234",
+      source_tree_sha256: SOURCE_TREE_SHA256,
+      source_tree_digest_status: "COMPLETE",
       detector_version: "1.0.0",
       strategy_versions: ["v-current"],
       rule_versions: ["1.0.0"],
+      compiled_bindings: [{ setup_id: SETUP_ID, direction: "short", timeframe: "1h", strategy_version: "v-current", rule_bindings: [{ rule_id: "R-1", rule_version: "1.0.0" }] }],
+      source_contract_sha256: SOURCE_CONTRACT_SHA256,
       ...over.versions,
     },
     decided_at_ms: 1_788_000_500_000,
@@ -464,9 +478,13 @@ describe("Scenario A — strategy without a conflict group", () => {
       conflicts: [group()],
       versions: {
         code_version: "abc1234",
+        source_tree_sha256: SOURCE_TREE_SHA256,
+      source_tree_digest_status: "COMPLETE",
         detector_version: "1.0.0",
         strategy_versions: ["v-current"],
         rule_versions: ["1.0.0"],
+        compiled_bindings: [{ setup_id: SETUP_ID, direction: "short", timeframe: "1h", strategy_version: "v-current", rule_bindings: [{ rule_id: "R-1", rule_version: "1.0.0" }] }],
+        source_contract_sha256: SOURCE_CONTRACT_SHA256,
       },
     });
     expect(input.governance.conflict_group_id).toBeNull();
@@ -611,9 +629,13 @@ describe("Scenario D — EMPIRICALLY_RESOLVED is never unresolved-by-presence", 
       conflicts: [resolved()],
       versions: {
         code_version: "abc1234",
+        source_tree_sha256: SOURCE_TREE_SHA256,
+      source_tree_digest_status: "COMPLETE",
         detector_version: "1.0.0",
         strategy_versions: ["v-current"],
         rule_versions: ["1.0.0"],
+        compiled_bindings: [{ setup_id: SETUP_ID, direction: "short", timeframe: "1h", strategy_version: "v-current", rule_bindings: [{ rule_id: "R-1", rule_version: "1.0.0" }] }],
+        source_contract_sha256: SOURCE_CONTRACT_SHA256,
       },
     });
     expect(input.governance.conflict_state).toBe("RESOLVED");

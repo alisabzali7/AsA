@@ -1,32 +1,39 @@
 # AsA Brain — Self Audit
 
-Generated 2026-09-21T07:24:16.440Z from `./asa-data/brain.db`. Every number below is read from
+Generated 2026-09-27T07:23:09.156Z from `./asa-data/brain.db`. Every number below is read from
 stored evidence; nothing is asserted without a record behind it.
 
-## 1. Corpus coverage
-| file | lines | chars | sha256 (12) | truncated upstream |
-|---|---|---|---|---|
-| 1.txt (RAW_1.txt) | 2450 | 349998 | `b430f52e191c` | **YES** |
-| 2.txt (RAW_2.txt) | 1987 | 350000 | `0177294c7f5b` | **YES** |
-| 3.txt (RAW_3.txt) | 1100 | 253714 | `bf0ae22b7fdb` | no |
-| 4.txt (RAW_4.txt) | 2901 | 350000 | `bc050e2aefbb` | **YES** |
-| 5.txt (RAW_5.txt) | 960 | 109216 | `1c73c915fe90` | no |
+## 1. Source recovery and supplied-text inventory
 
-Total 9398 lines / 1412928 chars.
-One fragment per source line: **VERIFIED**
-(9398 fragments for 9398 lines).
+Source recovery manifest: **PARTIAL**; sha256=d54ccd6627dda3fac9173f7fda66f8817768607a072a3850233491a3506ed3c5.
+The canonical knowledge pack is an index/acceleration artifact, not authority over the raw source bytes.
 
-> **Honest limitation.** 3 files (1.txt, 2.txt, 4.txt) end mid-sentence at the upstream 350,000-character cap. That content is absent from the supplied package and has **not** been reconstructed from model knowledge.
+| file id | filename | lines | chars | bytes | sha256 (12) | completeness |
+|---|---|---:|---:|---:|---|---|
+| 1.txt | RAW_1.txt | 2450 | 349998 | 617254 | `b430f52e191c` | **TRUNCATED** |
+| 2.txt | RAW_2.txt | 1987 | 350000 | 598290 | `0177294c7f5b` | **TRUNCATED** |
+| 3.txt | RAW_3.txt | 1100 | 253714 | 424438 | `bf0ae22b7fdb` | **UNKNOWN** |
+| 4.txt | RAW_4.txt | 2901 | 350000 | 600086 | `bc050e2aefbb` | **TRUNCATED** |
+| 5.txt | RAW_5.txt | 960 | 109216 | 184218 | `1c73c915fe90` | **UNKNOWN** |
+| USER-PSY-1 | USER_PSYCHOLOGY_1.txt | 2423 | 349991 | 624394 | `31e52de9d6f6` | **TRUNCATED** |
+| USER-PSY-2 | USER_PSYCHOLOGY_2.txt | 640 | 90370 | 160655 | `485fa4f9afb4` | **TRUNCATED** |
+
+Total 12461 lines / 1853289 chars across 7 ingested text sources.
+One fragment per supplied source line: **VERIFIED**
+(12461 fragments for 12461 lines).
+
+> **TRUNCATED:** 5 source file(s) are explicitly marked incomplete (1.txt, 2.txt, 4.txt, USER-PSY-1, USER-PSY-2); missing continuation is not reconstructed.
+> **UNKNOWN:** 2 source file(s) have unknown original completeness (3.txt, 5.txt); below-cap size is not treated as proof of completeness.
 
 ## 2-3. Fragments and knowledge items
-- NARRATIVE: 6782
+- NARRATIVE: 9595
 - UNKNOWN_MARKER: 649
+- RISK: 624
 - SECTION_HEADER: 482
-- RISK: 470
-- RULE_CANDIDATE: 247
-- PSYCHOLOGY: 246
-- CLAIM: 239
-- CONFLICT_MARKER: 161
+- PSYCHOLOGY: 322
+- RULE_CANDIDATE: 252
+- CLAIM: 241
+- CONFLICT_MARKER: 174
 - STRATEGY_DECL: 76
 - META_COMMENTARY: 46
 
@@ -46,20 +53,26 @@ Closure: `verifyRuleRegistryClosure` (src/lib/strategy/rule-graph.ts) checks the
 registry against the runtime in BOTH directions — a drifted predicate, a missing
 row, an orphan machine row or a promoted text rule is a machine-detectable violation.
 
-## 5. Strategies
-By runtime status: {"DISABLED":98,"CANDIDATE":6}
-By family: {"multi-indicator":2,"process-layer":8,"reversal":12,"level-reaction":21,"discretionary-framework":14,"trend-following":15,"pullback":3,"breakout":9,"momentum-continuation":3,"divergence":2,"smc-ob":9,"market-structure":3,"harmonic":3}
-Executable specs (all five critical fields present in source): **6**
-- `STR-RAW-2-581` PRZ Bounce Strategy (level-reaction) → CANDIDATE
-- `STR-RAW-2-803` پرایس اکشن سطوح نامرئی (level-reaction) → CANDIDATE
-- `STR-RAW-2-926` استراتژی ۴-خطی (برگشت از نواحی PRZ) (level-reaction) → CANDIDATE
-- `STR-RAW-2-1258` استراتژی معاملاتی دو قله و دو دره بر اساس نواحی PRZ (level-reaction) → CANDIDATE
-- `STR-RAW-4-2425` هارمونیک پایه (AB=CD) (harmonic) → CANDIDATE
-- `STR-RAW-4-2449` هارمونیک پایه معکوس (harmonic) → CANDIDATE
+## 5. Compiled strategy contracts and runtime status
+
+Brain registry status: {"DISABLED":103,"CANDIDATE":1}. Implementation-bound records: 6.
+Source contract version: 1.2.0; status counts: {"INCOMPLETE":6}.
+**Source-faithful executable contracts:** 0. A code binding or formalized record is not source parity.
+
+| strategy | contract | source completeness | runtime ceiling | promotion | live | blockers |
+|---|---|---|---|---|---|---:|
+| `STR-RAW-2-581` | INCOMPLETE | PARTIAL | RESEARCH_ONLY | NO | NO | 5 |
+| `STR-RAW-2-803` | INCOMPLETE | PARTIAL | RESEARCH_ONLY | NO | NO | 7 |
+| `STR-RAW-2-926` | INCOMPLETE | PARTIAL | RESEARCH_ONLY | NO | NO | 6 |
+| `STR-RAW-2-1258` | INCOMPLETE | PARTIAL | RESEARCH_ONLY | NO | NO | 5 |
+| `STR-RAW-4-2425` | INCOMPLETE | PARTIAL | RESEARCH_ONLY | NO | NO | 5 |
+| `STR-RAW-4-2449` | INCOMPLETE | PARTIAL | RESEARCH_ONLY | NO | NO | 5 |
+
+Compiled definitions may remain research-computable only. Incomplete/unknown source contracts are not live executable or promotion eligible; see the field-level source-contracts.json blockers.
 
 ## 6-8. Unknowns, conflicts, claims
 - UNKNOWN-marked source lines: 649
-- Conflict groups: 3 (3 unresolved)
+- Conflict groups: 4 (4 unresolved)
 - Claims held at UNTESTED: 553
 - Quarantined commentary (never executable): 46
 
@@ -91,13 +104,8 @@ promotion path):
 **Experiment-store view** (`phase2`, view `experiment_store`, source:
 `experiments.empirical_status`, raw observed verdicts before governance,
 weakest of newest-per-symbol):
-- experiments stored: 57
-- `STR-RAW-4-2449`: BACKTESTED over 9 symbol(s) (AVAXUSDT, LINKUSDT, ADAUSDT, BNBUSDT, DOGEUSDT, XRPUSDT, SOLUSDT, ETHUSDT, BTCUSDT)
-- `STR-RAW-4-2425`: BACKTESTED over 9 symbol(s) (AVAXUSDT, LINKUSDT, ADAUSDT, BNBUSDT, DOGEUSDT, XRPUSDT, SOLUSDT, ETHUSDT, BTCUSDT)
-- `STR-RAW-2-1258`: UNTESTED over 9 symbol(s) (AVAXUSDT, LINKUSDT, ADAUSDT, BNBUSDT, DOGEUSDT, XRPUSDT, SOLUSDT, ETHUSDT, BTCUSDT)
-- `STR-RAW-2-926`: UNTESTED over 9 symbol(s) (AVAXUSDT, LINKUSDT, ADAUSDT, BNBUSDT, DOGEUSDT, XRPUSDT, SOLUSDT, ETHUSDT, BTCUSDT)
-- `STR-RAW-2-803`: UNTESTED over 9 symbol(s) (AVAXUSDT, LINKUSDT, ADAUSDT, BNBUSDT, DOGEUSDT, XRPUSDT, SOLUSDT, ETHUSDT, BTCUSDT)
-- `STR-RAW-2-581`: UNTESTED over 3 symbol(s) (SOLUSDT, ETHUSDT, BTCUSDT)
+- experiments stored: 0
+- (no experiments stored — run `npm run brain:validate`)
 - promoted to live (derived from registry): 0
 
 **Why the two views differ by design** (`empirical_semantics`, contract v1.0.0):
@@ -110,45 +118,57 @@ weakest of newest-per-symbol):
 > EXPECTED divergence, not a contradiction: validation runs were observed (BACKTESTED evidence exists for those symbols) but no governed promotion has rewritten the registry row. Trust `phase2` for what was OBSERVED and `empirical_validation` for what the registry GOVERNS.
 
 ## 10. Disabled strategies — exact reasons
-- 2× critical spec fields are UNKNOWN in source: stop, target, invalidation
+- 4× critical spec fields are UNKNOWN in source: stop, target, invalidation
+- 73× source_status=SOURCE_NAMED
 - 98× no executable implementation binding
-- 98× empirical_status=UNTESTED
-- 2× compile: stop UNKNOWN in source, target UNKNOWN in source, no exit/invalidation stated in 
-- 2× critical spec fields are UNKNOWN in source: stop, target, timeframe
-- 3× compile: timeframe UNKNOWN in source, stop UNKNOWN in source, target UNKNOWN in source
-- 8× critical spec fields are UNKNOWN in source: stop, target, timeframe, invalidation
-- 8× compile: timeframe UNKNOWN in source, stop UNKNOWN in source, target UNKNOWN in source, no
+- 103× empirical_status=UNTESTED
+- 1× compile: critical source fields NOT_PRESENT: stop, target, exit, one or more critical sour
+- 1× critical spec fields are UNKNOWN in source: stop, target, timeframe
+- 2× compile: critical source fields explicitly UNKNOWN: timeframe, stop, target, one or more c
+- 9× critical spec fields are UNKNOWN in source: stop, target, timeframe, invalidation
+- 4× compile: critical source fields explicitly UNKNOWN: timeframe, stop, target, exit, one or
 - 59× critical spec fields are UNKNOWN in source: entry, stop, target, timeframe, invalidation
-- 10× compile: timeframe UNKNOWN in source, no entry condition stated in source, stop UNKNOWN in
+- 1× source_status=UNKNOWN
+- 7× compile: critical source fields NOT_PRESENT: timeframe, entry, stop, target, exit, SOURCE_
 - 1× critical spec fields are UNKNOWN in source: target, invalidation
-- 1× compile: target UNKNOWN in source, no exit/invalidation stated in source
-- 5× critical spec fields are UNKNOWN in source: stop, timeframe
-- 4× compile: timeframe UNKNOWN in source, stop UNKNOWN in source
-- 3× critical spec fields are UNKNOWN in source: stop, target
-- 3× compile: stop UNKNOWN in source, target UNKNOWN in source
+- 2× compile: critical source fields NOT_PRESENT: target, exit, critical source fields explicit
+- 2× critical spec fields are UNKNOWN in source: stop, timeframe
+- 1× compile: critical source fields explicitly UNKNOWN: timeframe, stop, one or more critical
+- 1× critical spec fields are UNKNOWN in source: stop, target
+- 1× compile: critical source fields explicitly UNKNOWN: stop, target, one or more critical sou
+- 7× compile: critical source fields NOT_PRESENT: exit, critical source fields explicitly UNKNO
 - 1× critical spec fields are UNKNOWN in source: stop
-- 1× compile: stop UNKNOWN in source
+- 1× compile: critical source fields explicitly UNKNOWN: stop, one or more critical source fiel
+- 3× compile: critical source fields NOT_PRESENT: timeframe, stop, target, exit, SOURCE_SPEC_ON
+- 2× compile: critical source fields explicitly UNKNOWN: stop, target, exit, one or more critic
 - 1× critical spec fields are UNKNOWN in source: stop, invalidation
-- 1× compile: stop UNKNOWN in source, no exit/invalidation stated in source
-- 3× critical spec fields are UNKNOWN in source: entry, stop, target
-- 5× compile: no entry condition stated in source, stop UNKNOWN in source, target UNKNOWN in so
+- 3× critical spec fields are UNKNOWN in source: stop, timeframe, invalidation
+- 1× compile: critical source fields NOT_PRESENT: timeframe, exit, critical source fields expli
+- 5× critical spec fields are UNKNOWN in source: entry, stop, target, invalidation
+- 2× compile: critical source fields explicitly UNKNOWN: entry, stop, target, exit, one or more
+- 1× compile: critical source fields NOT_PRESENT: target, critical source fields explicitly UNK
+- 2× compile: critical source fields NOT_PRESENT: timeframe, stop, target, exit, critical sourc
 - 1× critical spec fields are UNKNOWN in source: entry, target, timeframe
-- 1× compile: timeframe UNKNOWN in source, no entry condition stated in source, target UNKNOWN 
+- 1× compile: critical source fields explicitly UNKNOWN: timeframe, entry, target, one or more
 - 1× critical spec fields are UNKNOWN in source: entry, stop, timeframe
-- 2× critical spec fields are UNKNOWN in source: entry, stop, target, invalidation
-- 5× critical spec fields are UNKNOWN in source: timeframe
-- 5× compile: timeframe UNKNOWN in source
-- 2× critical spec fields are UNKNOWN in source: timeframe, invalidation
-- 2× compile: timeframe UNKNOWN in source, no exit/invalidation stated in source
+- 1× compile: critical source fields explicitly UNKNOWN: timeframe, entry, stop, one or more cr
+- 2× compile: critical source fields explicitly UNKNOWN: timeframe, stop, exit, one or more cri
+- 1× compile: critical source fields NOT_PRESENT: stop, target, exit, critical source fields ex
+- 4× critical spec fields are UNKNOWN in source: timeframe, invalidation
+- 1× compile: critical source fields NOT_PRESENT: timeframe, exit, critical source fields inclu
+- 3× critical spec fields are UNKNOWN in source: timeframe
+- 3× compile: critical source fields explicitly UNKNOWN: timeframe, one or more critical source
 - 1× critical spec fields are UNKNOWN in source: invalidation
-- 1× compile: no exit/invalidation stated in source
+- 1× compile: critical source fields NOT_PRESENT: entry, stop, target, exit, critical source fi
 - 1× critical spec fields are UNKNOWN in source: target
-- 1× compile: target UNKNOWN in source
+- 1× compile: critical source fields explicitly UNKNOWN: target, one or more critical source fi
 
 ## 11. Missing implementation areas
-- 98 strategies have no executable spec because the corpus left critical fields UNKNOWN (see disabled_reasons)
-- No OOS/walk-forward validation has been run yet, so no strategy can leave CANDIDATE.
-- 3 source files are truncated upstream; content beyond 350k chars is unavailable.
+- 6 compiled strategy contract(s) are not source-faithful executable; see source_contracts.json blockers. A TypeScript implementation binding alone is not source parity.
+- No compiled source contract is currently promotion- and live-eligible.
+- 2 supplied source file(s) have UNKNOWN completeness; below-cap byte counts do not prove completion.
+- 5 supplied source file(s) are explicitly TRUNCATED; missing continuation is not reconstructed.
+- No experiment rows are persisted in this Brain DB; empirical status remains UNTESTED.
 
 ## 12-13. Runtime capabilities / TTT capability matrix
 - MEASURED: FTR-FUNDING, FTR-OI, FTR-BOOK-IMB
@@ -160,39 +180,50 @@ weakest of newest-per-symbol):
   - FTR-CVD: requires verified aggressor semantics TTT does not document
 
 ## 14. Risk policy matrix
-| policy | per-trade | daily | account | period | source | conflict | runtime |
-|---|---|---|---|---|---|---|---|
-| RISK-2PCT-PER-TRADE | 2 | — | — | — | CONFLICT | CFG-RISK-PCT | CANDIDATE |
-| RISK-1PCT-PER-TRADE | 1 | — | — | — | CONFLICT | CFG-RISK-PCT | CANDIDATE |
-| RISK-2PCT-POSITION-CAP | 2 | — | — | — | CONFLICT | CFG-RISK-PCT | CANDIDATE |
-| RISK-DAILY-5PCT | — | 5 | — | — | SOURCE_VERIFIED | — | CANDIDATE |
-| RISK-ACCOUNT-11PCT | — | — | 11 | — | SOURCE_VERIFIED | — | CANDIDATE |
-| RISK-PERIOD-15PCT | — | — | — | 15 | SOURCE_VERIFIED | — | CANDIDATE |
-| RISK-TOLERANCE-5PCT | 5 | — | — | — | CLAIM | CFG-RISK-PCT | DISABLED |
-| RISK-ASA-CONSERVATIVE-DEFAULT | 1 | 5 | 11 | 15 | SOURCE_INFERRED | — | CANDIDATE |
+| policy | per-trade | daily | account | period | source status | source completeness | conflict | runtime | production selectable |
+|---|---|---|---|---|---|---|---|---|---|
+| RISK-2PCT-PER-TRADE | 2 | — | — | — | CONFLICT | {"1.txt":"TRUNCATED"} | CFG-RISK-PCT | CANDIDATE | NO |
+| RISK-1PCT-PER-TRADE | 1 | — | — | — | CONFLICT | {"5.txt":"UNKNOWN","4.txt":"TRUNCATED"} | CFG-RISK-PCT | CANDIDATE | NO |
+| RISK-2PCT-POSITION-CAP | 2 | — | — | — | CONFLICT | {"4.txt":"TRUNCATED"} | CFG-RISK-PCT | CANDIDATE | NO |
+| RISK-DAILY-5PCT | — | 5 | — | — | SOURCE_VERIFIED | {"4.txt":"TRUNCATED"} | — | CANDIDATE | NO |
+| RISK-ACCOUNT-11PCT | — | — | — | — | CLAIM | {"4.txt":"TRUNCATED"} | CFG-ACCOUNT-RISK-CONTEXT | DISABLED | NO |
+| RISK-PERIOD-15PCT | — | — | — | 15 | SOURCE_VERIFIED | {"4.txt":"TRUNCATED"} | — | CANDIDATE | NO |
+| RISK-TOLERANCE-5PCT | 5 | — | — | — | CLAIM | {"4.txt":"TRUNCATED"} | CFG-RISK-PCT | DISABLED | NO |
+| RISK-ASA-CONSERVATIVE-DEFAULT | 1 | 5 | 11 | 15 | SOURCE_INFERRED | {} | — | CANDIDATE | NO |
 
-The competing per-trade percentages are preserved as separate policies. No average was taken.
+Production-selectable policies: **0 / 8**. Eligibility requires valid source-contract identity, identity-bound byte/hash/line/character matches, exact quoted excerpts and in-range references, COMPLETE cited documents, no unresolved conflict, source status SOURCE_VERIFIED, and non-disabled runtime status. Explicit operator selection is a separate requirement. Eligibility blockers by policy:
+- RISK-2PCT-PER-TRADE: source status is CONFLICT, not SOURCE_VERIFIED; linked to unresolved source conflict CFG-RISK-PCT; source 1.txt completeness is TRUNCATED; production selection requires COMPLETE
+- RISK-1PCT-PER-TRADE: source status is CONFLICT, not SOURCE_VERIFIED; linked to unresolved source conflict CFG-RISK-PCT; source 5.txt completeness is UNKNOWN; production selection requires COMPLETE; source 4.txt completeness is TRUNCATED; production selection requires COMPLETE
+- RISK-2PCT-POSITION-CAP: source status is CONFLICT, not SOURCE_VERIFIED; linked to unresolved source conflict CFG-RISK-PCT; source 4.txt completeness is TRUNCATED; production selection requires COMPLETE
+- RISK-DAILY-5PCT: source 4.txt completeness is TRUNCATED; production selection requires COMPLETE
+- RISK-ACCOUNT-11PCT: source status is CLAIM, not SOURCE_VERIFIED; linked to unresolved source conflict CFG-ACCOUNT-RISK-CONTEXT; runtime status is DISABLED; source 4.txt completeness is TRUNCATED; production selection requires COMPLETE
+- RISK-PERIOD-15PCT: source 4.txt completeness is TRUNCATED; production selection requires COMPLETE
+- RISK-TOLERANCE-5PCT: source status is CLAIM, not SOURCE_VERIFIED; linked to unresolved source conflict CFG-RISK-PCT; runtime status is DISABLED; source 4.txt completeness is TRUNCATED; production selection requires COMPLETE
+- RISK-ASA-CONSERVATIVE-DEFAULT: source status is SOURCE_INFERRED, not SOURCE_VERIFIED; no exact source references
+
+The competing per-trade percentages are preserved as separate policies. No average was taken. A CLAIM or SOURCE_INFERRED row is not promoted into a numeric limit.
 
 ## 15. Psychology policy matrix
-| policy | effect | penalty | runtime | overridable |
-|---|---|---|---|---|
-| PSY-DAILY-LOSS | BLOCK | 0 | LIVE_ADVISORY_ONLY | no |
-| PSY-REVENGE | BLOCK | 0 | LIVE_ADVISORY_ONLY | no |
-| PSY-COOLDOWN | BLOCK | 0 | LIVE_ADVISORY_ONLY | yes |
-| PSY-CHASE | REDUCE_SCORE | 15 | LIVE_ADVISORY_ONLY | yes |
-| PSY-OVERTRADE | REDUCE_SCORE | 10 | LIVE_ADVISORY_ONLY | yes |
-| PSY-CHECKLIST | REQUIRE_CHECKLIST | 0 | LIVE_ADVISORY_ONLY | no |
-| PSY-REVIEW | FLAG | 0 | LIVE_ADVISORY_ONLY | yes |
-| PSY-STANDARDS | FLAG | 0 | LIVE_ADVISORY_ONLY | no |
-| PSY-EMOTIONAL-STATE | BLOCK | 0 | LIVE_ADVISORY_ONLY | no |
-| PSY-SECURITY | FLAG | 0 | LIVE_ADVISORY_ONLY | no |
+| policy | effect | penalty | source status | source completeness | effective runtime | overridable | eligibility |
+|---|---|---|---|---|---|---|---|
+| PSY-DAILY-LOSS | BLOCK | 0 | SOURCE_VERIFIED | {"4.txt":"TRUNCATED"} | DISABLED | no | source 4.txt completeness is TRUNCATED; production selection requires COMPLETE |
+| PSY-REVENGE | BLOCK | 0 | SOURCE_INFERRED | {"4.txt":"TRUNCATED"} | DISABLED | no | source status is SOURCE_INFERRED, not SOURCE_VERIFIED; runtime status is DISABLED; source 4.txt completeness is TRUNCATED; production selection requires COMPLETE |
+| PSY-COOLDOWN | BLOCK | 0 | SOURCE_INFERRED | {} | DISABLED | yes | source status is SOURCE_INFERRED, not SOURCE_VERIFIED; no exact source references; runtime status is DISABLED |
+| PSY-CHASE | REDUCE_SCORE | 15 | SOURCE_INFERRED | {} | DISABLED | yes | source status is SOURCE_INFERRED, not SOURCE_VERIFIED; no exact source references; runtime status is DISABLED |
+| PSY-OVERTRADE | REDUCE_SCORE | 10 | SOURCE_INFERRED | {} | DISABLED | yes | source status is SOURCE_INFERRED, not SOURCE_VERIFIED; no exact source references; runtime status is DISABLED |
+| PSY-CHECKLIST | REQUIRE_CHECKLIST | 0 | SOURCE_VERIFIED | {} | DISABLED | no | no exact source references; runtime status is DISABLED |
+| PSY-REVIEW | FLAG | 0 | SOURCE_VERIFIED | {} | DISABLED | yes | no exact source references; runtime status is DISABLED |
+| PSY-STANDARDS | FLAG | 0 | SOURCE_VERIFIED | {} | DISABLED | no | no exact source references; runtime status is DISABLED |
+| PSY-EMOTIONAL-STATE | BLOCK | 0 | SOURCE_VERIFIED | {} | DISABLED | no | no exact source references; runtime status is DISABLED |
+| PSY-SECURITY | FLAG | 0 | SOURCE_VERIFIED | {} | DISABLED | no | no exact source references; runtime status is DISABLED |
 
-## 16. AI inputs/outputs
-AI consumes deterministic context only (candles, features, structure, strategy
-evaluations, risk output, psychology output, capability matrix, source refs) and must
-label every assertion MEASURED / SOURCE / INFERRED / CLAIM / UNKNOWN / UNAVAILABLE /
-CONFLICT. AI can never override risk limits, psychology blocks, data availability, or
-runtime status.
+## 16. AI Clone boundary (route-level audit)
+
+A provider request (only when the selected provider is configured and online) contains exactly two chat messages: the deterministic system prompt and a user message containing the bounded question, deterministic facts and serialized structured context. There is no prior chat history; transport includes the selected model, temperature 0.2 and stream=false. The route returns facts and the same context separately from the explanation. The actual mock-provider request is compared with the returned context in tests/ai-clone.test.ts.
+
+Always-sent context includes validated-symbol market stats/provenance/freshness or board sweep truth, release/build and source-contract identity, all compiled contracts and runtime consumer paths, promotion status, selected-or-blocked risk-policy state/source completeness, configured risk inputs, measured advisory-signal exposure or UNKNOWN, realized-loss availability/reason, and market-psychology context for a valid symbol. The request-scoped personal-psychology branch adds only explicit/journal-derived state, its deterministic gate result, manifest/source descriptors and source-only principle paraphrases; otherwise those archives are marked NOT_SHARED and omitted. Raw source transcript bytes, free-text journal notes, reconstructed historical psychology, inferred traits/diagnoses and provider credentials are excluded.
+
+The response includes ok, bounded question, validated symbol, provider_mode, facts, ai_context, explanation, explanation_authority, explanation_validation, tags, llm_online, provider/model/status/error/latency metadata, and ts. Provider prose can only populate candidate explanation text and influence its token/authority validation findings and model-output-related status/tag. It cannot mutate the facts, context, risk/promotion/admission state or runtime decisions. A narrow numeric/symbol/authority-token check may withhold it; **semantic truth is NOT_PROVEN**. The explanation is rendered separately and is never consumed by strategy, risk, promotion, persistence, live gates or order code. Deterministic evidence remains authoritative; AI Clone has no execution capability.
 
 ## 17. Safety invariants
 {

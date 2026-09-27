@@ -20,20 +20,21 @@ import { classifyLine, parseStrategyBlocks, topicTags, unknownCriticalFields, ty
 import { compileBlock, setupFromSpec, type CompiledSpec } from "./compile";
 import { evaluateGate } from "./gate";
 import { isConflictUnresolved } from "./conflicts";
-import { CORPUS_FILES, CANONICAL_PACK_FILE } from "./corpus-manifest";
+import { CORPUS_FILES, CANONICAL_PACK_FILE, CANONICAL_PACK_SHA256, CANONICAL_PACK_BYTES } from "./corpus-manifest";
 import { buildPrimitives, buildFeatures } from "./primitives";
 import { buildRiskPolicies, buildPsychologyPolicies, buildConflictGroups } from "./policies";
 import { canonicalFamilyFor } from "./ontology";
+import { ingestUserPsychologySources, verifyUserPsychologySources } from "../psychology/user-source";
 import {
   buildMachineRuleGraph, compiledImplementationBinding, machineRuleRegistryRows, nodesByStrategy,
 } from "../strategy/rule-graph";
 import type {
-  ClaimRecord, KnowledgeItem, RuleSpec, SourceDocument, SourceFragment, SourceRef, StrategyRecord,
+  ClaimRecord, ConflictGroup, ConflictHistoryRecord, KnowledgeItem, RuleSpec, SourceDocument, SourceFragment, SourceRef, StrategyRecord,
 } from "./types";
 
 export interface IngestReport {
   ok: boolean;
-  documents: { file_id: string; lines: number; chars: number; sha256: string; truncated: boolean }[];
+  documents: { file_id: string; lines: number; chars: number; bytes: number; sha256: string; truncated: boolean }[];
   fragments_written: number;
   lines_seen: number;
   coverage_ok: boolean;
@@ -62,16 +63,118 @@ interface PackStrategy {
 }
 interface PackRule { id: string; file: string; line: number; text: string; source_status: string; tags?: string[] }
 interface Pack {
+  version?: string;
+  source_files?: { file: string; sha256: string; lines: number; chars: number }[];
+  counts?: Record<string, number>;
   strategy_registry?: PackStrategy[];
   rule_registry?: PackRule[];
   uncertainty_registry?: Record<string, { file: string; line: number; text: string }[]>;
 }
 
-/** Upstream cap that truncated some supplied files (see STAGE0_BASELINE.md). */
-const TRUNCATION_CHAR_CAP = 350_000;
-
 function sha256(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
+}
+
+function corpusManifestSha256(integrity: CorpusIntegrityReport): string {
+  return sha256(Buffer.from(JSON.stringify({
+    documents: [...integrity.documents].sort((a, b) => a.file_id.localeCompare(b.file_id)),
+    canonical_pack: integrity.canonical_pack,
+  }), "utf8"));
+}
+
+function conflictHistoryId(group: ConflictGroup, manifestSha: string | null): string {
+  return `CFH-${sha256(Buffer.from(JSON.stringify({
+    manifestSha,
+    conflict_group_id: group.conflict_group_id,
+    topic: group.topic,
+    variants: group.variants,
+    resolution: group.resolution,
+    chosen_variant: group.chosen_variant,
+    resolved_by: group.resolved_by,
+    resolved_at_ms: group.resolved_at_ms,
+  }), "utf8")).slice(0, 32)}`;
+}
+
+function sameConflictSourceShape(a: ConflictGroup, b: ConflictGroup): boolean {
+  return a.conflict_group_id === b.conflict_group_id && a.topic === b.topic && JSON.stringify(a.variants) === JSON.stringify(b.variants);
+}
+
+export interface CorpusIntegrityReport {
+  ok: boolean;
+  documents: { file_id: string; filename: string; lines: number; chars: number; bytes: number; sha256: string }[];
+  canonical_pack: { filename: string; bytes: number; sha256: string } | null;
+  errors: string[];
+}
+
+/** Verify the immutable inputs before any destructive database refresh. */
+export function verifyCorpusIntegrity(corpusDir = ASA_CORPUS_DIR): CorpusIntegrityReport {
+  const errors: string[] = [];
+  const documents: CorpusIntegrityReport["documents"] = [];
+  const byId = new Map<string, CorpusIntegrityReport["documents"][number]>();
+  for (const cf of CORPUS_FILES) {
+    const full = path.join(corpusDir, cf.filename);
+    if (!fs.existsSync(full)) {
+      errors.push(`MISSING corpus file: ${full}`);
+      continue;
+    }
+    const bytes = fs.readFileSync(full);
+    const text = bytes.toString("utf8");
+    const lines = text.split("\n");
+    const actual = { file_id: cf.file_id, filename: cf.filename, lines: lines.length, chars: text.length, bytes: bytes.byteLength, sha256: sha256(bytes) };
+    documents.push(actual);
+    byId.set(cf.file_id, actual);
+    for (const [field, value, expected] of [
+      ["sha256", actual.sha256, cf.expected_sha256],
+      ["lines", actual.lines, cf.expected_lines],
+      ["chars", actual.chars, cf.expected_chars],
+      ["bytes", actual.bytes, cf.expected_bytes],
+    ] as const) {
+      if (value !== expected) errors.push(`${cf.filename} ${field} mismatch: expected ${expected}, got ${value}`);
+    }
+    if (cf.known_truncated !== (cf.completeness === "TRUNCATED")) {
+      errors.push(`${cf.filename} completeness/known_truncated manifest fields disagree`);
+    }
+  }
+
+  const packPath = path.resolve(corpusDir, CANONICAL_PACK_FILE);
+  let canonicalPack: CorpusIntegrityReport["canonical_pack"] = null;
+  if (!fs.existsSync(packPath)) {
+    errors.push(`canonical knowledge pack missing: ${packPath}`);
+  } else {
+    const bytes = fs.readFileSync(packPath);
+    const digest = sha256(bytes);
+    canonicalPack = { filename: path.basename(packPath), bytes: bytes.byteLength, sha256: digest };
+    if (digest !== CANONICAL_PACK_SHA256) errors.push(`canonical pack sha256 mismatch: expected ${CANONICAL_PACK_SHA256}, got ${digest}`);
+    if (bytes.byteLength !== CANONICAL_PACK_BYTES) errors.push(`canonical pack byte size mismatch: expected ${CANONICAL_PACK_BYTES}, got ${bytes.byteLength}`);
+    try {
+      const pack = JSON.parse(bytes.toString("utf8")) as Pack;
+      const packSources = new Map((pack.source_files ?? []).map((s) => [s.file, s]));
+      if (packSources.size !== CORPUS_FILES.length) errors.push(`canonical pack source_files count mismatch: expected ${CORPUS_FILES.length}, got ${packSources.size}`);
+      for (const cf of CORPUS_FILES) {
+        const raw = byId.get(cf.file_id);
+        const source = packSources.get(cf.file_id);
+        if (!source) { errors.push(`canonical pack has no source_files identity for ${cf.file_id}`); continue; }
+        if (raw && (source.sha256 !== raw.sha256 || source.lines !== raw.lines || source.chars !== raw.chars)) {
+          errors.push(`canonical pack identity mismatch for ${cf.file_id}`);
+        }
+      }
+      if (!Array.isArray(pack.strategy_registry) || !Array.isArray(pack.rule_registry) || !pack.uncertainty_registry) {
+        errors.push("canonical pack is missing required strategy/rule/uncertainty registries");
+      }
+    } catch (err) {
+      errors.push(`canonical pack unreadable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return { ok: errors.length === 0, documents, canonical_pack: canonicalPack, errors };
+}
+
+function emptyIngestReport(started: number, integrity: CorpusIntegrityReport): IngestReport {
+  return {
+    ok: false, documents: integrity.documents.map((d) => ({ file_id: d.file_id, lines: d.lines, chars: d.chars, bytes: d.bytes, sha256: d.sha256, truncated: CORPUS_FILES.find((cf) => cf.file_id === d.file_id)?.known_truncated ?? false })),
+    fragments_written: 0, lines_seen: 0, coverage_ok: false, strategies: 0, executable_specs: 0, setups: 0,
+    rules: 0, machine_rules: 0, claims: 0, conflicts: 0, unknown_fragments: 0, quarantined: 0, primitives: 0,
+    features: 0, risk_policies: 0, psychology_policies: 0, errors: integrity.errors, duration_ms: Date.now() - started,
+  };
 }
 
 export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): IngestReport {
@@ -83,20 +186,30 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
   let unknownFragments = 0;
   let quarantined = 0;
 
-  // REFRESH CONTRACT: rebuilding knowledge from the immutable corpus must not
-  // silently erase prior conflict ADJUDICATION (operator or empirical). The
-  // reset below DELETEs every conflict row — and `buildConflictGroups` would
-  // re-insert them all as UNRESOLVED — so snapshot the non-UNRESOLVED
-  // adjudication state first and re-apply it onto the rebuilt groups before
-  // they are written back. Source-derived fields (topic/variants) always come
-  // fresh from the corpus; adjudication fields are operator/evidence state
-  // that only an explicit putConflicts write may change.
-  const priorAdjudications = new Map(
-    store
-      .conflicts()
-      .filter((c) => c.resolution !== "UNRESOLVED")
-      .map((c) => [c.conflict_group_id, c]),
-  );
+  const integrity = verifyCorpusIntegrity(corpusDir);
+  if (!integrity.ok) return emptyIngestReport(started, integrity);
+  const currentManifestSha = corpusManifestSha256(integrity);
+
+  try {
+    return store.transaction(() => {
+  // Snapshot EVERY current conflict state before rebuilding, including open
+  // groups. Adjudications are only re-applied to byte-identical corpus
+  // manifests and identical conflict variants; otherwise the old state stays
+  // in history and the rebuilt group remains UNRESOLVED.
+  const priorGroups = store.conflicts();
+  const priorManifestSha = store.meta("source_manifest_sha256");
+  const historyAt = Date.now();
+  const historyRows: ConflictHistoryRecord[] = priorGroups.map((group) => ({
+    ...group,
+    history_id: conflictHistoryId(group, priorManifestSha),
+    prior_source_manifest_sha256: priorManifestSha,
+    lifecycle: "ACTIVE",
+    replaced_by: null,
+    recorded_at_ms: historyAt,
+  }));
+  store.recordConflictHistory(historyRows);
+  const historyByGroup = new Map(historyRows.map((row) => [row.conflict_group_id, row]));
+  const priorByGroup = new Map(priorGroups.map((group) => [group.conflict_group_id, group]));
 
   store.resetKnowledge();
 
@@ -117,12 +230,10 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
     const lines = text.split("\n");
     const chars = text.length;
 
-    // Truncation is a property of the SUPPLIED bytes; record it, never fix it.
-    // Detected two ways: (a) the file sits at/just below the upstream 350k cap,
-    // or (b) the manifest recorded it during Stage 0 verification. Relying on
-    // terminal punctuation alone is unreliable for Persian text.
-    const nearCap = chars >= TRUNCATION_CHAR_CAP - 5;
-    const truncated = nearCap || cf.known_truncated;
+    // Completeness comes only from the identity-bound source manifest. File
+    // size and terminal punctuation do not upgrade UNKNOWN or establish why a
+    // supplied source ends where it does.
+    const truncated = cf.completeness === "TRUNCATED";
     const doc: SourceDocument = {
       file_id: cf.file_id,
       filename: cf.filename,
@@ -131,14 +242,15 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
       immutable: true,
       total_lines: lines.length,
       total_chars: chars,
+      total_bytes: buf.byteLength,
       ingestion_timestamp: Date.now(),
       truncated,
       truncation_note: truncated
-        ? `supplied bytes end mid-content at ${chars} chars (upstream ${TRUNCATION_CHAR_CAP}-char cap); content beyond this point is NOT present in this package and is not reconstructed`
+        ? `source manifest marks these supplied bytes TRUNCATED; cutoff cause and continuation location are not established, and continuation is not reconstructed`
         : null,
     };
     store.putDocument(doc);
-    docs.push({ file_id: cf.file_id, lines: lines.length, chars, sha256: hash, truncated });
+    docs.push({ file_id: cf.file_id, lines: lines.length, chars, bytes: buf.byteLength, sha256: hash, truncated });
 
     // One fragment per source line — total provenance, zero loss.
     const frags: SourceFragment[] = [];
@@ -178,19 +290,15 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
 
     for (const b of parseStrategyBlocks(cf.file_id, lines)) allBlocks.push(b);
   }
+  if (errors.length > 0) throw new Error(errors.join("; "));
+  const suppliedLineCount = docs.reduce((total, document) => total + document.lines, 0);
+  if (fragmentsWritten !== suppliedLineCount || linesSeen !== suppliedLineCount) {
+    throw new Error(`corpus fragment coverage mismatch: expected ${suppliedLineCount}, fragments ${fragmentsWritten}, lines ${linesSeen}`);
+  }
 
   /* ------------------------------------------- canonical pack acceleration */
-  let pack: Pack = {};
-  const packPath = path.join(corpusDir, CANONICAL_PACK_FILE);
-  if (fs.existsSync(packPath)) {
-    try {
-      pack = JSON.parse(fs.readFileSync(packPath, "utf8")) as Pack;
-    } catch (e) {
-      errors.push(`canonical pack unreadable: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  } else {
-    errors.push(`canonical knowledge pack not found at ${packPath} — proceeding from RAW only`);
-  }
+  const packPath = path.resolve(corpusDir, CANONICAL_PACK_FILE);
+  const pack = JSON.parse(fs.readFileSync(packPath, "utf8")) as Pack;
 
   /* ------------------------------------------------------------ strategies */
   const strategies: StrategyRecord[] = [];
@@ -206,13 +314,15 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
       file: b.file, start_line: b.start_line, end_line: b.end_line,
       quote: `${b.name}`.slice(0, 300),
     }];
-    const srcStatus = b.name.includes("VERIFIED")
-      ? "SOURCE_VERIFIED" : b.name.includes("INFERRED") ? "SOURCE_INFERRED" : "SOURCE_VERIFIED";
+    const srcStatus = sourceStatusFromText(b.name);
 
     const existing = seenNames.get(key);
     if (existing) {
-      // Deduplicate rather than creating a second engine (governance J).
+      // Strategy records are aggregates; their occurrence-level evidence is
+      // retained separately and the summary status takes the most restrictive
+      // status rather than whichever occurrence happened to be parsed first.
       existing.source_refs.push(...refs);
+      existing.source_status = restrictiveSourceStatus(existing.source_status, srcStatus);
       if (!existing.aliases.includes(cleanName)) existing.aliases.push(cleanName);
       continue;
     }
@@ -260,16 +370,14 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
     const refs: SourceRef[] = (ps.evidence ?? []).map((e) => ({
       file: e.file, start_line: e.line, end_line: e.line, quote: (e.text ?? "").slice(0, 300),
     }));
+    const srcStatus = sourceStatusFromPack(ps.source_status);
     const existing = seenNames.get(key);
     if (existing) {
       for (const a of ps.aliases ?? []) if (!existing.aliases.includes(a)) existing.aliases.push(a);
       existing.source_refs.push(...refs);
+      existing.source_status = restrictiveSourceStatus(existing.source_status, srcStatus);
       continue;
     }
-    const srcStatus =
-      ps.source_status === "SOURCE_VERIFIED" ? "SOURCE_VERIFIED"
-        : ps.source_status === "SOURCE_INFERRED" ? "SOURCE_INFERRED"
-          : "SOURCE_VERIFIED";
     const isProcess = /psychology|security_routine|process_routine|principles/.test(ps.type);
     const rec: StrategyRecord = {
       strategy_id: ps.id,
@@ -388,7 +496,8 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
         : ruleClass === "CLAIM" ? "CLAIM"
           : ruleClass === "UNKNOWN" ? "UNKNOWN"
             : marked(/\[VERIFIED\]/) ? "SOURCE_VERIFIED"
-              : "SOURCE_INFERRED"; // no marker != verified
+              : marked(/\bINFERRED\b/) ? "SOURCE_INFERRED"
+                : "SOURCE_NAMED"; // an unmarked source line is named, not inferred or verified
     return {
       rule_id: r.id,
       description: text,
@@ -455,17 +564,29 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
   store.putFeatures(features);
 
   const conflicts = buildConflictGroups(conflictLines);
-  // Re-apply preserved adjudications (see snapshot before resetKnowledge):
-  // only groups that still exist in the rebuilt set inherit their prior
-  // resolution/chosen_variant/resolved_by/resolved_at_ms. A pristine store
-  // (no snapshot) rebuilds every group exactly as before — UNRESOLVED.
-  for (const c of conflicts) {
-    const prior = priorAdjudications.get(c.conflict_group_id);
-    if (prior) {
-      c.resolution = prior.resolution;
-      c.chosen_variant = prior.chosen_variant;
-      c.resolved_by = prior.resolved_by;
-      c.resolved_at_ms = prior.resolved_at_ms;
+  const rebuiltIds = new Set(conflicts.map((group) => group.conflict_group_id));
+  for (const prior of priorGroups) {
+    const history = historyByGroup.get(prior.conflict_group_id);
+    if (!history) continue;
+    const current = conflicts.find((group) => group.conflict_group_id === prior.conflict_group_id);
+    if (!current) {
+      store.updateConflictHistoryLifecycle(history.history_id, "ORPHANED", null);
+      continue;
+    }
+    if (priorManifestSha === currentManifestSha && sameConflictSourceShape(prior, current)) {
+      current.resolution = prior.resolution;
+      current.chosen_variant = prior.chosen_variant;
+      current.resolved_by = prior.resolved_by;
+      current.resolved_at_ms = prior.resolved_at_ms;
+      store.updateConflictHistoryLifecycle(history.history_id, "ACTIVE", current.conflict_group_id);
+    } else {
+      store.updateConflictHistoryLifecycle(history.history_id, "REPLACED", current.conflict_group_id);
+    }
+  }
+  // Keep `rebuiltIds` as an explicit completeness check for history transitions.
+  for (const history of historyRows) {
+    if (!rebuiltIds.has(history.conflict_group_id) && history.lifecycle === "ACTIVE") {
+      store.updateConflictHistoryLifecycle(history.history_id, "ORPHANED", null);
     }
   }
   store.putConflicts(conflicts);
@@ -496,6 +617,7 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
 
   store.setMeta("last_ingest_ms", String(Date.now()));
   store.setMeta("corpus_files", String(docs.length));
+  store.setMeta("source_manifest_sha256", currentManifestSha);
   store.setMeta("truncated_files", JSON.stringify(docs.filter((d) => d.truncated).map((d) => d.file_id)));
 
   const expectedLines = docs.reduce((a, d) => a + d.lines, 0);
@@ -521,6 +643,173 @@ export function ingestCorpus(store: BrainStore, corpusDir = ASA_CORPUS_DIR): Ing
     errors,
     duration_ms: Date.now() - started,
   };
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return emptyIngestReport(started, {
+      ...integrity,
+      ok: false,
+      errors: [...integrity.errors, `ingest transaction rolled back: ${message}`],
+    });
+  }
+}
+
+export type IngestFaultPoint = "after-corpus" | "after-psychology" | "before-manifest";
+
+export interface SourceRecoveryIngestReport {
+  ok: boolean;
+  rolled_back: boolean;
+  source_manifest_sha256: string | null;
+  completeness: "COMPLETE" | "PARTIAL" | "UNKNOWN";
+  corpus: IngestReport | null;
+  psychology: ReturnType<typeof ingestUserPsychologySources> | null;
+  errors: string[];
+}
+
+/**
+ * Atomic source recovery entry point. Corpus, psychology fragments/principles,
+ * conflict history and the persisted source manifest commit together or not at
+ * all. The optional fault point exists for deterministic rollback tests only.
+ */
+export function ingestAllSources(store: BrainStore, options: {
+  corpusDir?: string;
+  psychologyDir?: string;
+  faultAt?: IngestFaultPoint;
+} = {}): SourceRecoveryIngestReport {
+  const corpusDir = options.corpusDir ?? ASA_CORPUS_DIR;
+  const psychologyDir = options.psychologyDir ?? path.join(process.cwd(), "knowledge", "psychology");
+  const integrity = verifyCorpusIntegrity(corpusDir);
+  let verifiedPsychology: ReturnType<typeof verifyUserPsychologySources>;
+  try {
+    verifiedPsychology = verifyUserPsychologySources(psychologyDir);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, rolled_back: false, source_manifest_sha256: null, completeness: "UNKNOWN", corpus: null, psychology: null, errors: [...integrity.errors, message] };
+  }
+  if (!integrity.ok) {
+    return { ok: false, rolled_back: false, source_manifest_sha256: null, completeness: "UNKNOWN", corpus: emptyIngestReport(Date.now(), integrity), psychology: null, errors: integrity.errors };
+  }
+
+  let corpusReport: IngestReport | null = null;
+  let psychologyReport: ReturnType<typeof ingestUserPsychologySources> | null = null;
+  const rawManifestSha = corpusManifestSha256(integrity);
+  const rawCompleteness = (doc: CorpusIntegrityReport["documents"][number]): "COMPLETE" | "TRUNCATED" | "UNKNOWN" => {
+    // verifyCorpusIntegrity has already bound this row to the exact expected
+    // hash/bytes/lines. Completeness remains the explicit manifest value; no
+    // size or ending heuristic is used.
+    return CORPUS_FILES.find((cf) => cf.file_id === doc.file_id)?.completeness ?? "UNKNOWN";
+  };
+  const rawSources = integrity.documents.map((doc) => {
+    const completeness = rawCompleteness(doc);
+    return {
+      file_id: doc.file_id,
+      filename: doc.filename,
+      source_path: path.relative(process.cwd(), path.join(corpusDir, doc.filename)),
+      sha256: doc.sha256,
+      bytes: doc.bytes,
+      lines: doc.lines,
+      chars: doc.chars,
+      truncated: completeness === "TRUNCATED",
+      completeness,
+    };
+  });
+  const psychologySources = verifiedPsychology.map((source) => ({
+    file_id: source.file_id,
+    filename: source.filename,
+    original_filename: source.original_filename,
+    source_path: path.relative(process.cwd(), path.join(psychologyDir, source.filename)),
+    sha256: source.sha256,
+    bytes: source.total_bytes,
+    lines: source.total_lines,
+    chars: source.total_chars,
+    truncated: source.truncated,
+    completeness: source.truncated ? "TRUNCATED" as const : "UNKNOWN" as const,
+  }));
+  const sourceCompleteness = [...rawSources, ...psychologySources].map((source) => source.completeness);
+  const overallCompleteness: SourceRecoveryIngestReport["completeness"] = sourceCompleteness.some((status) => status === "TRUNCATED")
+    ? "PARTIAL"
+    : sourceCompleteness.every((status) => status === "COMPLETE")
+      ? "COMPLETE"
+      : "UNKNOWN";
+  const manifest = {
+    schema_version: "1.1.0",
+    raw_corpus: rawSources,
+    canonical_pack: integrity.canonical_pack
+      ? { ...integrity.canonical_pack, role: "INDEX_ONLY" as const }
+      : null,
+    psychology_sources: psychologySources,
+    completeness: overallCompleteness,
+  };
+  const recoveryManifestSha = sha256(Buffer.from(JSON.stringify(manifest), "utf8"));
+
+  try {
+    store.transaction(() => {
+      corpusReport = ingestCorpus(store, corpusDir);
+      if (!corpusReport.ok || !corpusReport.coverage_ok || corpusReport.documents.length !== CORPUS_FILES.length) {
+        throw new Error(`corpus ingestion failed or coverage is incomplete: ${corpusReport.errors.join("; ") || "coverage mismatch"}`);
+      }
+      if (options.faultAt === "after-corpus") throw new Error("fault injection: after-corpus");
+
+      psychologyReport = ingestUserPsychologySources(store, psychologyDir);
+      if (!psychologyReport.ok || psychologyReport.fragments_written !== psychologyReport.lines_seen) {
+        throw new Error("user psychology ingestion failed or line coverage is incomplete");
+      }
+      if (options.faultAt === "after-psychology") throw new Error("fault injection: after-psychology");
+      if (options.faultAt === "before-manifest") throw new Error("fault injection: before-manifest");
+
+      store.setMeta("source_recovery_manifest", JSON.stringify(manifest));
+      store.setMeta("source_recovery_manifest_sha256", recoveryManifestSha);
+      store.setMeta("source_recovery_manifest_status", manifest.completeness);
+      store.setMeta("source_recovery_committed_at_ms", String(Date.now()));
+      // Bind conflict adjudications to the raw/canonical source identity used
+      // for their interpretation. The broader recovery manifest includes psych.
+      store.setMeta("source_manifest_sha256", rawManifestSha);
+    });
+    return {
+      ok: true,
+      rolled_back: false,
+      source_manifest_sha256: recoveryManifestSha,
+      completeness: manifest.completeness,
+      corpus: corpusReport,
+      psychology: psychologyReport,
+      errors: [],
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      rolled_back: true,
+      source_manifest_sha256: null,
+      completeness: "UNKNOWN",
+      corpus: null,
+      psychology: null,
+      errors: [message],
+    };
+  }
+}
+
+type SourceStatusValue = StrategyRecord["source_status"];
+
+function sourceStatusFromText(text: string): SourceStatusValue {
+  if (/\[CONFLICT\]|\bCONFLICTING?\b/i.test(text)) return "CONFLICT";
+  if (/\[CLAIM\]|\bCLAIM\b/i.test(text)) return "CLAIM";
+  if (/\bUNKNOWN\b/i.test(text)) return "UNKNOWN";
+  if (/\[INFERRED\]|\bINFERRED\b/i.test(text)) return "SOURCE_INFERRED";
+  if (/\[VERIFIED\]|\bVERIFIED\b/i.test(text)) return "SOURCE_VERIFIED";
+  return "SOURCE_NAMED";
+}
+
+function sourceStatusFromPack(value: string): SourceStatusValue {
+  if (value === "SOURCE_VERIFIED" || value === "SOURCE_INFERRED" || value === "SOURCE_NAMED" ||
+      value === "UNKNOWN" || value === "CONFLICT" || value === "CLAIM") return value;
+  return "SOURCE_NAMED";
+}
+
+function restrictiveSourceStatus(a: SourceStatusValue, b: SourceStatusValue): SourceStatusValue {
+  const rank: Record<SourceStatusValue, number> = {
+    SOURCE_VERIFIED: 0, SOURCE_INFERRED: 1, SOURCE_NAMED: 2, CLAIM: 3, UNKNOWN: 4, CONFLICT: 5,
+  };
+  return rank[a] >= rank[b] ? a : b;
 }
 
 function normalizeName(n: string): string {

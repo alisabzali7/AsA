@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS experiments (
   promotion_json TEXT NOT NULL,
   empirical_status TEXT NOT NULL,
   code_version TEXT NOT NULL,
+  source_tree_sha256 TEXT NOT NULL DEFAULT '',
+  source_tree_digest_status TEXT NOT NULL DEFAULT 'UNKNOWN',
   dataset_identity_json TEXT,
   split_json TEXT
 );
@@ -127,6 +129,10 @@ export interface ExperimentRecord {
   promotion: unknown;
   empirical_status: EmpiricalStatus;
   code_version: string;
+  /** SHA-256 of the actual source/worktree inputs used for this validation. */
+  source_tree_sha256?: string;
+  /** COMPLETE is required; older/partial/invalid identity states remain non-promotable. */
+  source_tree_digest_status?: "COMPLETE" | "PARTIAL" | "UNKNOWN" | "INVALID";
   /** required evidence provenance; rows without it can never be promoted */
   dataset_identity?: DatasetIdentity | null;
   /** required in-sample/out-of-sample boundaries */
@@ -153,6 +159,8 @@ export interface ExperimentEvidence {
     code_version: string;
     app_version: string;
     build_id: string;
+    source_tree_sha256: string;
+    source_tree_digest_status: "COMPLETE" | "PARTIAL" | "UNKNOWN" | "INVALID";
   };
   params: Record<string, unknown>;
   in_sample: BacktestMetrics | null;
@@ -315,6 +323,11 @@ export function parseExperimentEvidence(row: Record<string, unknown>): Experimen
   const params = obj(paramsRaw) ?? {};
   if (paramsRaw !== null && obj(paramsRaw) === null) notes.push("params: could not be read");
 
+  const sourceTreeSha = String(row.source_tree_sha256 ?? "");
+  const sourceTreeStatus = String(row.source_tree_digest_status ?? "UNKNOWN");
+  if (!/^[0-9a-f]{64}$/.test(sourceTreeSha)) notes.push("source_tree_sha256: absent or malformed — code/worktree identity is UNKNOWN");
+  if (sourceTreeStatus !== "COMPLETE") notes.push(`source_tree_digest_status: ${sourceTreeStatus} — complete source identity is required for promotion`);
+
   const methodology = typeof params.methodology === "string" ? params.methodology : null;
   if (methodology === null) notes.push("methodology: the row does not state which validation methodology produced it");
 
@@ -335,6 +348,10 @@ export function parseExperimentEvidence(row: Record<string, unknown>): Experimen
       detector_version: String(row.detector_version),
       rule_version: String(row.rule_version),
       code_version: String(row.code_version),
+      source_tree_sha256: String(row.source_tree_sha256 ?? ""),
+      source_tree_digest_status: sourceTreeStatus === "COMPLETE" || sourceTreeStatus === "PARTIAL" || sourceTreeStatus === "UNKNOWN" || sourceTreeStatus === "INVALID"
+        ? sourceTreeStatus
+        : "UNKNOWN",
       app_version: String(row.app_version ?? ""),
       build_id: String(row.build_id ?? ""),
     },
@@ -375,6 +392,8 @@ export class ExperimentStore {
     if (!have.has("split_json")) this.db.exec("ALTER TABLE experiments ADD COLUMN split_json TEXT");
     if (!have.has("app_version")) this.db.exec("ALTER TABLE experiments ADD COLUMN app_version TEXT NOT NULL DEFAULT ''");
     if (!have.has("build_id")) this.db.exec("ALTER TABLE experiments ADD COLUMN build_id TEXT NOT NULL DEFAULT ''");
+    if (!have.has("source_tree_sha256")) this.db.exec("ALTER TABLE experiments ADD COLUMN source_tree_sha256 TEXT NOT NULL DEFAULT ''");
+    if (!have.has("source_tree_digest_status")) this.db.exec("ALTER TABLE experiments ADD COLUMN source_tree_digest_status TEXT NOT NULL DEFAULT 'UNKNOWN'");
   }
 
   insert(r: ExperimentRecord): void {
@@ -382,15 +401,16 @@ export class ExperimentStore {
       `INSERT INTO experiments
        (experiment_id,created_ms,strategy_id,setup_id,symbol,timeframe,dataset_fingerprint,bars,from_ts,to_ts,
         strategy_version,detector_version,app_version,build_id,rule_version,risk_policy_id,psychology_policy_set,costs_json,params_json,
-        in_sample_json,oos_json,walk_forward_json,promotion_json,empirical_status,code_version,dataset_identity_json,split_json)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        in_sample_json,oos_json,walk_forward_json,promotion_json,empirical_status,code_version,source_tree_sha256,source_tree_digest_status,dataset_identity_json,split_json)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
       r.experiment_id, r.created_ms, r.strategy_id, r.setup_id, r.symbol, r.timeframe,
       r.dataset_fingerprint, r.bars, r.from_ts, r.to_ts, r.strategy_version, r.detector_version,
       r.app_version ?? "", r.build_id ?? "", r.rule_version, r.risk_policy_id, r.psychology_policy_set,
       JSON.stringify(r.costs), JSON.stringify(r.params), JSON.stringify(r.in_sample),
       r.oos ? JSON.stringify(r.oos) : null, r.walk_forward ? JSON.stringify(r.walk_forward) : null,
-      JSON.stringify(r.promotion), r.empirical_status, r.code_version,
+      JSON.stringify(r.promotion), r.empirical_status, r.code_version, r.source_tree_sha256 ?? "",
+      r.source_tree_digest_status ?? "UNKNOWN",
       r.dataset_identity ? JSON.stringify(r.dataset_identity) : null,
       r.split ? JSON.stringify(r.split) : null,
     );

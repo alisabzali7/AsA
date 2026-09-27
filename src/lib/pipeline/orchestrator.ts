@@ -10,7 +10,7 @@ import { candleManager } from "../market/candles";
 import { prepareAnalysisInput } from "../analysis/input";
 import { getRepo } from "../../db/sqlite";
 import { promotedRuntimeStatus } from "../backtest/promotion";
-import { getRuntimeStrategy, listRuntimeStrategies, evaluateRuntime, type StrategyRuntimeDefinition } from "../strategy/runtime";
+import { getRuntimeStrategy, listRuntimeStrategies, evaluateRuntime, evaluateResearchRuntime, type StrategyRuntimeDefinition } from "../strategy/runtime";
 import { evaluateRisk } from "../risk/engine";
 import { evaluatePortfolio } from "../risk/portfolio";
 import { evaluatePsychologyGate } from "../psychology/gate";
@@ -45,6 +45,11 @@ export interface OpportunityPayload {
   targets: number[];
   rr: number | null;
   strategy_id: string;
+  strategy_version: string;
+  rule_ids: string[];
+  rule_versions: string[];
+  source_contract_status: StrategyRuntimeDefinition["source_contract_status"];
+  source_contract_blockers: string[];
   mode: "research" | "live";
   state: string;
   anchor_ts_ms: number;
@@ -132,8 +137,11 @@ export async function scanSymbol(
     forceRefresh?: boolean;
   } = {},
 ): Promise<ScanOutcome> {
-  if (strategy.availability !== "EXECUTABLE" || !strategy.impl) {
-    return { opportunity: null, evaluated: false, reason: `strategy ${strategy.setup_id} is ${strategy.availability}: ${strategy.blocked_reason ?? "not executable"}` };
+  const canEvaluate = mode === "live"
+    ? strategy.availability === "EXECUTABLE"
+    : strategy.availability === "EXECUTABLE" || strategy.availability === "RESEARCH_ONLY";
+  if (!canEvaluate || !strategy.impl) {
+    return { opportunity: null, evaluated: false, reason: `strategy ${strategy.setup_id} is ${strategy.availability}: ${strategy.blocked_reason ?? (mode === "live" ? "not source-faithful executable" : "not research-computable")}` };
   }
   // Each strategy declares its OWN timeframe — never hard-coded to 15m.
   const tf = strategy.timeframe as TimeframeId;
@@ -157,7 +165,9 @@ export async function scanSymbol(
   const stale = input.freshness !== "FRESH";
 
   // ---- deterministic strategy evaluation (same call the backtester makes)
-  const evOrBlocked = evaluateRuntime(strategy, symbol, candles, nowMs);
+  const evOrBlocked = mode === "live"
+    ? evaluateRuntime(strategy, symbol, candles, nowMs)
+    : evaluateResearchRuntime(strategy, symbol, candles, nowMs);
   if ("blocked" in evOrBlocked) {
     return { opportunity: null, evaluated: false, reason: evOrBlocked.reason };
   }
@@ -219,7 +229,9 @@ export async function scanSymbol(
   const score = scoreFromEvaluation(ev, {
     riskPass,
     riskEvaluated: risk != null,
-    psychReady: psych.verdict !== "block",
+    psychReady: psych.verdict === "pass" || psych.verdict === "flag",
+    psychUnknown: psych.verdict === "unknown",
+    psychologyUnknownReasons: psych.not_evaluated.map((item) => item.reason),
     psychPenalty: psych.score_penalty,
     bars: candles.length,
     stale,
@@ -272,6 +284,11 @@ export async function scanSymbol(
     targets: ev.levels.targets,
     rr: ev.rr,
     strategy_id: strategy.strategy_id,
+    strategy_version: strategy.strategy_version,
+    rule_ids: strategy.rule_ids,
+    rule_versions: strategy.rule_versions,
+    source_contract_status: strategy.source_contract_status,
+    source_contract_blockers: strategy.source_contract_blockers,
     setup_id: strategy.setup_id,
     mode,
     state: oppState,
@@ -288,10 +305,11 @@ export async function scanSymbol(
     source_refs: score.source_refs,
     data_quality: { bars: candles.length, stale, age_ms: ageMs, state: stale ? "STALE" : "FRESH" },
     psychology: {
-      state: psych.verdict === "block" ? "BLOCKED" : psych.verdict === "flag" ? "CAUTION" : "READY",
+      state: psych.verdict === "block" ? "BLOCKED" : psych.verdict === "flag" ? "CAUTION" : psych.verdict === "pass" ? "READY" : "UNKNOWN",
       hard_blocks: psych.blocks.map((b) => b.reason),
       soft_warnings: psych.flags.map((f) => f.reason),
       score_modifier: -psych.score_penalty,
+      not_evaluated: psych.not_evaluated.map((item) => `${item.policy_id}: ${item.reason}`),
     },
     portfolio: { verdict: portfolio.verdict, reasons: portfolio.reasons, unenforced: portfolio.unenforced },
     score_semantics: SCORE_DISCLAIMER,
@@ -409,12 +427,10 @@ export interface PublishSignalResult {
  * publication point for the Telegram outbox. It now enforces, on its own,
  * every invariant the delivery path promises:
  *
- *  1. FINAL RISK BOUNDARY (strict): a decision whose state is not `READY`, or
- *     whose risk result is not an EXPLICIT well-formed `verdict: "pass"` from
- *     the risk engine, is NEVER turned into a published signal or an outbox
- *     row — regardless of the caller. Missing / unavailable / unknown /
- *     malformed risk is refused as firmly as `block`; a blocked/denied risk
- *     result stays blocked here; no later layer can override it.
+ *  1. FINAL ADMISSION BOUNDARY (strict): a decision must be live and READY,
+ *     carry an explicit risk PASS and portfolio PASS, match the current
+ *     compiled setup/source-contract/version binding, and pass the current
+ *     promotion gate. Payload claims alone cannot authorize publication.
  *  2. EXACTLY ONCE (closure §V): one opportunity -> one signal row -> ONE
  *     outbox row. Re-publishing is an idempotent no-op. Previously only
  *     `state === "published"` short-circuited, so an `expired` signal (engine
@@ -433,14 +449,10 @@ export function publishSignal(opp: OpportunityPayload): PublishSignalResult {
   const repo = getRepo();
   const id = `sig-${opp.id}`;
 
-  // ---- 1. final hard risk boundary (defense in depth at the publish step).
-  // FIX (T05 T2, STRICT): ONLY an explicit, well-formed PASS from the
-  // authoritative risk engine may publish. Missing / unavailable / unknown /
-  // malformed risk is NEVER approval — there is no substitute metric and no
-  // default. The contract vocabulary stays the risk engine's own: a result is
-  // publishable exactly when `verdict === "pass"` on a well-formed result
-  // ({verdict: string, reasons: []}); `block` and every other value — plus
-  // absent or malformed results — are refused deterministically below.
+  // ---- 1. live/READY + authoritative risk boundary.
+  if (opp.mode !== "live") {
+    return { id, published: false, reason: `opportunity mode ${opp.mode} is research-only — research results cannot be published as live signals` };
+  }
   if (opp.state !== "READY") {
     return { id, published: false, reason: `opportunity state ${opp.state} is not publishable — only READY opportunities become signals` };
   }
@@ -448,13 +460,60 @@ export function publishSignal(opp: OpportunityPayload): PublishSignalResult {
   if (riskUnknown == null) {
     return { id, published: false, reason: "risk result missing/unavailable — publication requires an explicit risk-gate PASS" };
   }
-  const riskVerdict = (riskUnknown as { verdict?: unknown }).verdict;
-  const riskReasons = (riskUnknown as { reasons?: unknown }).reasons;
-  if (typeof riskVerdict !== "string" || !Array.isArray(riskReasons)) {
-    return { id, published: false, reason: "risk result malformed (expected {verdict: string, reasons: []}) — publication requires an explicit risk-gate PASS" };
+  const riskRecord = typeof riskUnknown === "object" && !Array.isArray(riskUnknown)
+    ? riskUnknown as Record<string, unknown>
+    : null;
+  const riskVerdict = riskRecord?.verdict;
+  const riskReasons = riskRecord?.reasons;
+  if (typeof riskVerdict !== "string" || !Array.isArray(riskReasons) || !riskReasons.every((reason) => typeof reason === "string")) {
+    return { id, published: false, reason: "risk result malformed (expected {verdict: string, reasons: string[]}) — publication requires an explicit risk-gate PASS" };
   }
   if (riskVerdict !== "pass") {
-    return { id, published: false, reason: `risk gate verdict "${riskVerdict}" — only an explicit PASS may be published` };
+    return { id, published: false, reason: `risk gate verdict \"${riskVerdict}\" — only an explicit PASS may be published` };
+  }
+  const riskNumbers = riskRecord?.numbers;
+  const riskNotional = riskNumbers !== null && typeof riskNumbers === "object" && !Array.isArray(riskNumbers)
+    ? (riskNumbers as Record<string, unknown>).risk_notional
+    : null;
+  if (typeof riskNotional !== "number" || !Number.isFinite(riskNotional) || riskNotional <= 0) {
+    return { id, published: false, reason: "risk result malformed — explicit PASS requires a finite positive risk_notional" };
+  }
+
+  // Admission must survive the final portfolio boundary; a READY string is
+  // not a substitute for the measured portfolio verdict.
+  const portfolio = opp.portfolio;
+  if (!portfolio || portfolio.verdict !== "pass" || !Array.isArray(portfolio.reasons) || !portfolio.reasons.every((reason) => typeof reason === "string") ||
+      !Array.isArray(portfolio.unenforced) || !portfolio.unenforced.every((reason) => typeof reason === "string")) {
+    return { id, published: false, reason: `portfolio result ${portfolio?.verdict ?? "missing/malformed"} — publication requires an explicit portfolio PASS` };
+  }
+
+  // Re-resolve the setup and source contract at the publication boundary. This
+  // prevents direct callers from promoting a research-only or version-stale
+  // payload by setting state=READY or copying a source-faithful label.
+  if (!opp.setup_id) {
+    return { id, published: false, reason: "compiled setup identity is missing — publication requires an exact runtime binding" };
+  }
+  const runtime = getRuntimeStrategy(opp.setup_id);
+  if (!runtime || runtime.setup_id !== opp.setup_id || runtime.strategy_id !== opp.strategy_id) {
+    return { id, published: false, reason: `compiled setup binding ${opp.setup_id} does not resolve to strategy ${opp.strategy_id}` };
+  }
+  if (runtime.availability !== "EXECUTABLE" || runtime.source_contract_status !== "SOURCE_FAITHFUL" ||
+      !Array.isArray(runtime.source_contract_blockers) || runtime.source_contract_blockers.length > 0) {
+    const blockers = Array.isArray(runtime.source_contract_blockers) ? runtime.source_contract_blockers.join("; ") : "runtime source blockers unavailable";
+    return { id, published: false, reason: `current runtime/source contract is not live-executable (${runtime.availability}/${runtime.source_contract_status}): ${blockers || runtime.blocked_reason || "source parity is not established"}` };
+  }
+  const sorted = (values: string[]): string[] => [...values].sort();
+  const sameStrings = (actual: unknown, expected: string[]): boolean =>
+    Array.isArray(actual) && actual.every((value) => typeof value === "string") && actual.length === expected.length &&
+    sorted(actual as string[]).every((value, index) => value === sorted(expected)[index]);
+  if (opp.source_contract_status !== runtime.source_contract_status || !Array.isArray(opp.source_contract_blockers) || opp.source_contract_blockers.length > 0 ||
+      opp.direction !== runtime.direction || opp.timeframe !== runtime.timeframe || opp.strategy_version !== runtime.strategy_version ||
+      !sameStrings(opp.rule_ids, runtime.rule_ids) || !sameStrings(opp.rule_versions, runtime.rule_versions)) {
+    return { id, published: false, reason: "opportunity source/runtime identity or version binding differs from the current compiled setup" };
+  }
+  const promotionStatus = runtimeStatusFor(opp.strategy_id);
+  if (promotionStatus !== "LIVE_ADVISORY_ONLY") {
+    return { id, published: false, reason: `current promotion gate reports ${promotionStatus}; LIVE_ADVISORY_ONLY is required for publication` };
   }
 
   // ---- 2/3. lifecycle-aware idempotency on the stable natural key (closure §V)
@@ -480,6 +539,11 @@ export function publishSignal(opp: OpportunityPayload): PublishSignalResult {
     strategy: opp.setup ?? opp.strategy_id,
     strategy_id: opp.strategy_id,
     setup_id: opp.setup_id,
+    strategy_version: opp.strategy_version,
+    rule_ids: opp.rule_ids,
+    rule_versions: opp.rule_versions,
+    source_contract_status: opp.source_contract_status,
+    source_contract_blockers: opp.source_contract_blockers,
     score: opp.score,
     score_semantics: opp.score_semantics,
     entry: entryPx,
@@ -614,7 +678,10 @@ export function listStrategiesSummary() {
     name: s.name,
     family: s.family,
     status: s.availability,
-    version: s.version,
+    version: s.strategy_version,
+    strategy_version: s.strategy_version,
+    rule_versions: s.rule_versions,
+    research_computable: s.impl !== null && (s.availability === "EXECUTABLE" || s.availability === "RESEARCH_ONLY"),
     // AUDIT FIX (P1-9): executability is NOT live eligibility. `executable`
     // means the rules are deterministic; `live_eligible` additionally requires
     // the Brain runtime gate (empirical OOS/walk-forward evidence), which no

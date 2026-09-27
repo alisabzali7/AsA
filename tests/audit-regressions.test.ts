@@ -36,6 +36,20 @@ process.env.ASA_BRAIN_DB_PATH = path.join(TMP, "brain.db");
 process.env.TTT_API_BASE = "https://apiv2.thetruetrade.io";
 delete process.env.ASA_API_TOKEN; // development mode: mutation guard open
 
+vi.mock("../src/lib/risk/policy", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/risk/policy")>();
+  const source = mod.selectableRiskPolicies().find((policy) => policy.policy_id === "RISK-DAILY-5PCT")!;
+  const testOnlyPolicy = {
+    ...source,
+    selection_status: "SELECTED" as const,
+    selected_by: "operator_pref" as const,
+    selection_reason: "TEST ONLY: production source-completeness gate bypassed for backtest lineage regression",
+    policy_version: mod.RISK_POLICY_VERSION,
+    source_completeness: mod.riskPolicyEligibility(source).source_completeness,
+  };
+  return { ...mod, getProductionRiskPolicy: () => testOnlyPolicy };
+});
+
 type FetchImpl = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 const jsonRes = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -182,6 +196,8 @@ describe("P0-7 backtest data-freshness contract", () => {
 
   it("runBacktest surfaces the freshness contract in warnings AND lineage", async () => {
     const { runBacktest } = await import("../src/lib/backtest/engine");
+    const { getRepo } = await import("../src/db/sqlite");
+    getRepo().configSet("pref.risk.policyId", "RISK-DAILY-5PCT");
     const candles = Array.from({ length: 200 }, (_, i) => ({
       t: 1_700_000_000 + i * 3600, o: 100, h: 101, l: 99, c: 100, v: 10,
     }));
@@ -189,6 +205,13 @@ describe("P0-7 backtest data-freshness contract", () => {
       strategyId: "SET-STR-RAW-2-803", // 1h short, min_bars 120
       symbol: "BTCUSDT",
       candles,
+      feeRoundTripPct: 0.08,
+      slippagePct: 0.02,
+      sameBarPolicy: "stop_first",
+      maxHoldBars: 120,
+      accountEquity: 10_000,
+      riskPerTradePct: 1,
+      maxLeverage: 5,
       dataMode: "ttt",
       dataFreshness: {
         fresh_sync_status: "failed",
@@ -270,13 +293,19 @@ describe("P1-6 expireStaleSignals expires every stale signal despite pagination"
 /* ─────────────── P1-9: executable ≠ live-eligible ─────────────── */
 
 describe("P1-9 executable strategies are never presented as live-eligible", () => {
-  it("executableStrategyCandidates returns EXECUTABLE strategies only", async () => {
+  it("source-incomplete research strategies never enter executable candidates", async () => {
     const { executableStrategyCandidates } = await import("../src/lib/strategy/registry");
-    const all = executableStrategyCandidates();
-    expect(all.length).toBeGreaterThan(0);
-    for (const s of all) {
-      expect(s.availability).toBe("EXECUTABLE");
+    const { researchableStrategies } = await import("../src/lib/strategy/runtime");
+    const executable = executableStrategyCandidates();
+    expect(executable).toEqual([]);
+
+    const researchable = researchableStrategies();
+    expect(researchable.length).toBeGreaterThan(0);
+    for (const s of researchable) {
+      expect(s.availability).toBe("RESEARCH_ONLY");
+      expect(s.source_contract_status).toBe("INCOMPLETE");
       expect(s.impl).not.toBeNull();
+      expect(executable.some((candidate) => candidate.setup_id === s.setup_id)).toBe(false);
     }
   });
 
@@ -418,7 +447,7 @@ describe("audit B1/B2: dynamic universe and type safety", () => {
 /* ─────────────── D-section: signal idempotency ─────────────── */
 
 describe("audit D: signal idempotency is enforced by the database", () => {
-  it("re-publishing the same opportunity yields ONE signal row (UNIQUE opp_id)", async () => {
+  it("a direct READY payload with no portfolio evidence is refused before any signal row is created", async () => {
     const { publishSignal } = await import("../src/lib/pipeline/orchestrator");
     const { getRepo, closeRepo } = await import("../src/db/sqlite");
     try {
@@ -427,20 +456,24 @@ describe("audit D: signal idempotency is enforced by the database", () => {
         score: 90, setup: "s", thesis: "t",
         entry_zone: null, invalidation: null, stop: null, targets: [], rr: null,
         strategy_id: "STR-RAW-2-803", mode: "live", state: "READY",
+        strategy_version: "1.0.0", rule_ids: [], rule_versions: ["1.0.0"],
+        source_contract_status: "SOURCE_FAITHFUL", source_contract_blockers: [],
         anchor_ts_ms: 0, anchor_close_ms: Date.now(), freshness_ms: 0,
         evidence: [], contradictions: [], score_breakdown: null,
         positive_factors: [], negative_factors: [], blocked_factors: [], unknown_factors: [],
         source_refs: [], data_quality: { bars: 1, stale: false, age_ms: 0, state: "FRESH" },
         psychology: null, portfolio: null, setup_id: null, score_semantics: "s",
-        chart_evidence: null, risk: { verdict: "pass", reasons: ["risk checks passed"], numbers: {} }, ai: null,
-        provenance: { generated_at_ms: 0, data: { series_fetched_ms: 0, stats_fetched_ms: null, native_1d: true, candles: { macro: 0, context: 0, trigger: 0 } } },
+        chart_evidence: null, risk: { verdict: "pass", reasons: ["risk checks passed"], numbers: { risk_notional: 100 } }, ai: null,
+        provenance: { generated_at_ms: 0, data: { series_fetched_ms: 0, stats_fetched_ms: null, native_1d: true, candles: { macro: null, context: null, trigger: 0 } } },
       } as never;
-      publishSignal(opp);
-      publishSignal(opp);
-      publishSignal(opp);
+      const first = publishSignal(opp);
+      const second = publishSignal(opp);
+      expect(first.published).toBe(false);
+      expect(first.reason).toMatch(/portfolio.*explicit portfolio PASS/);
+      expect(second.published).toBe(false);
       const repo = getRepo();
       const rows = repo.signalList(100).filter((r) => r.opp_id === "oppfixed");
-      expect(rows.length).toBe(1);
+      expect(rows.length).toBe(0);
     } finally {
       closeRepo();
     }

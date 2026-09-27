@@ -6,11 +6,11 @@ import { useLang } from "@/components/lang";
 import { usePoll, fmtAge } from "@/components/hooks";
 import { Panel, Badge } from "@/components/ui";
 
-interface AiStatusShape { ok: boolean; providers: { id: string; configured: boolean; online: boolean | null; model: string | null; latency_ms: number | null; error: string | null }[] }
+interface AiStatusShape { ok: boolean; provider_mode?: string; providers: { id: string; configured: boolean; online: boolean | null; model: string | null; latency_ms: number | null; error: string | null }[] }
 interface CloneLlmInfo { provider: string | null; model: string | null; status: "ok" | "fallback" | "disabled"; error: string | null; latency_ms: number | null }
-/** `facts` = deterministic context (authoritative, always verbatim). `explanation` =
- *  LLM text, structurally separate so it can never alter/reorder the facts. */
-interface CloneShape { ok: boolean; question?: string; symbol?: string | null; facts: string[]; explanation: string | null; tags: string[]; llm_online: boolean; llm: CloneLlmInfo; ts?: number }
+interface CloneOutputValidation { status: string; semantic_status: "NOT_PROVEN"; displayed: boolean; unsupported_numbers: string[]; unsupported_symbols: string[]; authority_violations: string[]; note: string }
+/** Deterministic facts/context are authoritative; LLM prose is separate, non-authoritative, and not semantically proven. */
+interface CloneShape { ok: boolean; question?: string; symbol?: string | null; provider_mode?: string; facts: string[]; ai_context?: Record<string, unknown>; explanation: string | null; explanation_authority?: string; explanation_validation?: CloneOutputValidation | null; tags: string[]; llm_online: boolean; llm: CloneLlmInfo; ts?: number }
 
 const SUGGESTIONS = [
   "What is the state of BTCUSDT right now?",
@@ -46,8 +46,12 @@ export default function AiClonePage() {
         ok: true,
         question: j.question,
         symbol: j.symbol ?? null,
+        provider_mode: j.provider_mode,
         facts: j.facts ?? [],
+        ai_context: j.ai_context,
         explanation: j.explanation ?? null,
+        explanation_authority: j.explanation_authority,
+        explanation_validation: j.explanation_validation ?? null,
         tags: j.tags ?? [],
         llm_online: j.llm_online ?? false,
         llm: j.llm ?? { provider: null, model: null, status: "disabled", error: null, latency_ms: null },
@@ -97,7 +101,8 @@ export default function AiClonePage() {
             <Panel key={i}>
               <div className="mb-1 flex flex-wrap gap-1">
                 {h.tags.map((tag) => <Badge key={tag} color="#d4b874">{tag}</Badge>)}
-                {h.llm.status === "ok" && <Badge color="#3fb68b">LLM · {h.llm.provider}{h.llm.model ? ` · ${h.llm.model}` : ""}</Badge>}
+                {h.provider_mode && <Badge color="#8a8f9b">mode · {h.provider_mode}</Badge>}
+                {h.llm.status === "ok" && h.explanation !== null && <Badge color="#3fb68b">LLM · {h.llm.provider}{h.llm.model ? ` · ${h.llm.model}` : ""}</Badge>}
               </div>
               {h.explanation !== null && (
                 <div className="mb-2 rounded border hairline p-2">
@@ -105,6 +110,7 @@ export default function AiClonePage() {
                     {t("ai", "explanation")}
                     {h.llm.provider && <span dir="ltr" className="mono normal-case tracking-normal text-dim"> · {h.llm.provider} · {h.llm.model ?? ""} · {h.llm.latency_ms ?? 0}ms</span>}
                   </p>
+                  <p className="mb-1 text-[9.5px] text-dim">{t("ai", "nonAuthoritative")}{h.explanation_validation ? ` · ${h.explanation_validation.status}` : ""}</p>
                   <div className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-text">{h.explanation}</div>
                 </div>
               )}
@@ -117,6 +123,12 @@ export default function AiClonePage() {
                   {h.facts.map((a, j) => <li key={j} className="whitespace-pre-wrap text-muted" dir="auto">{a}</li>)}
                 </ul>
               </div>
+              {h.ai_context && (
+                <details className="mt-2 rounded border hairline p-2">
+                  <summary className="cursor-pointer text-[10px] text-dim">{t("ai", "exactProviderContext")}</summary>
+                  <pre className="mt-2 max-h-[360px] overflow-auto whitespace-pre-wrap break-words text-[9px] text-muted" dir="ltr">{JSON.stringify(h.ai_context, null, 2)}</pre>
+                </details>
+              )}
             </Panel>
           ))}
         </div>
@@ -151,6 +163,7 @@ export default function AiClonePage() {
               ))}
             </tbody>
           </table>
+          {status.data?.provider_mode && <p className="mt-1 text-[9.5px] text-dim">selected mode · {status.data.provider_mode}</p>}
           <p className="mt-2 text-[10px] leading-relaxed text-muted">
             heuristic = deterministic evidence assembly, NOT an LLM. Configure the local or OpenAI-compatible provider via server environment variables (see .env.example) — a real LLM then adds an <span className="text-text">{t("ai", "explanation").toLowerCase()}</span> over the deterministic context; it can never change that context.
           </p>

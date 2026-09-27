@@ -1,5 +1,13 @@
 # Brain Executability Report
 
+> **Current semantic boundary (2026-09-27):** “Machine-executable rules” below means
+> code-level predicates are registered; it does not prove source-faithful semantics,
+> complete source coverage, promotion, or live eligibility. The six compiled strategy
+> contracts are `INCOMPLETE`, `RESEARCH_ONLY`, and `NOT_PROVEN`; no strategy is
+> source-faithful executable or promotion/live eligible. Use
+> `docs/roadmap/ASA_100_PERCENT_CONTRACT.md` and `npm run closure:validate` for
+> current closure status.
+
 **Path B implemented:** rules that cannot be safely formalized stay textual, and
 the executable subset is explicit and machine-auditable.
 

@@ -12,29 +12,50 @@
  *   7. chart evidence could render under a mismatched symbol/timeframe
  *   8. GET /api/opportunities presented freshness READY as if admitted
  */
-import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { describe, expect, it, beforeAll, afterAll, vi } from "vitest";
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "asa-t04-"));
-process.env.ASA_DB_PATH = path.join(TMP, "asa.db");
-process.env.ASA_HISTORY_DB_PATH = path.join(TMP, "history.db");
-process.env.ASA_BRAIN_DB_PATH = path.join(TMP, "brain.db");
+// Set database identities before static helper imports evaluate src/lib/env.
+vi.hoisted(() => {
+  process.env.ASA_DB_PATH = ":memory:";
+  process.env.ASA_HISTORY_DB_PATH = ":memory:";
+  process.env.ASA_BRAIN_DB_PATH = ":memory:";
+});
 
 import { admitOpportunity } from "../src/lib/brain/score";
 import { evaluatePortfolio } from "../src/lib/risk/portfolio";
-import { buildRiskPolicies, buildPsychologyPolicies } from "../src/lib/brain/policies";
+import { buildPsychologyPolicies } from "../src/lib/brain/policies";
 import { evaluatePsychologyGate } from "../src/lib/psychology/gate";
 import { psychologyStateFromJournal, advisoryOpenRisks } from "../src/lib/pipeline/live-gates";
 import { scoreFromEvaluation } from "../src/lib/pipeline/scoring";
 import { chartEvidenceMatches, type ChartEvidence } from "../src/lib/chart/evidence";
 import { opportunityFreshness } from "../src/lib/pipeline/freshness";
-import { liveScanFlightKey } from "../src/lib/pipeline/live-scan";
 import type { JournalRow, SignalRow } from "../src/db/repo";
 import type { OpportunityPayload } from "../src/lib/pipeline/orchestrator";
+import { TEST_ONLY_SOURCE_DAILY_RISK_POLICY, TEST_ONLY_SOURCE_RISK_MATH_POLICY, testOnlySourceRiskPolicy } from "./helpers/research-run-options";
 
-const POLICY = buildRiskPolicies().find((p) => p.policy_id === "RISK-ASA-CONSERVATIVE-DEFAULT")!;
+// Synthetic authority is local to publication-persistence tests; it does not
+// change or promote any shipped source strategy.
+const publicationAuthority = vi.hoisted(() => ({
+  setups: new Map<string, unknown>(),
+  statuses: new Map<string, string>(),
+}));
+vi.mock("../src/lib/strategy/runtime", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/strategy/runtime")>();
+  return {
+    ...mod,
+    getRuntimeStrategy: (id: string) => publicationAuthority.setups.get(id) as ReturnType<typeof mod.getRuntimeStrategy> ?? mod.getRuntimeStrategy(id),
+  };
+});
+vi.mock("../src/lib/backtest/promotion", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/backtest/promotion")>();
+  return {
+    ...mod,
+    promotedRuntimeStatus: (id: string) => (publicationAuthority.statuses.get(id) ?? mod.promotedRuntimeStatus(id)) as ReturnType<typeof mod.promotedRuntimeStatus>,
+  };
+});
+
+const POLICY = TEST_ONLY_SOURCE_RISK_MATH_POLICY;
+const POLICY_WITH_TEST_CONCURRENCY = testOnlySourceRiskPolicy("RISK-DAILY-5PCT", { max_concurrent_positions: 5 });
 
 function perfectAdmit(over: Record<string, unknown> = {}) {
   return admitOpportunity({
@@ -106,18 +127,18 @@ describe("score — unevaluated risk is UNKNOWN, not a measured block", () => {
 });
 
 describe("portfolio — null measurements are not zero", () => {
-  it("null daily_realized_loss does not exhaust the daily budget", () => {
+  it("null daily_realized_loss remains UNKNOWN and does not claim the daily budget is clear or exhausted", () => {
     const r = evaluatePortfolio({
       equity: 10_000,
-      policy: POLICY,
+      policy: TEST_ONLY_SOURCE_DAILY_RISK_POLICY,
       open_risks: [],
       daily_realized_loss: null,
       period_realized_loss: null,
       candidate: { symbol: "BTCUSDT", risk_amount: 100, direction: "long" },
     });
-    expect(r.verdict).toBe("pass");
+    expect(r.verdict).toBe("unknown");
     expect(r.numbers.daily_loss_used_pct).toBeNull();
-    expect(r.unenforced.join(" ")).toMatch(/daily realized loss UNAVAILABLE/);
+    expect(r.unenforced.join(" ")).toMatch(/daily realized loss or account equity UNKNOWN/);
     expect(r.reasons.join(" ")).not.toMatch(/daily loss limit reached/);
   });
 
@@ -152,7 +173,9 @@ describe("portfolio — null measurements are not zero", () => {
   it("a measured book at the concurrency cap still blocks", () => {
     const r = evaluatePortfolio({
       equity: 10_000,
-      policy: POLICY,
+      // Five is an explicit test-only concurrency threshold; the corpus does
+      // not supply a production max-concurrent-positions number.
+      policy: POLICY_WITH_TEST_CONCURRENCY,
       open_risks: Array.from({ length: 5 }, (_, i) => ({ symbol: `S${i}USDT`, risk_amount: 50, direction: "long" as const })),
       daily_realized_loss: 0,
       period_realized_loss: 0,
@@ -171,23 +194,25 @@ describe("portfolio — null measurements are not zero", () => {
       period_realized_loss: 0,
       candidate: { symbol: "BTCUSDT", risk_amount: null, direction: "long" },
     });
-    expect(r.unenforced.join(" ")).toMatch(/candidate risk_amount UNAVAILABLE/);
+    expect(r.unenforced.join(" ")).toMatch(/candidate risk amount UNAVAILABLE/);
   });
 });
 
 describe("psychology — journaled losses are measured, not defaulted to 0", () => {
-  it("three consecutive negative R-multiples produce a revenge BLOCK", () => {
+  it("measures consecutive negative R-multiples but does not activate an inferred revenge threshold", () => {
     const now = Date.now();
     const journal: JournalRow[] = [3, 2, 1].map((n) => ({
       id: n, created_ms: now - n * 60_000, updated_ms: now, symbol: "BTCUSDT",
       direction: "long", notes: "", opp_id: null, r_multiple: -1,
     }));
-    const st = psychologyStateFromJournal(journal, now, { daily_loss_limit_pct: 5 });
+    const st = psychologyStateFromJournal(journal, now, { daily_loss_limit_pct: 5, journal_complete: true });
     expect(st.consecutive_losses).toBe(3);
     expect(st.minutes_since_last_loss).not.toBeNull();
     const gate = evaluatePsychologyGate(buildPsychologyPolicies(), st);
-    expect(gate.verdict).toBe("block");
-    expect(gate.blocks.some((b) => b.policy_id === "PSY-REVENGE")).toBe(true);
+    expect(gate.verdict).toBe("unknown"); // account-currency PnL is unavailable
+    expect(gate.active_policy_ids).not.toContain("PSY-REVENGE"); // threshold is inferred, not source-backed
+    expect(gate.blocks.some((b) => b.policy_id === "PSY-REVENGE")).toBe(false);
+    expect(gate.not_evaluated.some((item) => item.policy_id === "PSY-DAILY-LOSS")).toBe(true);
   });
 
   it("a missing R-multiple breaks the streak rather than counting as a win or a loss", () => {
@@ -196,8 +221,9 @@ describe("psychology — journaled losses are measured, not defaulted to 0", () 
       { id: 1, created_ms: now, updated_ms: now, symbol: "BTCUSDT", direction: "long", notes: "", opp_id: null, r_multiple: null },
       { id: 2, created_ms: now - 1, updated_ms: now, symbol: "BTCUSDT", direction: "long", notes: "", opp_id: null, r_multiple: -1 },
     ];
-    const st = psychologyStateFromJournal(journal, now, { daily_loss_limit_pct: 5 });
-    expect(st.consecutive_losses).toBe(0);
+    const st = psychologyStateFromJournal(journal, now, { daily_loss_limit_pct: 5, journal_complete: true });
+    expect(st.consecutive_losses).toBeNull();
+    expect(st.journal_coverage).toBe("COMPLETE");
   });
 });
 
@@ -216,6 +242,8 @@ describe("advisory open book — published signals are measured exposure", () =>
       mk({ id: "sig-dead", symbol: "XRPUSDT", opp_id: "dead", state: "expired" }),
     ];
     const book = advisoryOpenRisks(rows, now, "a");
+    expect(book).not.toBeNull();
+    if (book === null) throw new Error("well-formed test fixture should produce a measured advisory book");
     expect(book.map((r) => r.symbol).sort()).toEqual(["ETHUSDT"]);
     expect(book[0].direction).toBe("short");
     expect(book.some((r) => r.symbol === "BTCUSDT")).toBe(false); // self excluded
@@ -272,19 +300,43 @@ describe("persistence / API — sqlite-backed", () => {
   });
   afterAll(() => {
     closeRepo();
-    fs.rmSync(TMP, { recursive: true, force: true });
   });
 
   function opp(over: Partial<OpportunityPayload> = {}): OpportunityPayload {
     const id = over.id ?? `opp-${Math.random().toString(16).slice(2)}`;
+    const setupId = over.setup_id ?? "SET-T04";
+    const strategyId = over.strategy_id ?? "STR-T04";
+    const timeframe = over.timeframe ?? "1h";
+    const direction = over.direction ?? "long";
+    const strategyVersion = over.strategy_version ?? "1.0.0";
+    const ruleIds = over.rule_ids ?? [];
+    const ruleVersions = over.rule_versions ?? ["1.0.0"];
+    publicationAuthority.setups.set(setupId, {
+      strategy_id: strategyId,
+      setup_id: setupId,
+      direction,
+      timeframe,
+      strategy_version: strategyVersion,
+      rule_ids: ruleIds,
+      rule_versions: ruleVersions,
+      availability: "EXECUTABLE",
+      source_contract_status: "SOURCE_FAITHFUL",
+      source_contract_blockers: [],
+      blocked_reason: null,
+    });
+    publicationAuthority.statuses.set(strategyId, "LIVE_ADVISORY_ONLY");
     return {
-      id, symbol: "BTCUSDT", timeframe: "1h", direction: "long", score: 90, setup: "s", thesis: "t",
-      entry_zone: null, invalidation: null, stop: null, targets: [], rr: null, strategy_id: "STR-T04",
+      id, symbol: "BTCUSDT", timeframe, direction, score: 90, setup: "s", thesis: "t",
+      entry_zone: null, invalidation: null, stop: null, targets: [], rr: null, strategy_id: strategyId,
+      strategy_version: strategyVersion, rule_ids: ruleIds, rule_versions: ruleVersions,
+      source_contract_status: "SOURCE_FAITHFUL", source_contract_blockers: [],
       mode: "live", state: "READY", anchor_ts_ms: Date.now(), anchor_close_ms: Date.now(), freshness_ms: 0,
       evidence: [], contradictions: [], score_breakdown: null, positive_factors: [], negative_factors: [],
       blocked_factors: [], unknown_factors: [], source_refs: [],
       data_quality: { bars: 200, stale: false, age_ms: 0, state: "FRESH" },
-      psychology: null, portfolio: null, setup_id: "SET-T04", score_semantics: "s", chart_evidence: null,
+      psychology: null,
+      portfolio: { verdict: "pass", reasons: ["test-only measured portfolio pass"], unenforced: [] },
+      setup_id: setupId, score_semantics: "s", chart_evidence: null,
       risk: { verdict: "pass", reasons: ["ok"], numbers: { risk_notional: 100 } }, ai: null,
       provenance: { generated_at_ms: Date.now(), data: { series_fetched_ms: Date.now(), stats_fetched_ms: null, native_1d: true, candles: { macro: null, context: null, trigger: 200 } } },
       ...over,
@@ -308,7 +360,8 @@ describe("persistence / API — sqlite-backed", () => {
       id: "opp-1h-old", timeframe: "1h", symbol: "ETHUSDT",
       anchor_close_ms: now - 5 * 3_600_000,
     });
-    expect(publishSignal(o).published).toBe(true);
+    const published = publishSignal(o);
+    expect(published.published, published.reason).toBe(true);
     repo.signalUpdate({ id: "sig-opp-1h-old", updated_ms: now }); // recent write must NOT keep it alive
     const n = expireStaleSignals(undefined, repo);
     expect(n).toBeGreaterThanOrEqual(1);
@@ -323,7 +376,8 @@ describe("persistence / API — sqlite-backed", () => {
     const ctx = loadLiveGateContext(repo, Date.now(), { daily_loss_limit_pct: 5 });
     expect(ctx.daily_realized_loss).toBeNull();
     expect(ctx.period_realized_loss).toBeNull();
-    expect(ctx.psychology.consecutive_losses).toBeGreaterThanOrEqual(1);
+    expect(ctx.psychology.consecutive_losses).toBeNull();
+    expect(ctx.psychology.journal_coverage).toBe("UNKNOWN");
     expect(ctx.daily_loss_reason).toMatch(/UNAVAILABLE/);
   });
 

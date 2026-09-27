@@ -16,11 +16,10 @@
 import type { Candle } from "../domain/types";
 import { evaluateCompiled, type CompiledStrategy } from "../strategy/compiled";
 import { evaluateRisk } from "../risk/engine";
-import { evaluatePsychologyGate, defaultPsychologyState } from "../psychology/gate";
-import { buildPsychologyPolicies } from "../brain/policies";
+import { evaluatePortfolio } from "../risk/portfolio";
 import { scoreFromEvaluation } from "../pipeline/scoring";
 import { admitOpportunity } from "../brain/score";
-import type { RiskPolicy } from "../brain/types";
+import type { ProductionRiskPolicy } from "../risk/policy";
 
 export type SameBarPolicy = "stop_first" | "target_first";
 
@@ -30,12 +29,6 @@ export interface BacktestCosts {
   /** slippage per side, as a fraction of price */
   slippage_rate: number;
 }
-
-export const DEFAULT_COSTS: BacktestCosts = {
-  // ENGINEERING ASSUMPTION: the corpus states no fee/slippage model.
-  fee_rate: 0.0005,
-  slippage_rate: 0.0002,
-};
 
 /** One execution against a position. */
 export interface FillRecord {
@@ -114,6 +107,8 @@ export interface BacktestResult {
   rejections: Record<string, number>;
   costs: BacktestCosts;
   same_bar_policy: SameBarPolicy;
+  portfolio_verdicts: { pass: number; block: number; unknown: number };
+  psychology_context: { status: "NOT_RECONSTRUCTED"; mode: "RESEARCH_ONLY"; note: string };
   assumptions: string[];
 }
 
@@ -184,13 +179,17 @@ export function computeMetrics(
 
 export interface RunOptions {
   equity: number;
-  policy: RiskPolicy;
-  costs?: BacktestCosts;
-  sameBarPolicy?: SameBarPolicy;
-  max_hold_bars?: number;
+  policy: ProductionRiskPolicy;
+  /** explicit operator sizing input may supplement a source policy that omits it */
+  riskPerTradePct: number | null;
+  maxLeverage: number | null;
+  costs: BacktestCosts;
+  sameBarPolicy: SameBarPolicy;
+  /** no implicit exit horizon */
+  max_hold_bars: number;
   start_index?: number;
   end_index?: number;
-  /** enforce the score-admission gate exactly as advisory does */
+  /** explicit research parameter; omitted means no score threshold */
   scoreThreshold?: number;
 }
 
@@ -200,17 +199,28 @@ export function runStrategyBacktest(
   candles: Candle[],
   opts: RunOptions,
 ): BacktestResult {
-  const costs = opts.costs ?? DEFAULT_COSTS;
-  const sameBar = opts.sameBarPolicy ?? "stop_first";
-  const maxHold = opts.max_hold_bars ?? 200;
-  const threshold = opts.scoreThreshold ?? 0; // 0 = record all admissible setups
+  const costs = opts.costs;
+  const sameBar = opts.sameBarPolicy;
+  const maxHold = opts.max_hold_bars;
+  const threshold = opts.scoreThreshold ?? 0;
+  const invalid: string[] = [];
+  if (!Number.isFinite(opts.equity) || opts.equity <= 0) invalid.push("account equity is unconfigured or invalid");
+  if (!Number.isFinite(opts.riskPerTradePct) || (opts.riskPerTradePct ?? 0) <= 0) invalid.push("per-trade sizing input is unconfigured or invalid");
+  if (!Number.isFinite(opts.maxLeverage) || (opts.maxLeverage ?? 0) <= 0) invalid.push("maximum leverage is unconfigured or invalid");
+  if (!opts.policy || opts.policy.selection_status !== "SELECTED" || opts.policy.source_status !== "SOURCE_VERIFIED" || opts.policy.source_refs.length === 0 || opts.policy.conflict_group_id !== null || opts.policy.runtime_status === "DISABLED") {
+    invalid.push("risk policy is not explicitly selected and source-verified without an unresolved conflict");
+  }
+  if (!Number.isFinite(costs?.fee_rate) || costs.fee_rate < 0 || !Number.isFinite(costs?.slippage_rate) || costs.slippage_rate < 0) invalid.push("fee and slippage inputs are unconfigured or invalid");
+  if (sameBar !== "stop_first" && sameBar !== "target_first") invalid.push("same-bar ambiguity policy is unconfigured");
+  if (!Number.isSafeInteger(maxHold) || maxHold <= 0) invalid.push("maximum holding bars must be explicitly configured as a positive integer");
+  if (invalid.length > 0) throw new Error(`backtest blocked: ${invalid.join("; ")}`);
   const positions: PositionRecord[] = [];
+  const portfolioVerdicts = { pass: 0, block: 0, unknown: 0 };
   const rejections: Record<string, number> = {};
   const curve: { ts: number; equity: number }[] = [];
   let equity = opts.equity;
   const bump = (k: string) => { rejections[k] = (rejections[k] ?? 0) + 1; };
 
-  const psychPolicies = buildPsychologyPolicies();
   const start = Math.max(strat.min_bars, opts.start_index ?? strat.min_bars);
   const end = Math.min(candles.length - 2, opts.end_index ?? candles.length - 2);
 
@@ -237,41 +247,62 @@ export function runStrategyBacktest(
     // ---- SAME risk engine as advisory, now target-aware
     const risk = evaluateRisk({
       symbol, direction: dir, entry, stop, target: targets[0],
-      equity, riskPerTradePct: opts.policy.risk_per_trade_pct ?? 1,
-      maxLeverage: opts.policy.max_leverage ?? 5,
+      equity,
+      riskPerTradePct: opts.policy.risk_per_trade_pct ?? opts.riskPerTradePct,
+      maxLeverage: opts.policy.max_leverage ?? opts.maxLeverage,
       venueMaxLeverage: null, maintenanceMarginRate: null,
       takerFeeCoefficient: costs.fee_rate, tickSize: null, qtyStep: null,
       minQty: null, minNotional: null,
     });
     if (risk.verdict === "block") { bump(`risk:${risk.reasons[0]?.slice(0, 40) ?? "block"}`); i++; continue; }
 
-    const qty = risk.numbers.position_size ?? 0;
-    const riskAmount = risk.numbers.risk_amount ?? 0;
-    if (qty <= 0) { bump("risk:zero_size"); i++; continue; }
+    const qty = risk.numbers.position_size;
+    const riskAmount = risk.numbers.risk_amount;
+    if (qty === null || !Number.isFinite(qty) || qty <= 0 || riskAmount === null || !Number.isFinite(riskAmount) || riskAmount <= 0) {
+      bump("risk:required_sizing_output_unknown"); i++; continue;
+    }
 
-    // ---- SAME psychology + score + admission gates as advisory
-    const psych = evaluatePsychologyGate(psychPolicies, {
-      ...defaultPsychologyState(),
-      daily_loss_limit_pct: opts.policy.daily_loss_limit_pct,
+    // The runner simulates one position at a time, so its open book is known
+    // empty at entry. Historical account-currency daily/period loss is not
+    // reconstructed from unknown external account state; policies requiring it
+    // therefore yield portfolio UNKNOWN and are not admitted.
+    const portfolio = evaluatePortfolio({
+      equity,
+      policy: opts.policy,
+      open_risks: [],
+      daily_realized_loss: null,
+      period_realized_loss: null,
+      candidate: { symbol, risk_amount: riskAmount, direction: dir },
     });
+    portfolioVerdicts[portfolio.verdict]++;
+    if (portfolio.verdict !== "pass") {
+      bump(`portfolio:${portfolio.verdict}:${portfolio.blocked_by[0]?.slice(0, 36) ?? "required_measurement_unknown"}`);
+      i++; continue;
+    }
+
+    // Research does not reconstruct a user's historical declared state. Keep
+    // that chain explicitly NOT_APPLICABLE rather than asserting a psychology
+    // pass or applying present-day traits to past candles.
     const contradictions = ev.setup.blocked_rules.map((id) => `rule ${id} BLOCKED`);
     const score = scoreFromEvaluation(ev, {
-      riskPass: true, psychReady: psych.verdict !== "block", psychPenalty: psych.score_penalty,
+      riskPass: true, riskEvaluated: true, psychReady: false, psychUnknown: true,
+      psychologyUnknownReasons: ["user psychology state is not reconstructed for historical research"],
+      psychPenalty: 0,
       bars: window.length, stale: false, contradictions,
     });
     const admission = admitOpportunity({
-      // HARD GATE: shared contract requires setup PASS (the loop already
-      // skipped non-PASS setups above; this keeps the contract explicit).
       setup_verdict: ev.setup.outcome,
       score: score.score, threshold,
       data_quality_ok: true, stale: false,
-      risk_verdict: "pass", portfolio_verdict: "pass",
-      psychology_verdict: psych.verdict,
-      strategy_runtime_status: "CANDIDATE",
+      risk_verdict: risk.verdict,
+      portfolio_verdict: portfolio.verdict,
+      psychology_verdict: "not_applicable",
+      psychology_mode: "research",
+      strategy_runtime_status: "RESEARCH_ONLY",
       unresolved_contradiction: contradictions.length > 0,
       unknown_required_fields: [],
     });
-    if (!admission.admitted) { bump(`admission:${admission.reasons[0]?.slice(0, 40)}`); i++; continue; }
+    if (!admission.admitted) { bump(`admission:${admission.reasons[0]?.slice(0, 40) ?? "blocked"}`); i++; continue; }
 
     // ---- forward walk with explicit same-bar policy; ONE position, many fills
     const stopDist = Math.abs(entry - stop);
@@ -406,13 +437,21 @@ export function runStrategyBacktest(
     rejections,
     costs,
     same_bar_policy: sameBar,
+    portfolio_verdicts: portfolioVerdicts,
+    psychology_context: {
+      status: "NOT_RECONSTRUCTED",
+      mode: "RESEARCH_ONLY",
+      note: "historical user state is unavailable; this backtest makes no claim about psychology-gated performance",
+    },
     assumptions: [
       "entry fills at the NEXT bar's open after the signal bar (no same-bar entry)",
-      `same-bar stop+target ambiguity resolved by policy '${sameBar}' (OHLC cannot reveal intrabar order)`,
-      `fees ${costs.fee_rate * 100}% and slippage ${costs.slippage_rate * 100}% PER SIDE are ENGINEERING ASSUMPTIONS — the corpus states no cost model`,
+      `same-bar stop+target ambiguity resolved by the explicitly supplied '${sameBar}' policy (OHLC cannot reveal intrabar order)`,
+      `fees ${costs.fee_rate * 100}% and slippage ${costs.slippage_rate * 100}% PER SIDE were explicitly supplied by the caller; the corpus provides no cost model`,
       "a laddered exit is ONE position with multiple fills; statistics are position-level",
       "one position at a time per strategy/symbol; no pyramiding",
-      `positions abandoned after ${maxHold} bars (timeout)`,
+      `maximum holding horizon ${maxHold} bars was explicitly supplied by the caller; it is not a source strategy rule`,
+      "daily/period account-currency realized loss is UNKNOWN in research replay; any selected policy requiring those measurements blocks the affected candidate",
+      "user psychology state is NOT_RECONSTRUCTED in historical research; no traits or past emotional states are inferred",
       "funding is NOT modelled (TTT historical funding not integrated)",
     ],
   };

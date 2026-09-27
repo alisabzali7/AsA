@@ -57,8 +57,10 @@ export const STRINGS = {
       context: "Deterministic context",
       contextNote: "authoritative — shown verbatim; the explanation layer cannot change it",
       explanation: "Explanation",
+      nonAuthoritative: "Model prose is NON-AUTHORITATIVE; semantic truth is NOT PROVEN. Deterministic facts and gates control.",
+      exactProviderContext: "Inspect the exact structured context sent to the provider",
       footnote:
-        "The deterministic context is measured state, shown verbatim. When an LLM provider is configured and online it adds an explanation that may only restate that context — it never changes it, overrides a risk gate or NO TRADE, or invents data. Without a provider — or when the LLM fails — you get the deterministic assembly only, labeled as such. AsA is advisory only; it never executes.",
+        "The deterministic context is the authoritative measured/source-bound state and is shown verbatim. LLM prose is separate, NON-AUTHORITATIVE, and NOT SEMANTICALLY PROVEN; a token check may withhold unsupported numeric or market-symbol claims but cannot prove meaning. The selected provider mode is shown. User psychology fields are shared only when asked and only from explicit declarations or journal-derived state; traits are never inferred. Without an available provider, only deterministic context is returned. AsA is advisory only and does not execute.",
     },
     status: {
       CONNECTING: "connecting",
@@ -144,8 +146,10 @@ export const STRINGS = {
       context: "زمینهٔ قطعی",
       contextNote: "حاکم است — دقیقاً همان‌طور که اندازه‌گیری شده نمایش داده می‌شود؛ لایهٔ توضیح نمی‌تواند آن را تغییر دهد",
       explanation: "توضیح",
+      nonAuthoritative: "متن مدل غیرحاکم است و درستی معنایی آن اثبات نشده؛ واقعیت‌ها و دروازه‌های قطعی ملاک هستند.",
+      exactProviderContext: "بررسی زمینهٔ ساخت‌یافتهٔ دقیقی که به ارائه‌دهنده ارسال شد",
       footnote:
-        "زمینهٔ قطعی، حالت اندازه‌گیری‌شده است و بدون تغییر نمایش داده می‌شود. اگر ارائه‌دهندهٔ LLM پیکربندی و آنلاین باشد، توضیحی افزوده می‌شود که فقط می‌تواند همان زمینه را بازنویسی کند — نه تغییر آن، نه نادیده گرفتن درگاه ریسک یا NO TRADE، و نه اختراع داده. بدون ارائه‌دهنده، یا در صورت شکست LLM، فقط مجموعهٔ قطعی با برچسب مشخص نمایش داده می‌شود. AsA فقط مشورتی است و هیچ‌گاه اجرا نمی‌کند.",
+        "زمینهٔ قطعی، حالت اندازه‌گیری‌شده و دارای ارجاع منبع است و دقیقاً نمایش داده می‌شود. متن LLM جدا، غیرحاکم و از نظر معنایی اثبات‌نشده است؛ بررسی واژگانی ممکن است ادعاهای عددی یا نمادهای بازاریِ پشتیبانی‌نشده را حذف کند، اما معنا را اثبات نمی‌کند. حالت ارائه‌دهندهٔ انتخاب‌شده نمایش داده می‌شود. فیلدهای روان‌شناسی کاربر فقط هنگام درخواست و تنها از اظهارهای صریح یا وضعیت مشتق‌شده از ژورنال ارسال می‌شوند؛ هیچ ویژگی روانی استنباط نمی‌شود. اگر ارائه‌دهنده در دسترس نباشد فقط زمینهٔ قطعی برگردانده می‌شود. AsA مشورتی است و معامله اجرا نمی‌کند.",
     },
     status: {
       CONNECTING: "در حال اتصال",

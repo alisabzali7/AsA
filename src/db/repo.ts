@@ -167,6 +167,8 @@ export interface Repo {
   opportunityCount(): number;
   signalInsert(s: SignalRow): void;
   signalUpdate(s: Partial<SignalRow> & { id: string }): void;
+  /** Active advisory signals only, ordered newest-first. A caller can request a sentinel row to detect truncated coverage. */
+  signalOpenList(limit: number, excludeOppId?: string | null): SignalRow[];
   signalList(limit: number): SignalRow[];
   signalPage(limit: number, offset: number): SignalRow[];
   signalByOpp(oppId: string): SignalRow | null;

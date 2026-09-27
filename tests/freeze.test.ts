@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  listRuntimeStrategies, runtimeStrategyIds, executableStrategies, auditDirection,
+  listRuntimeStrategies, runtimeStrategyIds, researchableStrategies, evaluateRuntime, auditDirection,
 } from "../src/lib/strategy/runtime";
 import { COMPILED_STRATEGIES, evaluateCompiled } from "../src/lib/strategy/compiled";
 import { auditFieldDirection } from "../src/lib/brain/compile";
@@ -21,12 +21,11 @@ import { invalidFeature, okFeature } from "../src/lib/features/types";
 import { runStrategyBacktest } from "../src/lib/backtest/strategy-runner";
 import { runOOS, runWalkForward, decidePromotion } from "../src/lib/backtest/validation";
 import { ExperimentStore, datasetFingerprint } from "../src/lib/backtest/experiments";
-import { getProductionRiskPolicy } from "../src/lib/risk/policy";
+import { explicitResearchRunOptions } from "./helpers/research-run-options";
 import { parseUdfHistory } from "../src/lib/ttt/udf";
 import type { Candle } from "../src/lib/domain/types";
 import type { RuleDefinition } from "../src/lib/rules/engine";
 
-const POLICY = getProductionRiskPolicy();
 const MANIFEST = "tests/fixtures/replay/MANIFEST.json";
 const hasReplay = fs.existsSync(MANIFEST);
 function load(file: string, tfMin: number): Candle[] {
@@ -51,10 +50,19 @@ describe("§A1 strategy vs setup disambiguation", () => {
     }
   });
 
-  it("every setup is either EXECUTABLE or carries an exact blocked reason", () => {
+  it("only source-faithful setups are executable; research implementations remain live-blocked", () => {
     for (const s of listRuntimeStrategies()) {
-      if (s.availability === "EXECUTABLE") expect(s.impl).not.toBeNull();
-      else {
+      if (s.availability === "EXECUTABLE") {
+        expect(s.source_contract_status).toBe("SOURCE_FAITHFUL");
+        expect(s.impl).not.toBeNull();
+        expect(s.blocked_reason).toBeNull();
+      } else if (s.availability === "RESEARCH_ONLY") {
+        expect(s.source_contract_status).not.toBe("SOURCE_FAITHFUL");
+        expect(s.impl).not.toBeNull();
+        expect(s.blocked_reason).toMatch(/source contract/);
+        expect(evaluateRuntime(s, "BTCUSDT", [], 1_700_000_000_000)).toMatchObject({ blocked: true });
+      } else {
+        expect(["DISABLED", "NON_COMPUTABLE"]).toContain(s.availability);
         expect(s.impl).toBeNull();
         expect(s.blocked_reason).toBeTruthy();
       }
@@ -64,7 +72,7 @@ describe("§A1 strategy vs setup disambiguation", () => {
 
 describe("§A2 dependency trace is complete", () => {
   it("every runtime strategy traces strategy -> setup -> rules -> predicates -> features -> source", () => {
-    for (const s of executableStrategies()) {
+    for (const s of researchableStrategies()) {
       const def = s.impl!.setup();
       expect(def.rules.length, `${s.setup_id} rules`).toBeGreaterThan(0);
       for (const r of def.rules) {
@@ -80,7 +88,7 @@ describe("§A2 dependency trace is complete", () => {
   });
 
   it("every rule's declared feature dependencies are consumed by its predicates", () => {
-    for (const s of executableStrategies()) {
+    for (const s of researchableStrategies()) {
       for (const r of s.impl!.setup().rules) {
         const required = new Set(r.predicates.flatMap((p) => p.requires));
         // at least one declared dependency must actually be required by a predicate
@@ -182,7 +190,7 @@ describe("§C feature capability truthfulness", () => {
       "FTR-LEVELS", "FTR-LEVEL-TOUCH", "FTR-DOUBLE", "FTR-ABCD",
       "FTR-RSI14", "FTR-ATR14", "FTR-FIB", "FTR-CLOSE",
     ]);
-    for (const s of executableStrategies()) {
+    for (const s of researchableStrategies()) {
       for (const r of s.impl!.setup().rules) {
         for (const f of r.feature_dependencies) {
           expect(IMPLEMENTED.has(f), `${r.id} depends on unimplemented feature ${f}`).toBe(true);
@@ -225,20 +233,20 @@ describe.runIf(hasReplay)("§H OOS is leakage-safe", () => {
 
   it("the OOS split is chronological — no test signal predates the split", () => {
     const c = candles();
-    const s = runOOS(strat, "BTCUSDT", c, { equity: 10_000, policy: POLICY }, 0.7);
+    const s = runOOS(strat, "BTCUSDT", c, explicitResearchRunOptions({ equity: 10_000 }), 0.7);
     const splitTs = c[s.split_index].t;
     for (const p of s.out_of_sample.positions) expect(p.signal_ts).toBeGreaterThanOrEqual(splitTs);
     for (const p of s.in_sample.positions) expect(p.signal_ts).toBeLessThan(splitTs);
   });
 
   it("in-sample and out-of-sample position sets do not overlap", () => {
-    const s = runOOS(strat, "BTCUSDT", candles(), { equity: 10_000, policy: POLICY }, 0.7);
+    const s = runOOS(strat, "BTCUSDT", candles(), explicitResearchRunOptions({ equity: 10_000 }), 0.7);
     const isIds = new Set(s.in_sample.positions.map((p) => p.position_id));
     for (const p of s.out_of_sample.positions) expect(isIds.has(p.position_id)).toBe(false);
   });
 
   it("walk-forward windows advance chronologically and are all persistedable", () => {
-    const wf = runWalkForward(strat, "BTCUSDT", candles(), { equity: 10_000, policy: POLICY }, 4);
+    const wf = runWalkForward(strat, "BTCUSDT", candles(), explicitResearchRunOptions({ equity: 10_000 }), 4);
     expect(wf.total_windows).toBe(4);
     for (let i = 1; i < wf.windows.length; i++) {
       expect(wf.windows[i].test_from).toBeGreaterThan(wf.windows[i - 1].test_from);
@@ -247,8 +255,8 @@ describe.runIf(hasReplay)("§H OOS is leakage-safe", () => {
 
   it("promotion never reaches ROBUST on a losing strategy regardless of window count", () => {
     const c = candles();
-    const s = runOOS(strat, "BTCUSDT", c, { equity: 10_000, policy: POLICY }, 0.7);
-    const wf = runWalkForward(strat, "BTCUSDT", c, { equity: 10_000, policy: POLICY }, 4);
+    const s = runOOS(strat, "BTCUSDT", c, explicitResearchRunOptions({ equity: 10_000 }), 0.7);
+    const wf = runWalkForward(strat, "BTCUSDT", c, explicitResearchRunOptions({ equity: 10_000 }), 4);
     const v = decidePromotion(s.in_sample.metrics, s.out_of_sample.metrics, wf);
     expect(["UNTESTED", "BACKTESTED"]).toContain(v.to);
   });
@@ -289,8 +297,8 @@ describe.runIf(hasReplay)("§I4 reproducibility: same data + same config = same 
   it("two identical backtests produce byte-identical positions and metrics", () => {
     const strat = COMPILED_STRATEGIES.find((s) => s.strategy_id === "STR-RAW-2-803")!;
     const c = load("BTCUSDT-60.json", 60);
-    const a = runStrategyBacktest(strat, "BTCUSDT", c, { equity: 10_000, policy: POLICY });
-    const b = runStrategyBacktest(strat, "BTCUSDT", c, { equity: 10_000, policy: POLICY });
+    const a = runStrategyBacktest(strat, "BTCUSDT", c, explicitResearchRunOptions({ equity: 10_000 }));
+    const b = runStrategyBacktest(strat, "BTCUSDT", c, explicitResearchRunOptions({ equity: 10_000 }));
     expect(JSON.stringify(a.positions)).toBe(JSON.stringify(b.positions));
     expect(JSON.stringify(a.metrics)).toBe(JSON.stringify(b.metrics));
     expect(a.equity_curve).toEqual(b.equity_curve);
@@ -301,16 +309,16 @@ describe.runIf(hasReplay)("§I4 reproducibility: same data + same config = same 
     const c1 = load("BTCUSDT-60.json", 60);
     const c2 = load("ETHUSDT-60.json", 60);
     expect(datasetFingerprint(c1)).not.toBe(datasetFingerprint(c2));
-    const a = runStrategyBacktest(strat, "BTCUSDT", c1, { equity: 10_000, policy: POLICY });
-    const b = runStrategyBacktest(strat, "ETHUSDT", c2, { equity: 10_000, policy: POLICY });
+    const a = runStrategyBacktest(strat, "BTCUSDT", c1, explicitResearchRunOptions({ equity: 10_000 }));
+    const b = runStrategyBacktest(strat, "ETHUSDT", c2, explicitResearchRunOptions({ equity: 10_000 }));
     expect(a.symbol).not.toBe(b.symbol);
   });
 });
 
-describe.runIf(hasReplay)("§A6 strategy validation fixtures (positive + negative path)", () => {
-  it("each executable strategy has both an evaluable positive and a rejecting path", () => {
+describe.runIf(hasReplay)("§A6 research-only strategy validation fixtures (positive + negative path)", () => {
+  it("each researchable implementation has deterministic fixture outcomes", () => {
     const c = load("BTCUSDT-60.json", 60);
-    for (const s of executableStrategies()) {
+    for (const s of researchableStrategies()) {
       const outcomes = new Set<string>();
       for (let end = s.min_bars + 20; end < Math.min(c.length, s.min_bars + 500); end += 20) {
         outcomes.add(evaluateCompiled(s.impl!, "BTCUSDT", c.slice(0, end), 1_700_000_000_000).setup.outcome);
@@ -341,7 +349,9 @@ describe("§A5 corpus direction anomaly is detected and explicitly resolved", ()
   it("the compiled AB=CD strategy resolves that anomaly as SHORT", () => {
     const s = listRuntimeStrategies().find((x) => x.strategy_id === "STR-RAW-4-2425")!;
     expect(s.direction).toBe("short");
-    expect(s.availability).toBe("EXECUTABLE");
+    expect(s.availability).toBe("RESEARCH_ONLY");
+    expect(s.source_contract_status).toBe("INCOMPLETE");
+    expect(evaluateRuntime(s, "BTCUSDT", [], 1_700_000_000_000)).toMatchObject({ blocked: true });
   });
 
   it("every recorded anomaly is documented in DIRECTION_RESOLUTIONS.md", () => {
@@ -359,7 +369,7 @@ describe.runIf(hasReplay)("§D3 target sanity bound prevents absurd R:R", () => 
   it("no compiled evaluation produces an R:R beyond a plausible bound", () => {
     // Before the sanity bound, a distant historical level produced RR = 138.
     const c = load("XRPUSDT-60.json", 60);
-    for (const s of executableStrategies()) {
+    for (const s of researchableStrategies()) {
       for (let end = s.min_bars + 40; end < Math.min(c.length, s.min_bars + 900); end += 40) {
         const ev = evaluateCompiled(s.impl!, "XRPUSDT", c.slice(0, end), 1_700_000_000_000);
         if (ev.rr === null) continue;
@@ -371,7 +381,7 @@ describe.runIf(hasReplay)("§D3 target sanity bound prevents absurd R:R", () => 
 
   it("targets are ordered nearest-first in the profit direction", () => {
     const c = load("XRPUSDT-60.json", 60);
-    for (const s of executableStrategies()) {
+    for (const s of researchableStrategies()) {
       for (let end = s.min_bars + 40; end < Math.min(c.length, s.min_bars + 600); end += 60) {
         const ev = evaluateCompiled(s.impl!, "XRPUSDT", c.slice(0, end), 1_700_000_000_000);
         const t = ev.levels.targets;
@@ -385,7 +395,7 @@ describe.runIf(hasReplay)("§D3 target sanity bound prevents absurd R:R", () => 
 
   it("excluded far targets are declared in level_assumptions, not hidden", () => {
     const c = load("XRPUSDT-60.json", 60);
-    const s = executableStrategies().find((x) => x.strategy_id === "STR-RAW-2-803")!;
+    const s = researchableStrategies().find((x) => x.strategy_id === "STR-RAW-2-803")!;
     let sawExclusion = false;
     for (let end = s.min_bars + 40; end < Math.min(c.length, s.min_bars + 900); end += 40) {
       const ev = evaluateCompiled(s.impl!, "XRPUSDT", c.slice(0, end), 1_700_000_000_000);

@@ -33,12 +33,17 @@ describe("§J raw corpus integrity after relocation", () => {
     }
   });
 
-  it("truncation is still declared, never silently repaired", () => {
+  it("truncation and unknown completeness are declared, never silently repaired", () => {
     const truncated = CORPUS_FILES.filter((f) => f.known_truncated).map((f) => f.file_id);
     expect(truncated.sort()).toEqual(["1.txt", "2.txt", "4.txt"]);
-    for (const f of CORPUS_FILES.filter((x) => x.known_truncated)) {
-      const chars = fs.readFileSync(path.join(CORPUS_DIR, f.filename), "utf8").length;
-      expect(chars).toBeLessThanOrEqual(350_000);
+    expect(CORPUS_FILES.filter((f) => f.completeness === "UNKNOWN").map((f) => f.file_id).sort()).toEqual(["3.txt", "5.txt"]);
+    expect(CORPUS_FILES.filter((f) => f.completeness === "COMPLETE")).toEqual([]);
+    for (const f of CORPUS_FILES) {
+      expect(f.known_truncated).toBe(f.completeness === "TRUNCATED");
+      if (f.known_truncated) {
+        const chars = fs.readFileSync(path.join(CORPUS_DIR, f.filename), "utf8").length;
+        expect(chars).toBeLessThanOrEqual(350_000);
+      }
     }
   });
 });

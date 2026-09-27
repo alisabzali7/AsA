@@ -197,6 +197,19 @@ export class SqliteRepo implements Repo {
   signalGet(id: string): SignalRow | null {
     return (this.db.prepare("SELECT * FROM signals WHERE id = ?").get(id) as SignalRow) ?? null;
   }
+  signalOpenList(limit: number, excludeOppId?: string | null): SignalRow[] {
+    // Filter active lifecycle states in SQL BEFORE applying the sentinel limit;
+    // otherwise a busy history of terminal rows can hide the open book.
+    const activeStates = "state IN ('published', 'qualified')";
+    if (excludeOppId) {
+      return this.db.prepare(
+        `SELECT * FROM signals WHERE ${activeStates} AND (opp_id IS NULL OR opp_id <> ?) ORDER BY updated_ms DESC LIMIT ?`,
+      ).all(excludeOppId, limit) as SignalRow[];
+    }
+    return this.db.prepare(
+      `SELECT * FROM signals WHERE ${activeStates} ORDER BY updated_ms DESC LIMIT ?`,
+    ).all(limit) as SignalRow[];
+  }
   signalList(limit: number): SignalRow[] {
     return this.db.prepare("SELECT * FROM signals ORDER BY updated_ms DESC LIMIT ?").all(limit) as SignalRow[];
   }

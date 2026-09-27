@@ -38,8 +38,9 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { COMPILED_STRATEGIES, type CompiledStrategy } from "../strategy/compiled";
 import { getRuntimeVariants, listRuntimeStrategies } from "../strategy/runtime";
+import { sourceContractBlockersFor, sourceContractDocumentIdentity, sourceContractStatusFor } from "../strategy/compiled/source-contract";
 import {
-  runStrategyBacktest, DEFAULT_COSTS, type BacktestCosts, type SameBarPolicy,
+  type BacktestCosts, type SameBarPolicy,
   type BacktestMetrics,
 } from "./strategy-runner";
 import {
@@ -55,7 +56,9 @@ import {
   buildProvenanceChain, type PromotionDecision, type StrategyValidationRecord,
   type PromotionStatus, type ValidationStage, type ValidationStatusLabel, type ProvenanceChain,
 } from "./promotion";
-import { buildRiskPolicies, buildPsychologyPolicies } from "../brain/policies";
+import { buildPsychologyPolicies } from "../brain/policies";
+import { getProductionRiskPolicy } from "../risk/policy";
+import { getRiskPrefs } from "../prefs";
 import { parseUdfHistory } from "../ttt/udf";
 import { DETECTOR_VERSION, detectVolatilityRegime, detectStructureBias } from "../features/detectors";
 import { buildReleaseIdentity } from "../release";
@@ -100,6 +103,16 @@ export interface StrategyValidationExperimentOutput {
   verdict: PromotionVerdict;
   dataset_identity: DatasetIdentity;
   split: ExperimentSplit;
+  compiled_binding: {
+    setup_id: string;
+    direction: "long" | "short";
+    timeframe: string;
+    strategy_version: string;
+    rule_bindings: { rule_id: string; rule_version: string }[];
+    source_contract_sha256: string;
+    source_contract_status: string;
+    source_contract_blockers: string[];
+  };
   persisted: boolean;
   status: ValidationRunStatus;
 }
@@ -107,28 +120,31 @@ export interface StrategyValidationExperimentOutput {
 export interface ValidationPipelineOptions {
   /** Filter to a single strategy id or setup id */
   strategyId?: string;
-  /** Data source: "TTT_UDF_REPLAY" (fixture replay files) or "TTT_LIVE_SYNC" (stored live TTT candles) */
+  /** Must be explicit: replay fixture or stored TTT synchronization. */
   sourceKind?: DatasetSourceKind;
-  /** Directory containing replay fixtures (defaults to "tests/fixtures/replay/") */
+  /** Directory containing replay fixtures (path only; no data mode default). */
   replayDir?: string;
-  /** Whether to persist experiment rows to ExperimentStore (default true) */
+  /** Whether to persist experiment rows to ExperimentStore (default true). */
   persist?: boolean;
   /** Filter to specific symbols */
   symbols?: string[];
-  /** Starting account equity (default 10,000) */
+  /** Explicit operator inputs; missing values block the pipeline. */
   equity?: number;
-  /** Custom costs if overriding defaults */
+  riskPerTradePct?: number;
+  maxLeverage?: number;
   costs?: BacktestCosts;
-  /** Same-bar ambiguity policy (default "stop_first") */
   sameBarPolicy?: SameBarPolicy;
+  maxHoldBars?: number;
 }
 
 export interface ValidationPipelineSummary {
   ok: boolean;
+  status: "COMPLETED" | "BLOCKED" | "FAILED";
+  blockers: string[];
   timestamp: number;
   methodology: string;
   criteria: typeof PROMOTION_CRITERIA;
-  source_kind: DatasetSourceKind;
+  source_kind: DatasetSourceKind | "UNKNOWN";
   total_strategies_tested: number;
   total_experiments_generated: number;
   total_experiments_persisted: number;
@@ -177,25 +193,54 @@ export function classifySeriesRegime(candles: Candle[], tf: string): { volatilit
 }
 
 /**
- * Execute the validation pipeline across strategies and market universe.
+ * Execute validation only after every required research input is explicit.
+ * Missing settings return BLOCKED rather than manufacturing a successful empty run.
  */
 export function runValidationPipeline(options: ValidationPipelineOptions = {}): ValidationPipelineSummary {
-  const sourceKind: DatasetSourceKind = options.sourceKind ?? "TTT_UDF_REPLAY";
+  const sourceKind = options.sourceKind;
+  const policy = getProductionRiskPolicy();
+  const prefs = getRiskPrefs();
+  const equity = options.equity ?? prefs.equity;
+  const riskPerTradePct = policy.risk_per_trade_pct ?? options.riskPerTradePct ?? prefs.perTradePct;
+  const maxLeverage = policy.max_leverage ?? options.maxLeverage ?? prefs.maxLeverage;
+  const costs = options.costs;
+  const sameBarPolicy = options.sameBarPolicy;
+  const maxHoldBars = options.maxHoldBars;
+  const blockers: string[] = [];
+  if (sourceKind !== "TTT_UDF_REPLAY" && sourceKind !== "TTT_LIVE_SYNC") blockers.push("sourceKind must be explicitly TTT_UDF_REPLAY or TTT_LIVE_SYNC");
+  if (policy.selection_status !== "SELECTED" || policy.source_status !== "SOURCE_VERIFIED" || policy.source_refs.length === 0 || policy.conflict_group_id !== null) blockers.push(`risk policy is not explicitly selected and source-verified: ${policy.selection_reason}`);
+  if (equity === null || !Number.isFinite(equity) || equity <= 0) blockers.push("account equity is unconfigured; no default is substituted");
+  if (riskPerTradePct === null || !Number.isFinite(riskPerTradePct) || riskPerTradePct <= 0) blockers.push("per-trade risk sizing is unconfigured; no default is substituted");
+  if (maxLeverage === null || !Number.isFinite(maxLeverage) || maxLeverage <= 0) blockers.push("maximum leverage is unconfigured; no default is substituted");
+  if (!costs || !Number.isFinite(costs.fee_rate) || costs.fee_rate < 0 || !Number.isFinite(costs.slippage_rate) || costs.slippage_rate < 0) blockers.push("fee/slippage costs must be explicitly supplied as finite non-negative rates");
+  if (sameBarPolicy !== "stop_first" && sameBarPolicy !== "target_first") blockers.push("same-bar ambiguity policy must be explicitly selected");
+  if (!Number.isSafeInteger(maxHoldBars) || (maxHoldBars ?? 0) <= 0) blockers.push("maxHoldBars must be explicitly supplied as a positive integer");
+  if (blockers.length > 0) {
+    return {
+      ok: false, status: "BLOCKED", blockers, timestamp: Date.now(), methodology: VALIDATION_METHODOLOGY,
+      criteria: PROMOTION_CRITERIA, source_kind: sourceKind ?? "UNKNOWN", total_strategies_tested: 0,
+      total_experiments_generated: 0, total_experiments_persisted: 0, skipped_series: 0, results: [], by_strategy: {},
+      counts: { strategies: 0, executable: 0, with_validation_evidence: 0, with_oos_evidence: 0, promotion_eligible: 0, live_eligible: 0 },
+    };
+  }
+  const resolvedSourceKind = sourceKind as DatasetSourceKind;
   const replayDir = options.replayDir ?? path.join(process.cwd(), "tests/fixtures/replay");
   const persist = options.persist !== false;
-  const equity = options.equity ?? 10_000;
-  const costs = options.costs ?? DEFAULT_COSTS;
-  const sameBarPolicy = options.sameBarPolicy ?? "stop_first";
-
-  const policy = buildRiskPolicies().find((p) => p.policy_id === "RISK-ASA-CONSERVATIVE-DEFAULT")
-    ?? buildRiskPolicies()[0];
-  const psychIds = buildPsychologyPolicies().map((p) => p.policy_id).join(",");
+  const resolvedCosts = costs as BacktestCosts;
+  const resolvedSameBarPolicy = sameBarPolicy as SameBarPolicy;
+  const resolvedMaxHoldBars = maxHoldBars as number;
+  const resolvedEquity = equity as number;
+  const resolvedRiskPerTradePct = riskPerTradePct as number;
+  const resolvedMaxLeverage = maxLeverage as number;
+  const psychIds = "NOT_RECONSTRUCTED_HISTORICAL_RESEARCH";
   const release = buildReleaseIdentity();
   const codeVersion = release.git_commit;
+  const sourceTreeSha256 = release.source_tree_sha256;
+  const sourceTreeDigestStatus = release.source_tree_digest_status;
   const retrievedAt = new Date().toISOString();
 
   let manifest: ReplayManifest | null = null;
-  if (sourceKind === "TTT_UDF_REPLAY") {
+  if (resolvedSourceKind === "TTT_UDF_REPLAY") {
     const manifestPath = path.join(replayDir, "MANIFEST.json");
     if (!fs.existsSync(manifestPath)) {
       throw new Error(`replay manifest not found at ${manifestPath}`);
@@ -220,11 +265,26 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
   let skipped = 0;
   let persistedCount = 0;
 
+  const sourceContractIdentity = sourceContractDocumentIdentity();
   for (const strat of strategiesToTest) {
     const tfMin = strat.timeframe === "1d" ? 1440 : 60;
-    const ruleVersions = [...new Set(strat.setup().rules.map((r) => r.version))].sort();
+    const setup = strat.setup();
+    const ruleBindings = setup.rules.map((rule) => ({ rule_id: rule.id, rule_version: rule.version })).sort((a, b) => a.rule_id.localeCompare(b.rule_id));
+    const ruleVersions = [...new Set(ruleBindings.map((binding) => binding.rule_version))].sort();
+    const contractStatus = sourceContractStatusFor(strat.strategy_id);
+    const contractBlockers = sourceContractBlockersFor(strat.strategy_id);
+    const compiledBinding = {
+      setup_id: strat.setup_id,
+      direction: strat.direction,
+      timeframe: strat.timeframe,
+      strategy_version: setup.version,
+      rule_bindings: ruleBindings,
+      source_contract_sha256: sourceContractIdentity.contract_sha256 ?? "",
+      source_contract_status: contractStatus,
+      source_contract_blockers: contractBlockers,
+    };
 
-    if (sourceKind === "TTT_UDF_REPLAY" && manifest) {
+    if (resolvedSourceKind === "TTT_UDF_REPLAY" && manifest) {
       const wanted = manifest.series.filter((s) => {
         const matchRes = strat.timeframe === "1d" ? s.resolution === "1D" : s.resolution === "60";
         const matchSym = options.symbols ? options.symbols.includes(s.symbol) : true;
@@ -251,7 +311,7 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
         const fingerprint = datasetFingerprint(candles);
         const regime = classifySeriesRegime(candles, strat.timeframe);
 
-        const opts = { equity, policy, costs, sameBarPolicy };
+        const opts = { equity: resolvedEquity, policy, riskPerTradePct: resolvedRiskPerTradePct, maxLeverage: resolvedMaxLeverage, costs: resolvedCosts, sameBarPolicy: resolvedSameBarPolicy, max_hold_bars: resolvedMaxHoldBars };
         const split = runOOS(strat, ser.symbol, candles, opts, 0.7);
         const wf = runWalkForward(strat, ser.symbol, candles, opts, 4);
         const verdict = decidePromotion(split.in_sample.metrics, split.out_of_sample.metrics, wf);
@@ -300,14 +360,14 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
           bars: candles.length,
           from_ts: candles[0].t,
           to_ts: candles[candles.length - 1].t,
-          strategy_version: strat.setup().version,
+          strategy_version: setup.version,
           detector_version: DETECTOR_VERSION,
           app_version: release.app_version,
           build_id: release.build_id,
           rule_version: ruleVersions.join("+"),
           risk_policy_id: policy.policy_id,
           psychology_policy_set: psychIds,
-          costs,
+          costs: resolvedCosts,
           params: {
             split_ratio: 0.7,
             windows: 4,
@@ -316,6 +376,7 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
             methodology: VALIDATION_METHODOLOGY,
             walk_forward_note: wf.note,
             detectors_may_use_prior_history: true,
+            compiled_binding: compiledBinding,
           },
           in_sample: split.in_sample.metrics,
           oos: split.out_of_sample.metrics,
@@ -323,6 +384,8 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
           promotion: verdict,
           empirical_status: verdict.to,
           code_version: codeVersion,
+          source_tree_sha256: sourceTreeSha256,
+          source_tree_digest_status: sourceTreeDigestStatus,
           dataset_identity: datasetIdentity,
           split: splitRecord,
         };
@@ -369,11 +432,12 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
           verdict,
           dataset_identity: datasetIdentity,
           split: splitRecord,
+          compiled_binding: compiledBinding,
           persisted: persist,
           status: "COMPLETED",
         });
       }
-    } else if (sourceKind === "TTT_LIVE_SYNC") {
+    } else if (resolvedSourceKind === "TTT_LIVE_SYNC") {
       const historyStore = getHistoryStore();
       const operationalSymbols = options.symbols ?? ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "BNBUSDT", "ADAUSDT", "LINKUSDT", "AVAXUSDT"];
 
@@ -392,7 +456,7 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
         const artifactSha = artifactSha256(candleBytes);
         const regime = classifySeriesRegime(candles, strat.timeframe);
 
-        const opts = { equity, policy, costs, sameBarPolicy };
+        const opts = { equity: resolvedEquity, policy, riskPerTradePct: resolvedRiskPerTradePct, maxLeverage: resolvedMaxLeverage, costs: resolvedCosts, sameBarPolicy: resolvedSameBarPolicy, max_hold_bars: resolvedMaxHoldBars };
         const split = runOOS(strat, symbol, candles, opts, 0.7);
         const wf = runWalkForward(strat, symbol, candles, opts, 4);
         const verdict = decidePromotion(split.in_sample.metrics, split.out_of_sample.metrics, wf);
@@ -441,14 +505,14 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
           bars: candles.length,
           from_ts: candles[0].t,
           to_ts: candles[candles.length - 1].t,
-          strategy_version: strat.setup().version,
+          strategy_version: setup.version,
           detector_version: DETECTOR_VERSION,
           app_version: release.app_version,
           build_id: release.build_id,
           rule_version: ruleVersions.join("+"),
           risk_policy_id: policy.policy_id,
           psychology_policy_set: psychIds,
-          costs,
+          costs: resolvedCosts,
           params: {
             split_ratio: 0.7,
             windows: 4,
@@ -457,6 +521,7 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
             methodology: VALIDATION_METHODOLOGY,
             walk_forward_note: wf.note,
             detectors_may_use_prior_history: true,
+            compiled_binding: compiledBinding,
           },
           in_sample: split.in_sample.metrics,
           oos: split.out_of_sample.metrics,
@@ -464,6 +529,8 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
           promotion: verdict,
           empirical_status: verdict.to,
           code_version: codeVersion,
+          source_tree_sha256: sourceTreeSha256,
+          source_tree_digest_status: sourceTreeDigestStatus,
           dataset_identity: datasetIdentity,
           split: splitRecord,
         };
@@ -510,6 +577,7 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
           verdict,
           dataset_identity: datasetIdentity,
           split: splitRecord,
+          compiled_binding: compiledBinding,
           persisted: persist,
           status: "COMPLETED",
         });
@@ -537,10 +605,12 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
 
   return {
     ok: true,
+    status: "COMPLETED",
+    blockers: [],
     timestamp: Date.now(),
     methodology: VALIDATION_METHODOLOGY,
     criteria: PROMOTION_CRITERIA,
-    source_kind: sourceKind,
+    source_kind: resolvedSourceKind,
     total_strategies_tested: strategiesToTest.length,
     total_experiments_generated: results.length,
     total_experiments_persisted: persistedCount,

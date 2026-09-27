@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { BrainStore } from "../brain/store";
 import { classifyLine, topicTags } from "../brain/classify";
-import type { SourceDocument, SourceFragment, SourceRef } from "../brain/types";
+import type { PsychologyPrincipleRecord, SourceDocument, SourceFragment, SourceRef } from "../brain/types";
 
 export interface UserPsychologySourceDescriptor {
   file_id: string;
@@ -21,6 +21,7 @@ export interface UserPsychologySourceDescriptor {
   sha256: string;
   total_lines: number;
   total_chars: number;
+  total_bytes: number;
   truncated: boolean;
   truncation_note: string | null;
 }
@@ -51,6 +52,7 @@ export const USER_PSYCHOLOGY_SOURCES: UserPsychologySourceDescriptor[] = [
     sha256: "31e52de9d6f6aa0c2ddd072b3986cbc4bb0fe64365ccc3dba852fbe0816eab25",
     total_lines: 2423,
     total_chars: 349991,
+    total_bytes: 624394,
     truncated: true,
     truncation_note: "The supplied file is ~350k characters and ends mid-sentence/content. Content beyond the supplied bytes is absent and is not reconstructed.",
   },
@@ -61,6 +63,7 @@ export const USER_PSYCHOLOGY_SOURCES: UserPsychologySourceDescriptor[] = [
     sha256: "485fa4f9afb49b43ba5fbe4a9b76fba72b157d1ab7a10c721638d5e18ec41e7a",
     total_lines: 640,
     total_chars: 90370,
+    total_bytes: 160655,
     truncated: true,
     truncation_note: "The supplied file ends inside an unfinished source passage after a partial list of principles. No missing continuation is reconstructed.",
   },
@@ -197,11 +200,12 @@ export function verifyUserPsychologySources(sourceDir = path.join(process.cwd(),
     const sha256 = createHash("sha256").update(buf).digest("hex");
     const totalLines = text.split("\n").length;
     const totalChars = text.length;
+    const totalBytes = buf.byteLength;
     if (sha256 !== descriptor.sha256) {
       throw new Error(`User psychology source hash mismatch: ${descriptor.filename}`);
     }
-    if (totalLines !== descriptor.total_lines || totalChars !== descriptor.total_chars) {
-      throw new Error(`User psychology source size mismatch: ${descriptor.filename}`);
+    if (totalLines !== descriptor.total_lines || totalChars !== descriptor.total_chars || totalBytes !== descriptor.total_bytes) {
+      throw new Error(`User psychology source size mismatch: ${descriptor.filename} (lines=${totalLines}, chars=${totalChars}, bytes=${totalBytes})`);
     }
     return { ...descriptor, path: full };
   });
@@ -210,51 +214,74 @@ export function verifyUserPsychologySources(sourceDir = path.join(process.cwd(),
 export function ingestUserPsychologySources(
   store: BrainStore,
   sourceDir = path.join(process.cwd(), "knowledge", "psychology"),
-): { documents: UserPsychologySourceDescriptor[]; fragments_written: number; lines_seen: number } {
+): { ok: true; documents: UserPsychologySourceDescriptor[]; fragments_written: number; lines_seen: number; principles_written: number } {
   const verified = verifyUserPsychologySources(sourceDir);
-  let fragmentsWritten = 0;
-  let linesSeen = 0;
+  return store.transaction(() => {
+    let fragmentsWritten = 0;
+    let linesSeen = 0;
 
-  for (const descriptor of verified) {
-    const text = fs.readFileSync(path.join(sourceDir, descriptor.filename), "utf8");
-    const lines = text.split("\n");
-    const doc: SourceDocument = {
-      file_id: descriptor.file_id,
-      filename: descriptor.filename,
-      source_hash: descriptor.sha256,
-      source_version: "user-supplied-v1",
-      immutable: true,
-      total_lines: descriptor.total_lines,
-      total_chars: descriptor.total_chars,
-      ingestion_timestamp: Date.now(),
-      truncated: descriptor.truncated,
-      truncation_note: descriptor.truncation_note,
-    };
-    store.putDocument(doc);
-
-    const frags: SourceFragment[] = lines.map((raw, i) => {
-      const lineNo = i + 1;
-      const classified = classifyLine(raw);
-      linesSeen++;
-      return {
-        fragment_id: `FRG-${descriptor.file_id}-${lineNo}`,
+    for (const descriptor of verified) {
+      const text = fs.readFileSync(path.join(sourceDir, descriptor.filename), "utf8");
+      const lines = text.split("\n");
+      const doc: SourceDocument = {
         file_id: descriptor.file_id,
-        start_line: lineNo,
-        end_line: lineNo,
-        raw_text: raw,
-        topic_tags: ["user-psychology", ...topicTags(raw)],
-        fragment_class: classified.cls,
-        quarantined: classified.quarantine !== null,
-        quarantine_reason: classified.quarantine,
+        filename: descriptor.filename,
+        source_hash: descriptor.sha256,
+        source_version: "user-supplied-v1",
+        immutable: true,
+        total_lines: descriptor.total_lines,
+        total_chars: descriptor.total_chars,
+        total_bytes: descriptor.total_bytes,
+        ingestion_timestamp: Date.now(),
+        truncated: descriptor.truncated,
+        truncation_note: descriptor.truncation_note,
       };
-    });
-    store.putFragments(frags);
-    fragmentsWritten += frags.length;
-  }
+      store.putDocument(doc);
 
-  return {
-    documents: USER_PSYCHOLOGY_SOURCES,
-    fragments_written: fragmentsWritten,
-    lines_seen: linesSeen,
-  };
+      const frags: SourceFragment[] = lines.map((raw, i) => {
+        const lineNo = i + 1;
+        const classified = classifyLine(raw);
+        linesSeen++;
+        return {
+          fragment_id: `FRG-${descriptor.file_id}-${lineNo}`,
+          file_id: descriptor.file_id,
+          start_line: lineNo,
+          end_line: lineNo,
+          raw_text: raw,
+          topic_tags: ["user-psychology", ...topicTags(raw)],
+          fragment_class: classified.cls,
+          quarantined: classified.quarantine !== null,
+          quarantine_reason: classified.quarantine,
+        };
+      });
+      store.putFragments(frags);
+      fragmentsWritten += frags.length;
+    }
+
+    const principles: PsychologyPrincipleRecord[] = USER_PSYCHOLOGY_SOURCE_RULES.map((rule) => ({
+      principle_id: rule.id,
+      category: rule.category,
+      statement: rule.principle,
+      source_refs: rule.source_refs,
+      // Records name supporting ranges; paraphrase-to-source semantic parity
+      // remains NOT_PROVEN and none of these entries is a runtime policy.
+      source_status: "SOURCE_NAMED",
+      semantic_status: "NOT_PROVEN",
+      runtime_status: "DISABLED",
+      executable: false,
+    }));
+    store.putPsychologyPrinciples(principles);
+
+    const expectedLines = verified.reduce((sum, source) => sum + source.total_lines, 0);
+    if (linesSeen !== expectedLines || fragmentsWritten !== expectedLines) {
+      throw new Error(`user psychology source coverage mismatch: expected ${expectedLines}, fragments ${fragmentsWritten}, lines ${linesSeen}`);
+    }
+    return {
+      ok: true,
+      documents: USER_PSYCHOLOGY_SOURCES,
+      fragments_written: fragmentsWritten,
+      lines_seen: linesSeen,
+      principles_written: principles.length,
+    };
+  });
 }

@@ -14,7 +14,16 @@ interface BrainShape {
   ok: boolean;
   ingested: boolean;
   stats: Record<string, number>;
-  documents: { file_id: string; filename: string; lines: number; chars: number; sha256: string; truncated: boolean; truncation_note: string | null }[];
+  documents: {
+    file_id: string; filename: string; lines: number; chars: number; bytes: number; sha256: string;
+    identity_status: "MATCH" | "MISMATCH" | "UNKNOWN";
+    manifest_completeness: "COMPLETE" | "TRUNCATED" | "UNKNOWN";
+    ingested_truncated: boolean;
+    completeness: "COMPLETE" | "TRUNCATED" | "UNKNOWN";
+    truncated: boolean;
+    truncation_note: string | null;
+  }[];
+  source_completeness_summary?: Record<string, number>;
   strategies_by_runtime: Record<string, number>;
   strategies_by_family: Record<string, number>;
   limitations: string[];
@@ -82,8 +91,10 @@ export default function BrainPage() {
                     <th className="text-left font-medium">file</th>
                     <th className="text-right font-medium">lines</th>
                     <th className="text-right font-medium">chars</th>
+                    <th className="text-right font-medium">bytes</th>
                     <th className="text-left font-medium pl-2">sha256</th>
-                    <th className="text-left font-medium">state</th>
+                    <th className="text-left font-medium">identity</th>
+                    <th className="text-left font-medium">completeness</th>
                   </tr>
                 </thead>
                 <tbody className="mono">
@@ -92,8 +103,12 @@ export default function BrainPage() {
                       <td className="py-1">{doc.file_id}</td>
                       <td className="text-right">{doc.lines}</td>
                       <td className="text-right">{doc.chars.toLocaleString()}</td>
+                      <td className="text-right">{doc.bytes.toLocaleString()}</td>
                       <td className="pl-2 text-muted">{doc.sha256.slice(0, 10)}…</td>
-                      <td>{doc.truncated ? <Badge color="#d6a24a">TRUNCATED</Badge> : <Badge color="#3fb68b">COMPLETE</Badge>}</td>
+                      <td><Badge color={doc.identity_status === "MATCH" ? "#3fb68b" : doc.identity_status === "MISMATCH" ? "#d05f5f" : "#8b8f98"}>{doc.identity_status}</Badge></td>
+                      <td title={doc.truncation_note ?? undefined}>
+                        <Badge color={doc.completeness === "TRUNCATED" ? "#d6a24a" : doc.completeness === "COMPLETE" ? "#3fb68b" : "#8b8f98"}>{doc.completeness}</Badge>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

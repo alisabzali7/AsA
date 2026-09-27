@@ -14,14 +14,19 @@
 import type { JournalRow, Repo, SignalRow } from "../../db/repo";
 import type { OpenRisk } from "../risk/portfolio";
 import { defaultPsychologyState, type PsychologyState } from "../psychology/gate";
+import { isTimeframe } from "../domain/timeframes";
 import { opportunityFreshness } from "./freshness";
 
 export type DeclaredPsychState = PsychologyState["declared_state"];
 
+export const OPEN_BOOK_MAX_SIGNAL_ROWS = 500;
+/** One extra row is a sentinel: receiving it means the active book is incomplete. */
+export const OPEN_BOOK_SIGNAL_QUERY_LIMIT = OPEN_BOOK_MAX_SIGNAL_ROWS + 1;
+
 export interface LiveGateContext {
   psychology: PsychologyState;
-  /** measured live advisory book; never a fabricated empty list */
-  open_risks: OpenRisk[];
+  /** null means active-signal coverage exceeded the bounded query; never a partial list */
+  open_risks: OpenRisk[] | null;
   /**
    * Account-currency realized loss today. `null` = UNAVAILABLE (the journal
    * stores a self-reported R-multiple, not venue PnL) — callers MUST NOT
@@ -43,8 +48,10 @@ function parseDeclaredState(raw: string | null): DeclaredPsychState {
   return null;
 }
 
-function boolPref(raw: string | null): boolean {
-  return raw === "1" || raw === "true";
+function boolPref(raw: string | null): boolean | null {
+  if (raw === "1" || raw === "true") return true;
+  if (raw === "0" || raw === "false") return false;
+  return null;
 }
 
 /**
@@ -58,9 +65,11 @@ export function psychologyStateFromJournal(
   extras: {
     daily_loss_limit_pct: number | null;
     declared_state?: DeclaredPsychState;
-    checklist_completed?: boolean;
-    security_checklist_completed?: boolean;
-    standards_declared?: boolean;
+    checklist_completed?: boolean | null;
+    security_checklist_completed?: boolean | null;
+    standards_declared?: boolean | null;
+    /** explicit operator attestation; absent means journal coverage is unknown */
+    journal_complete?: boolean;
   },
 ): PsychologyState {
   const state = defaultPsychologyState();
@@ -72,19 +81,29 @@ export function psychologyStateFromJournal(
   }
   if (extras.standards_declared !== undefined) state.standards_declared = extras.standards_declared;
 
+  state.journal_coverage = extras.journal_complete === true
+    ? "COMPLETE"
+    : extras.journal_complete === false ? "PARTIAL" : "UNKNOWN";
+  // A journal table is not presumed to be a complete record of actual trades.
+  // Without explicit operator attestation, these computed fields remain UNKNOWN.
+  if (extras.journal_complete !== true) return state;
+
   const sorted = [...journal].sort((a, b) => b.created_ms - a.created_ms);
   const todayStart = utcDayStartMs(nowMs);
   state.trades_today = sorted.filter((j) => j.created_ms >= todayStart).length;
 
   let consec = 0;
   for (const j of sorted) {
-    if (j.r_multiple === null) break;
+    if (j.r_multiple === null) {
+      state.consecutive_losses = null;
+      return state;
+    }
     if (j.r_multiple < 0) consec += 1;
     else break;
   }
   state.consecutive_losses = consec;
 
-  const lastLoss = sorted.find((j) => j.r_multiple !== null && (j.r_multiple as number) < 0);
+  const lastLoss = sorted.find((j) => j.r_multiple !== null && j.r_multiple < 0);
   state.minutes_since_last_loss = lastLoss ? (nowMs - lastLoss.created_ms) / 60_000 : null;
   return state;
 }
@@ -99,40 +118,50 @@ function riskNotionalFromSignal(s: SignalRow): number | null {
   }
 }
 
-function signalStillFresh(s: SignalRow, nowMs: number): boolean {
-  let anchor: number | null = null;
-  let tf = s.timeframe;
+type SignalFreshness = "FRESH" | "EXPIRED" | "UNKNOWN";
+
+function signalFreshness(s: SignalRow, nowMs: number): SignalFreshness {
+  let payload: Record<string, unknown>;
   try {
-    const p = JSON.parse(s.payload_json) as { anchor_close_ms?: unknown; timeframe?: unknown };
-    if (typeof p.anchor_close_ms === "number" && Number.isFinite(p.anchor_close_ms)) anchor = p.anchor_close_ms;
-    if (typeof p.timeframe === "string" && p.timeframe.length > 0) tf = p.timeframe;
+    const parsed: unknown = JSON.parse(s.payload_json);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return "UNKNOWN";
+    payload = parsed as Record<string, unknown>;
   } catch {
-    /* payload unreadable — fall through */
+    return "UNKNOWN";
   }
-  if (anchor === null) return false; // cannot claim a signal is still open without a source anchor
-  return opportunityFreshness(anchor, nowMs, tf).state === "READY";
+
+  const anchor = payload.anchor_close_ms;
+  if (typeof anchor !== "number" || !Number.isFinite(anchor) || anchor > nowMs) return "UNKNOWN";
+  if (!isTimeframe(s.timeframe)) return "UNKNOWN";
+  if (Object.prototype.hasOwnProperty.call(payload, "timeframe") && payload.timeframe !== s.timeframe) return "UNKNOWN";
+  return opportunityFreshness(anchor, nowMs, s.timeframe).state === "READY" ? "FRESH" : "EXPIRED";
 }
 
 /**
- * Open advisory book = currently published (or qualified) signals that are
- * still inside the opportunity freshness window. This is MEASURED from the
- * signal table — it is the book's own exposure, not a claim the human filled
- * the order. Terminal / expired / unanchored rows are excluded.
+ * Open advisory book = active published/qualified rows whose freshness can be
+ * established. Proven-expired rows are ignored. An active row with an absent,
+ * invalid, future, or conflicting source anchor is retained with UNKNOWN risk
+ * so neither portfolio heat nor concurrency can silently omit it.
  */
-export function advisoryOpenRisks(signals: SignalRow[], nowMs: number, excludeOppId?: string | null): OpenRisk[] {
+export function advisoryOpenRisks(signals: SignalRow[], nowMs: number, excludeOppId?: string | null): OpenRisk[] | null {
   const out: OpenRisk[] = [];
   for (const s of signals) {
     if (s.state !== "published" && s.state !== "qualified") continue;
     if (excludeOppId && s.opp_id === excludeOppId) continue;
-    if (s.direction !== "long" && s.direction !== "short") continue;
-    if (!signalStillFresh(s, nowMs)) continue;
-    const notional = riskNotionalFromSignal(s);
+    if (typeof s.symbol !== "string" || s.symbol.length === 0 || (s.direction !== "long" && s.direction !== "short")) {
+      // The row is active but cannot be represented as a measured OpenRisk.
+      // Discarding it would understate both exposure and position count.
+      return null;
+    }
+    const freshness = signalFreshness(s, nowMs);
+    if (freshness === "EXPIRED") continue;
+    const notional = freshness === "FRESH" ? riskNotionalFromSignal(s) : null;
     out.push({
       symbol: s.symbol,
       direction: s.direction,
-      // unknown notional is 0 size in the book but still occupies a slot
-      // (concurrency / duplicate-symbol); heat uses max(0, amount).
-      risk_amount: notional ?? 0,
+      // Preserve UNKNOWN notional (including unknown freshness). The row still
+      // occupies a concurrency slot; portfolio heat cannot treat it as zero.
+      risk_amount: notional,
     });
   }
   return out;
@@ -154,6 +183,7 @@ export function loadLiveGateContext(
   const checklist = boolPref(safeConfig(repo, "pref.psychology.checklist_completed"));
   const security = boolPref(safeConfig(repo, "pref.psychology.security_checklist_completed"));
   const standards = boolPref(safeConfig(repo, "pref.psychology.standards_declared"));
+  const journalComplete = boolPref(safeConfig(repo, "pref.psychology.journal_complete"));
 
   const psychology = psychologyStateFromJournal(journal, nowMs, {
     daily_loss_limit_pct: opts.daily_loss_limit_pct,
@@ -161,10 +191,22 @@ export function loadLiveGateContext(
     checklist_completed: checklist,
     security_checklist_completed: security,
     standards_declared: standards,
+    journal_complete: journalComplete ?? undefined,
   });
 
-  const signals = repo.signalList(500);
-  const open_risks = advisoryOpenRisks(signals, nowMs, opts.excludeOppId);
+  // The active-state filter runs in SQL before this bounded query. Fetch one
+  // sentinel row beyond the supported inventory; if present, do not use the
+  // partial rows or claim that the advisory book is measured.
+  const signals = repo.signalOpenList(OPEN_BOOK_SIGNAL_QUERY_LIMIT, opts.excludeOppId);
+  const coverageComplete = signals.length <= OPEN_BOOK_MAX_SIGNAL_ROWS;
+  const open_risks = coverageComplete
+    ? advisoryOpenRisks(signals, nowMs, opts.excludeOppId)
+    : null;
+  const openBookReason = !coverageComplete
+    ? `open advisory book coverage is incomplete: active-signal query returned the ${OPEN_BOOK_SIGNAL_QUERY_LIMIT}-row truncation sentinel (more than ${OPEN_BOOK_MAX_SIGNAL_ROWS} rows); partial results were discarded and exposure/concurrency are UNKNOWN`
+    : open_risks === null
+      ? "active advisory signal identity is malformed (missing symbol or recognized direction); exposure and concurrency are UNKNOWN"
+      : `complete active-signal query returned ${signals.length} row(s); ${open_risks.length} fresh or freshness-UNKNOWN active row(s) retained, including ${open_risks.filter((row) => row.risk_amount !== null).length} measured and ${open_risks.filter((row) => row.risk_amount === null).length} UNKNOWN risk amount(s)`;
 
   return {
     psychology,
@@ -173,7 +215,7 @@ export function loadLiveGateContext(
     period_realized_loss: null,
     daily_loss_reason:
       "journal records a self-reported R-multiple, not account-currency PnL — daily/period realized loss is UNAVAILABLE (not assumed 0)",
-    open_book_reason: `advisory open book measured from ${open_risks.length} fresh published/qualified signal(s)`,
+    open_book_reason: openBookReason,
   };
 }
 

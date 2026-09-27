@@ -16,7 +16,6 @@
  *  - LIQUIDATION is an ESTIMATE, never a venue fact. Its gate semantics are
  *    explicit and separately labelled.
  */
-import { ASA_RISK_ACCOUNT_EQUITY, ASA_RISK_PER_TRADE_PCT, ASA_RISK_MAX_LEVERAGE } from "../env";
 
 export interface RiskInput {
   symbol: string;
@@ -25,9 +24,9 @@ export interface RiskInput {
   stop: number;
   /** first target from the strategy's target model; null when unknown */
   target?: number | null;
-  equity: number;
-  riskPerTradePct: number;
-  maxLeverage: number;
+  equity: number | null;
+  riskPerTradePct: number | null;
+  maxLeverage: number | null;
   venueMaxLeverage: number | null;
   maintenanceMarginRate: number | null;
   takerFeeCoefficient: number | null;
@@ -77,9 +76,12 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
   const blocks: string[] = [];
   const unenforced: string[] = [];
 
-  const equity = input.equity > 0 ? input.equity : ASA_RISK_ACCOUNT_EQUITY;
-  const riskPct = input.riskPerTradePct > 0 ? input.riskPerTradePct : ASA_RISK_PER_TRADE_PCT;
-  const capLev = input.maxLeverage > 0 ? input.maxLeverage : ASA_RISK_MAX_LEVERAGE;
+  const equity = input.equity !== null && Number.isFinite(input.equity) && input.equity > 0 ? input.equity : null;
+  const riskPct = input.riskPerTradePct !== null && Number.isFinite(input.riskPerTradePct) && input.riskPerTradePct > 0 ? input.riskPerTradePct : null;
+  const capLev = input.maxLeverage !== null && Number.isFinite(input.maxLeverage) && input.maxLeverage > 0 ? input.maxLeverage : null;
+  if (equity === null) blocks.push("account equity unavailable or invalid — position sizing is blocked, no default substituted");
+  if (riskPct === null) blocks.push("per-trade risk limit unavailable or invalid — position sizing is blocked, no default substituted");
+  if (capLev === null) blocks.push("maximum leverage unavailable or invalid — position sizing is blocked, no default substituted");
 
   /* ---------------------------------------------- DIRECTION SAFETY (hard) */
   if (!Number.isFinite(input.entry) || !Number.isFinite(input.stop)) {
@@ -92,9 +94,9 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
 
   const stopAbs = Math.abs(input.entry - input.stop);
   const stopPct = input.entry > 0 ? (stopAbs / input.entry) * 100 : null;
-  const riskAmount = equity * (riskPct / 100);
+  const riskAmount = equity !== null && riskPct !== null ? equity * (riskPct / 100) : null;
 
-  let sizeBase = stopAbs > 0 ? riskAmount / stopAbs : null;
+  let sizeBase = stopAbs > 0 && riskAmount !== null ? riskAmount / stopAbs : null;
   if (sizeBase !== null) {
     const stepped = applyStep(sizeBase, input.qtyStep);
     if (stepped !== sizeBase) {
@@ -103,8 +105,8 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
     sizeBase = stepped;
   }
   const notional = sizeBase !== null ? sizeBase * input.entry : null;
-  const levEst = notional !== null && equity > 0 ? notional / equity : null;
-  const maxAllowedSize = stopAbs > 0 ? (equity * capLev) / input.entry : null;
+  const levEst = notional !== null && equity !== null ? notional / equity : null;
+  const maxAllowedSize = stopAbs > 0 && equity !== null && capLev !== null && input.entry > 0 ? (equity * capLev) / input.entry : null;
 
   /* ------------------------------------------------- TARGET-AWARE R:R */
   let rr: number | null = null;
@@ -149,9 +151,8 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
 
   /* ------------------------------------------------------------- vetoes */
   if (stopPct === null) blocks.push("stop distance not computable");
-  if (stopPct !== null && stopPct > 30) blocks.push(`stop distance ${stopPct.toFixed(2)}% exceeds the 30% sanity bound (ENGINEERING LIMIT)`);
   if (sizeBase !== null && sizeBase <= 0) blocks.push("computed position size is zero or negative after venue rounding");
-  if (levEst !== null && levEst > capLev) blocks.push(`estimated leverage ${levEst.toFixed(2)}x exceeds the AsA cap ${capLev}x`);
+  if (levEst !== null && capLev !== null && levEst > capLev) blocks.push(`estimated leverage ${levEst.toFixed(2)}x exceeds the configured cap ${capLev}x`);
   if (input.venueMaxLeverage !== null && levEst !== null && levEst > input.venueMaxLeverage) {
     blocks.push(`estimated leverage ${levEst.toFixed(2)}x exceeds venue max ${input.venueMaxLeverage}x`);
   }
@@ -162,13 +163,11 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
   if (liq !== null && input.direction === "short" && input.stop > liq) {
     blocks.push(`stop ${input.stop} sits beyond the ESTIMATED liquidation ${liq.toFixed(6)} (estimate, not a venue fact) — would be liquidated first`);
   }
-  // R:R gate only applies when a real target exists — never assumed
-  if (rr !== null && rr < 1.5) blocks.push(`R:R ${rr.toFixed(2)} is below the 1.5 minimum (ENGINEERING LIMIT)`);
-
+  // R:R is reported from the actual target; no corpus-backed threshold is known.
   const feesPct = input.takerFeeCoefficient !== null ? input.takerFeeCoefficient * 2 * 100 : null;
   if (feesPct === null) unenforced.push("taker fee coefficient unavailable — fee impact not modelled in this check");
 
-  if (blocks.length === 0) {
+  if (blocks.length === 0 && riskPct !== null && equity !== null && riskAmount !== null) {
     reasons.push("risk checks passed", `risk per trade ${riskPct}% of ${equity} equity = ${round4(riskAmount)}`);
   }
 
@@ -179,8 +178,8 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
     numbers: {
       stop_distance: stopAbs > 0 ? round8(stopAbs) : null,
       stop_distance_pct: stopPct !== null ? round4(stopPct) : null,
-      risk_amount: round4(riskAmount),
-      risk_notional: round4(riskAmount),
+      risk_amount: riskAmount !== null ? round4(riskAmount) : null,
+      risk_notional: riskAmount !== null ? round4(riskAmount) : null,
       suggested_size_base: sizeBase !== null ? round8(sizeBase) : null,
       position_size: sizeBase !== null ? round8(sizeBase) : null,
       notional: notional !== null ? round4(notional) : null,
