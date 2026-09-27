@@ -103,6 +103,7 @@ export function liveScanState(): LiveScanState {
 export function classifyScanOutcome(o: ScanOutcome): { outcome: LiveScanOutcomeKind; reason: string | null } {
   if (!o.evaluated) return { outcome: "not_evaluated", reason: o.reason ?? null };
   if (!o.opportunity) return { outcome: "no_opportunity", reason: o.reason ?? null };
+  if (o.publish && !o.publish.published) return { outcome: "publish_refused", reason: o.publish.reason };
   if (o.opportunity.state !== "READY") {
     return { outcome: "not_ready", reason: `${o.opportunity.state}: ${o.opportunity.blocked_factors.join("; ") || o.reason || "not admitted"}` };
   }
@@ -160,7 +161,13 @@ export function runLiveScanFor(
     }
     state.scans_total++;
     state.last_scan_ms = Date.now();
-    if (opts.close_time_ms != null) lastClose.set(`${symbol}|${strategy.setup_id}`, opts.close_time_ms);
+    // Infrastructure failure is not an acknowledgement. A repeated store/
+    // close event must be able to retry it, and slow older completions must
+    // never move the watermark backwards.
+    if (opts.close_time_ms != null && !["error", "not_evaluated", "publish_refused"].includes(result.outcome)) {
+      const dedupeKey = `${symbol}|${strategy.setup_id}`;
+      lastClose.set(dedupeKey, Math.max(lastClose.get(dedupeKey) ?? 0, opts.close_time_ms));
+    }
     eventBus.emit("scan.completed", {
       symbol,
       timeframe: strategy.timeframe,
@@ -197,7 +204,7 @@ export async function runLiveScan(
   for (const strategy of strategies) {
     const dedupeKey = `${symbol}|${strategy.setup_id}`;
     const flight = liveScanFlightKey(symbol, strategy.setup_id, opts.close_time_ms);
-    if (opts.close_time_ms != null && lastClose.get(dedupeKey) === opts.close_time_ms && !inFlight.has(flight)) continue; // same bar already scanned
+    if (opts.close_time_ms != null && (lastClose.get(dedupeKey) ?? -Infinity) >= opts.close_time_ms && !inFlight.has(flight)) continue; // same bar already scanned
     jobs.push(runLiveScanFor(symbol, strategy, trigger, { close_time_ms: opts.close_time_ms, forceRefresh: opts.forceRefresh }));
   }
   return Promise.all(jobs);

@@ -1,0 +1,26 @@
+{
+  "browser.json": {
+    "sha256": "cbe44ac5fe05d544e99340246fdf190dd57447f4e4801c689f8e10a492dd9b23",
+    "bytes": 1376
+  },
+  "real-mobile-rtl.png": {
+    "sha256": "07f579ffa08a0337173bc285ba909092430ef71986a544e89f032843288d3727",
+    "bytes": 64192
+  },
+  "reproductions.txt": {
+    "sha256": "3da2cbe8231f876292bcc6175e79bc02e05f06175b529535c92c342c45f1f4b0",
+    "bytes": 31119
+  },
+  "runtime.json": {
+    "sha256": "7ccd7c9291d1396ce152fc3f92e1529da6e77671d1b7c1fedb34dd36263bbd8a",
+    "bytes": 23171
+  },
+  "test-only-partial.png": {
+    "sha256": "b915e45e5f25de749d237b453d7c65bf5a5d517ed588adf60635b9717392a728",
+    "bytes": 98227
+  },
+  "validation.txt": {
+    "sha256": "4f4ecff464f5a5e843f17dc45a732bb8b173a4c511eccaea0183b07e962ea0a9",
+    "bytes": 30687
+  }
+}

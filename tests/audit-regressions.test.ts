@@ -1,3 +1,4 @@
+import { publicationIdentity, persistPublicationFixture, syntheticMarket } from "./fixtures/publication-opportunity";
 /**
  * AUDIT REGRESSION TESTS — one test per P0/P1 defect found and fixed in the
  * final forensic backend audit. Every test here pins a defect that was
@@ -217,6 +218,7 @@ describe("P1-2 outbox retries FAILED rows", () => {
     const repo = {
       outboxRetryable: (limit: number) => Object.values(rows).filter((r) => ["QUEUED", "FAILED"].includes(r.state) && r.attempts < 5).slice(0, limit),
       outboxList: () => Object.values(rows),
+      outboxGet: (id: number) => rows[id] ?? null,
       outboxMark: (id: number, state: string, error: string | null = null) => {
         const r = rows[id];
         r.state = state;
@@ -229,7 +231,8 @@ describe("P1-2 outbox retries FAILED rows", () => {
     const { drainOutbox } = await import("../src/lib/notify/telegram");
     const r = await drainOutbox(repo as never);
     // telegram is NOT configured in tests -> the preflight note is recorded and the row stays retryable
-    expect(r.attempted).toBe(1); // only the FAILED row, NOT the DEAD one
+    expect(r.inspected).toBe(1); // only the FAILED row, NOT the DEAD one
+    expect(r.attempted).toBe(0); // preflight is not transport
     expect(r.retried_failed).toBe(1);
     expect(rows[1].state).toBe("FAILED");
     // T05 T3: preflight "not configured" makes NO provider request, so it
@@ -251,19 +254,16 @@ describe("P1-6 expireStaleSignals expires every stale signal despite pagination"
       direction: "long", score: 90, strategy_id: "s", opp_id: null,
       payload_json: "{}", created_ms: now - 7200_000, updated_ms: now - 7200_000,
     }));
-    // page ordering is updated_ms DESC — the exact condition under which the
-    // old single-phase implementation skipped rows mid-walk.
-    const repo = {
-      signalPage: (limit: number, offset: number) =>
-        [...rows].sort((a, b) => b.updated_ms - a.updated_ms).slice(offset, offset + limit),
-      signalUpdate: (u: { id: string; state: string }) => {
-        const r = rows.find((x) => x.id === u.id);
-        if (r) { r.state = u.state; r.updated_ms = Date.now(); }
-      },
-    };
-    const n = expireStaleSignals(60 * 60_000, repo as never);
-    expect(n).toBe(1200);
-    expect(rows.every((r) => r.state === "expired")).toBe(true);
+    // Use real SQLite ordering, transactions, and transition audit rather
+    // than a partial Repo double which cannot exercise concurrent rechecks.
+    const { SqliteRepo } = await import("../src/db/sqlite");
+    const repo = new SqliteRepo(":memory:");
+    try {
+      repo.withTransaction(() => rows.forEach((r) => repo.signalInsert(r)));
+      const n = expireStaleSignals(60 * 60_000, repo);
+      expect(n).toBe(1200);
+      expect(repo.signalList(1200).every((r) => r.state === "expired")).toBe(true);
+    } finally { repo.close(); }
   });
 });
 
@@ -422,24 +422,27 @@ describe("audit D: signal idempotency is enforced by the database", () => {
     const { publishSignal } = await import("../src/lib/pipeline/orchestrator");
     const { getRepo, closeRepo } = await import("../src/db/sqlite");
     try {
-      const opp = {
+      (await import("../src/lib/market/store")).sharedStore.catalog.set("BTCUSDT", syntheticMarket("BTCUSDT"));
+  (await import("../src/lib/market/operational-universe")).__setOperationalUniverse(["BTCUSDT"]);
+      const opp = publicationIdentity({
         id: "oppfixed", symbol: "BTCUSDT", timeframe: "1h", direction: "long",
         score: 90, setup: "s", thesis: "t",
-        entry_zone: null, invalidation: null, stop: null, targets: [], rr: null,
-        strategy_id: "STR-RAW-2-803", mode: "live", state: "READY",
+        entry_zone: { top: 100, bottom: 100 }, invalidation: null, stop: 95, targets: [110], rr: 2,
+        strategy_id: "STR-TEST-CLOSURE", mode: "live", state: "READY",
         anchor_ts_ms: 0, anchor_close_ms: Date.now(), freshness_ms: 0,
         evidence: [], contradictions: [], score_breakdown: null,
         positive_factors: [], negative_factors: [], blocked_factors: [], unknown_factors: [],
         source_refs: [], data_quality: { bars: 1, stale: false, age_ms: 0, state: "FRESH" },
         psychology: null, portfolio: null, setup_id: null, score_semantics: "s",
-        chart_evidence: null, risk: { verdict: "pass", reasons: ["risk checks passed"], numbers: {} }, ai: null,
+        chart_evidence: null, risk: (await import("../src/lib/risk/live")).evaluateLiveRisk("BTCUSDT", "long", 100, 95, 110), ai: null,
         provenance: { generated_at_ms: 0, data: { series_fetched_ms: 0, stats_fetched_ms: null, native_1d: true, candles: { macro: 0, context: 0, trigger: 0 } } },
-      } as never;
+      } as never);
+      persistPublicationFixture(getRepo(), opp);
       publishSignal(opp);
       publishSignal(opp);
       publishSignal(opp);
       const repo = getRepo();
-      const rows = repo.signalList(100).filter((r) => r.opp_id === "oppfixed");
+      const rows = repo.signalList(100).filter((r) => r.opp_id === opp.id);
       expect(rows.length).toBe(1);
     } finally {
       closeRepo();
@@ -679,4 +682,15 @@ describe("audit B3/B4: discovery drives the operational universe honestly", () =
     await refreshOperationalUniverse(true);
     expect(operationalUniverse()).toEqual(["AAAUSDT", "NEWLISTEDUSDT"]);
   });
+});
+
+// TEST ONLY: boundary fixtures are not empirical promotion or account-loss proof.
+vi.mock("../src/lib/backtest/promotion", async (original) => {
+  const mod = await original<typeof import("../src/lib/backtest/promotion")>();
+  return { ...mod,
+  promotedRuntimeStatus: (id: string) => id === "STR-TEST-CLOSURE" ? "LIVE_ADVISORY_ONLY" : mod.promotedRuntimeStatus(id),
+}; });
+vi.mock("../src/lib/risk/policy", async (original) => {
+  const mod = await original<typeof import("../src/lib/risk/policy")>();
+  return { ...mod, getProductionRiskPolicy: () => ({ ...mod.getProductionRiskPolicy(), daily_loss_limit_pct: null, period_loss_limit_pct: null }) };
 });

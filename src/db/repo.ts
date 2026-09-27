@@ -42,6 +42,14 @@ export interface SignalRow {
   outbox_id?: number | null;
 }
 
+export interface SignalTransitionRow {
+  id: number;
+  signal_id: string;
+  from_state: string | null;
+  to_state: string;
+  changed_ms: number;
+}
+
 export interface JournalRow {
   id: number;
   created_ms: number;
@@ -167,14 +175,19 @@ export interface Repo {
   opportunityCount(): number;
   signalInsert(s: SignalRow): void;
   signalUpdate(s: Partial<SignalRow> & { id: string }): void;
+  /** Complete active advisory book — never a UI-sized page. */
+  signalActive(): SignalRow[];
   signalList(limit: number): SignalRow[];
   signalPage(limit: number, offset: number): SignalRow[];
   signalByOpp(oppId: string): SignalRow | null;
   signalGet(id: string): SignalRow | null;
+  /** Recorded transitions only; empty for unmodified legacy rows, never reconstructed history. */
+  signalHistory(id: string): SignalTransitionRow[];
   journalAdd(j: Omit<JournalRow, "id">): number;
   journalList(): JournalRow[];
   journalDelete(id: number): void;
   outboxEnqueue(kind: string, payload: unknown): number;
+  outboxStateCounts(): Record<OutboxRow["state"], number>;
   outboxList(state: OutboxRow["state"] | "ALL", limit: number): OutboxRow[];
   /** AUDIT FIX (P1): rows eligible for a retry — QUEUED plus FAILED rows that have not exhausted their TRANSPORT attempts. DEAD is terminal. A live (unexpired) claim does not make a row retryable for anyone else — `outboxClaim` is the arbiter. */
   outboxRetryable(limit: number): OutboxRow[];
@@ -199,12 +212,14 @@ export interface Repo {
    * place `attempts` increments (exactly once per cycle). Returns the new
    * attempts count, or null when the claim is no longer held (stale owner).
    */
+  /** Renew only a still-live lease, before each external sub-step. Expired owners cannot renew. */
+  outboxRenewClaim(id: number, claim: OutboxClaim, expiresAtMs: number): boolean;
   outboxCountAttempt(id: number, claim: OutboxClaim): number | null;
   /**
    * Write the outcome state/error for a row. With `claim`, the write only
    * applies while that exact claim is still the owner (stale owners cannot
    * corrupt a reclaimed row) and the claim is released. WITHOUT `claim` this
-   * is an unconditional note write (preflight paths). NEVER touches attempts.
+   * can only annotate an unclaimed retryable row, never SENT. NEVER touches attempts.
    */
   outboxMark(id: number, state: OutboxRow["state"], error?: string | null, claim?: OutboxClaim | null): boolean;
   /**

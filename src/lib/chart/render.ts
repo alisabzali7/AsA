@@ -13,6 +13,7 @@
  * carries produced_by + source_refs + detector_version. Nothing decorative is
  * ever drawn: if an annotation does not exist, no line appears.
  */
+import { bitmapText } from "./bitmap-text";
 import type { Candle } from "../domain/types";
 import type { ChartEvidence, ChartAnnotation } from "./evidence";
 
@@ -252,7 +253,7 @@ export function renderEvidencePng(
   const W = opts.width ?? 900;
   const H = opts.height ?? 500;
   const nBars = opts.bars ?? 140;
-  const padL = 6, padR = 70, padT = 34, padB = 18;
+  const padL = 6, padR = Math.min(210, Math.floor(W * 0.35)), padT = Math.min(58, Math.floor(H * 0.3)), padB = 22;
 
   const rgba = new Uint8Array(W * H * 4);
   const hex = (h: string): [number, number, number] => [
@@ -317,8 +318,20 @@ export function renderEvidencePng(
       hline(ay, padL, padL + plotW, colorFor(a.kind), a.kind === "target" || a.kind === "invalidation");
     }
   }
-  // direction marker bar in the header strip (no text rasteriser: colour-coded)
-  rect(padL, 6, 120, 6, evidence.direction === "long" ? COLORS.up : COLORS.down);
+  // Identity and level semantics must survive detached-photo viewing. A
+  // colour-coded marker without symbol/timeframe/price labels is insufficient.
+  const text = (value:string,x:number,y:number,color:string=COLORS.text,scale=1) =>
+    bitmapText(value,x,y,(xx,yy)=>px(xx,yy,color),W-6,scale);
+  text(`${evidence.symbol} ${evidence.timeframe} ${evidence.direction} | ADVISORY ONLY`,padL,6,COLORS.text,W>=700?2:1);
+  text(`${evidence.setup_id} | SCORE ${evidence.score ?? "UNKNOWN"} - NOT PROBABILITY`,padL,27,COLORS.muted);
+  text(`ANCHOR ${typeof evidence.bar_time === "number" && Number.isFinite(evidence.bar_time) ? new Date(evidence.bar_time*1000).toISOString() : "UNKNOWN"} | VIEW ${view.length}/${candles.length} BARS`,padL,42,COLORS.muted);
+  const legendX = padL+plotW+10;
+  text("DECISION LEVELS",legendX,padT,COLORS.muted);
+  evidence.annotations.filter(a=>Number.isFinite(a.price)).forEach((a,i)=>{
+    text(`${a.kind} ${a.price}`,legendX,padT+18+i*34,colorFor(a.kind));
+    text(`${a.evidence_kind}${offscale.has(a.annotation_id)?" OFF-SCALE":""}`,legendX,padT+29+i*34,COLORS.muted);
+  });
+  text(`${evidence.lineage_complete ? "LINEAGE COMPLETE" : "INCOMPLETE LINEAGE"} | FULL RULE/SOURCE REFERENCES IN CAPTION AND EVIDENCE API`,padL,H-13,COLORS.muted);
 
   return encodePng(W, H, rgba);
 }

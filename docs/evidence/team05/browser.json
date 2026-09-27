@@ -1,0 +1,49 @@
+{
+  "results": [
+    {
+      "name": "real API → empty/success UI",
+      "status": "PASS",
+      "evidence": {
+        "http": 200,
+        "real_signal_count": 0
+      }
+    },
+    {
+      "name": "390px mobile + Persian/RTL",
+      "status": "PASS",
+      "evidence": "no horizontal overflow; language button switches dir=rtl"
+    },
+    {
+      "name": "loading is not empty success",
+      "status": "PASS",
+      "evidence": "delayed API test interception"
+    },
+    {
+      "name": "HTTP 503 → visible error",
+      "status": "PASS",
+      "evidence": "test interception; not reported as empty"
+    },
+    {
+      "name": "partial delivery + provenance",
+      "status": "PASS",
+      "evidence": "test-only photo accepted/text pending; never SENT"
+    },
+    {
+      "name": "failed refresh preserves explicitly stale cached state",
+      "status": "PASS",
+      "evidence": "test clock and HTTP failure; delivery remains FAILED"
+    },
+    {
+      "name": "offline",
+      "status": "PASS",
+      "evidence": "browser offline mode produces explicit offline state"
+    },
+    {
+      "name": "browser runtime",
+      "status": "PASS",
+      "evidence": "zero uncaught page errors across real and injected scenarios"
+    }
+  ],
+  "errors": [],
+  "note": "No market/Telegram provider success claimed; all nonempty signal UI states were intercepted test fixtures."
+}

@@ -73,3 +73,14 @@ describe("evaluateRisk", () => {
     expect(r.numbers.fees_roundtrip_pct).toBeCloseTo(0.08, 6); // 0.04% taker x2
   });
 });
+
+describe("T05 recovery: malformed numeric risk inputs", () => {
+  it.each([
+    { direction: "UNKNOWN" }, { entry: Infinity }, { stop: -1 },
+    { target: Infinity }, { equity: NaN }, { riskPerTradePct: Infinity },
+    { maxLeverage: NaN }, { qtyStep: Infinity }, { maintenanceMarginRate: NaN },
+    { takerFeeCoefficient: -0.1 },
+  ])("blocks instead of producing a PASS for %j", (patch) => {
+    expect(evaluateRisk({ ...base, ...patch } as never).verdict).toBe("block");
+  });
+});

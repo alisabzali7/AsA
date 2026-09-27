@@ -21,6 +21,7 @@ export async function GET(): Promise<NextResponse> {
 }
 
 const clampNum = (v: unknown, lo: number, hi: number): number | null => {
+  if (typeof v !== "number" && (typeof v !== "string" || v.trim() === "")) return null;
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : null;
 };
@@ -36,9 +37,14 @@ export async function POST(req: Request): Promise<NextResponse> {
     const equity = clampNum(body.equity, 1, 1e9);
     const perTrade = clampNum(body.perTradePct, 0.1, 50);
     const maxLev = clampNum(body.maxLeverage, 1, 50);
-    if (equity !== null) repo.configSet("pref.risk.equity", String(equity));
-    if (perTrade !== null) repo.configSet("pref.risk.perTradePct", String(perTrade));
-    if (maxLev !== null) repo.configSet("pref.risk.maxLeverage", String(maxLev));
+    const pairs = [["equity", equity], ["perTradePct", perTrade], ["maxLeverage", maxLev]] as const;
+    if (!pairs.some(([key]) => body[key] !== undefined) || pairs.some(([key, value]) => body[key] !== undefined && value === null))
+      return NextResponse.json({ok:false,error:"risk settings require finite numeric values; no settings were changed"},{status:400});
+    repo.withTransaction(() => {
+      if (equity !== null) repo.configSet("pref.risk.equity", String(equity));
+      if (perTrade !== null) repo.configSet("pref.risk.perTradePct", String(perTrade));
+      if (maxLev !== null) repo.configSet("pref.risk.maxLeverage", String(maxLev));
+    });
     return NextResponse.json({ ok: true, section, applied: { equity, perTradePct: perTrade, maxLeverage: maxLev } });
   }
   if (section === "ai") {

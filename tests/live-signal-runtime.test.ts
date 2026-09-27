@@ -22,6 +22,7 @@
  */
 import { describe, expect, it, beforeAll, beforeEach, afterAll, vi, type MockInstance } from "vitest";
 import fs from "node:fs";
+import { syntheticMarket } from "./fixtures/publication-opportunity";
 import os from "node:os";
 import path from "node:path";
 
@@ -145,12 +146,12 @@ beforeAll(async () => {
     if (url.includes("/sendPhoto")) {
       photoCalls += 1;
       const ok = photoResults.length > 0 ? photoResults.shift()! : true;
-      return new Response(JSON.stringify({ ok }), { status: ok ? 200 : 502, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ ok, result: ok ? { message_id: 1000 + photoCalls } : undefined }), { status: ok ? 200 : 502, headers: { "content-type": "application/json" } });
     }
     if (url.includes("/sendMessage")) {
       textCalls += 1;
       const ok = textResults.length > 0 ? textResults.shift()! : true;
-      return new Response(JSON.stringify({ ok }), { status: ok ? 200 : 502, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ ok, result: ok ? { message_id: 2000 + textCalls } : undefined }), { status: ok ? 200 : 502, headers: { "content-type": "application/json" } });
     }
     return new Response(JSON.stringify({ ok: false, description: `unexpected URL in test: ${url}` }), { status: 500 });
   }) as FetchImpl;
@@ -166,7 +167,9 @@ beforeAll(async () => {
   okFeature = (await import("../src/lib/features/types")).okFeature;
   const candles = await import("../src/lib/market/candles");
   // authoritative market state seam: the series a candle.closed event refers to
-  ensureSeriesSpy = vi.spyOn(candles.candleManager, "ensureSeries").mockImplementation(async (symbol: string) => series(symbol));
+  const store = (await import("../src/lib/market/store")).sharedStore;
+  const universe = await import("../src/lib/market/operational-universe");
+  ensureSeriesSpy = vi.spyOn(candles.candleManager, "ensureSeries").mockImplementation(async (symbol: string) => { store.catalog.set(symbol, syntheticMarket(symbol)); universe.__setOperationalUniverse([...store.catalog.keys()]); return series(symbol); });
 });
 
 afterAll(() => {
@@ -294,13 +297,16 @@ describe("T05 T4 runtime path: candle.closed → scanSymbol → publishSignal �
   });
 
   it("Case 4 — a terminal signal is never resurrected by a later trigger (and no new outbox row appears)", async () => {
-    const [r] = await live.runLiveScan("DOGEUSDT", "1h", "manual", { strategies: [LIVE_OK()] });
-    expect(r.outcome).toBe("published");
-    const sig = repo.signalByOpp(r.opportunity_id!)!;
     for (const terminal of ["expired", "invalidated", "closed", "archived", "blocked_by_risk"]) {
+      // Independent logical signals: terminal states are immutable, not test reset switches.
+      const st = strategy("STR-T4-LIVE", `SET-TERMINAL-${terminal}`, "pass");
+      const [r] = await live.runLiveScan("DOGEUSDT", "1h", "manual", { strategies: [st] });
+      expect(r.outcome).toBe("published");
+      const sig = repo.signalByOpp(r.opportunity_id!)!;
       repo.signalUpdate({ id: sig.id, state: terminal });
-      const [again] = await live.runLiveScan("DOGEUSDT", "1h", "manual", { strategies: [LIVE_OK()] });
+      const [again] = await live.runLiveScan("DOGEUSDT", "1h", "manual", { strategies: [st] });
       expect(again.outcome).toBe("publish_refused");
+      expect(repo.opportunityGet(r.opportunity_id!)?.state).toBe("REJECTED");
       expect(again.reason).toMatch(new RegExp(`existing signal is ${terminal} \\(terminal\\)`));
       expect(repo.signalByOpp(r.opportunity_id!)!.state).toBe(terminal);
       expect(outboxRowsFor(r.opportunity_id!)).toHaveLength(1);
@@ -327,7 +333,7 @@ describe("T05 T4 runtime path: candle.closed → scanSymbol → publishSignal �
     expect(d.delivery_state).toBe("FAILED");
     expect(d.attempts).toBe(1);
     expect(d.error).toMatch(/text not delivered/);
-    expect(d.progress).toEqual({ photo_required: true, photo_sent: true, text_sent: false });
+    expect(d.progress).toMatchObject({ photo_required: true, photo_sent: true, text_sent: false, photo_message_id: 1001 });
     expect(d.sent_ms).toBeNull();
     expect(photoCalls).toBe(1);
     expect(textCalls).toBe(1);
@@ -343,7 +349,7 @@ describe("T05 T4 runtime path: candle.closed → scanSymbol → publishSignal �
     expect(d.outbox_id).toBe(row.id); // SAME logical outbox item across the retry
     expect(d.delivery_state).toBe("SENT");
     expect(d.attempts).toBe(2);
-    expect(d.progress).toEqual({ photo_required: true, photo_sent: true, text_sent: true });
+    expect(d.progress).toMatchObject({ photo_required: true, photo_sent: true, text_sent: true, photo_message_id: 1001, text_message_id: 2002 });
     expect(d.sent_ms).not.toBeNull();
     expect(photoCalls).toBe(1);
     expect(textCalls).toBe(2);
@@ -447,6 +453,111 @@ describe("T05 T4 runtime path: candle.closed → scanSymbol → publishSignal �
     const r2 = new SqliteRepo(file); // reopen: no error, no duplicate column
     expect(r2.signalByOpp("opp-old")!.id).toBe("sig-old");
     const migr = new Database(file, { readonly: true }).prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[];
-    expect(migr.map((m) => m.version)).toEqual([1, 2]);
+    expect(migr.map((m) => m.version)).toEqual([1, 2, 3, 4]);
   });
+});
+
+describe("T05 recovery: event acknowledgement", () => {
+  it("a failed scan does not acknowledge the bar; replay can recover", async () => {
+    const close = lastClosedHourSec() * 1000;
+    const st = strategy("STR-T4-LIVE", "SET-RECOVER-ERROR", "pass");
+    ensureSeriesSpy.mockRejectedValueOnce(new Error("transient market outage"));
+    const [failed] = await live.runLiveScan("LTCUSDT", "1h", "candle.closed", { strategies: [st], close_time_ms: close });
+    expect(failed.outcome).toBe("error");
+    const replay = await live.runLiveScan("LTCUSDT", "1h", "candle.closed", { strategies: [st], close_time_ms: close });
+    expect(replay).toHaveLength(1);
+    expect(replay[0].outcome).toBe("published");
+  });
+  it("out-of-order older events cannot regress a completed watermark", async () => {
+    const close = lastClosedHourSec() * 1000;
+    const st = strategy("STR-T4-LIVE", "SET-ORDERED", "pass");
+    await live.runLiveScan("LTCUSDT", "1h", "candle.closed", { strategies: [st], close_time_ms: close });
+    const count = ensureSeriesSpy.mock.calls.length;
+    expect(await live.runLiveScan("LTCUSDT", "1h", "candle.closed", { strategies: [st], close_time_ms: close - 3600_000 })).toEqual([]);
+    expect(ensureSeriesSpy.mock.calls.length).toBe(count);
+  });
+});
+
+describe("T05 recovery: immutable chart and delivery contract", () => {
+  it("does not silently downgrade a required chart; retry resumes chart only after text success", async () => {
+    const st = strategy("STR-T4-LIVE", "SET-MISSING-CHART", "pass");
+    const [r] = await live.runLiveScan("ADAUSDT", "1h", "manual", { strategies: [st] });
+    const row = outboxRowsFor(r.opportunity_id!)[0];
+    ensureSeriesSpy.mockResolvedValueOnce(null);
+    expect((await tg.deliverOutboxRow(row, repo)).ok).toBe(false);
+    const partial = repo.outboxGet(row.id)!;
+    expect(partial.state).toBe("FAILED");
+    expect(JSON.parse(partial.payload_json).delivery_progress).toMatchObject({ photo_required: true, photo_sent: false, text_sent: true });
+    expect(textCalls).toBe(1); expect(photoCalls).toBe(0);
+    expect((await tg.deliverOutboxRow(row, repo)).ok).toBe(true); // intentionally stale snapshot
+    expect(textCalls).toBe(1); expect(photoCalls).toBe(1);
+  });
+  it("rescan cannot replace the signal's chart evidence; API and Telegram use the frozen snapshot", async () => {
+    const st = strategy("STR-T4-LIVE", "SET-FROZEN-CHART", "pass");
+    const [r] = await live.runLiveScan("ADAUSDT", "1h", "manual", { strategies: [st] });
+    const opp = repo.opportunityGet(r.opportunity_id!)!;
+    const original = JSON.parse(opp.payload_json);
+    repo.opportunityUpsert({ ...opp, payload_json: JSON.stringify({ ...original, chart_evidence: { ...original.chart_evidence, symbol: "WRONG" } }) });
+    const { __setOperationalUniverse } = await import("../src/lib/market/operational-universe");
+    __setOperationalUniverse(["ADAUSDT"]);
+    try {
+      const { GET } = await import("../src/app/api/charts/[id]/route");
+      const response = await GET(new Request(`http://asa.local/api/charts/${r.signal_id}.json`), { params: Promise.resolve({ id: `${r.signal_id}.json` }) });
+      expect(response.status).toBe(200);
+      const chart = await response.json();
+      expect(chart.kind).toBe("signal"); expect(chart.symbol).toBe("ADAUSDT");
+      expect(chart.candles.at(-1).t).toBe(original.chart_evidence.bar_time);
+      expect((await tg.deliverOutboxRow(outboxRowsFor(r.opportunity_id!)[0], repo)).ok).toBe(true);
+      expect(photoCalls).toBe(1);
+    } finally { __setOperationalUniverse(null); }
+  });
+  it("terminal signal is never delivered by a queued stale advisory", async () => {
+    const [r] = await live.runLiveScan("ADAUSDT", "1h", "manual", { strategies: [strategy("STR-T4-LIVE", "SET-NO-TERMINAL-SEND", "pass")] });
+    const row = outboxRowsFor(r.opportunity_id!)[0];
+    repo.signalUpdate({ id: r.signal_id!, state: "invalidated" });
+    expect((await tg.deliverOutboxRow(row, repo)).ok).toBe(false);
+    expect(repo.outboxGet(row.id)?.state).toBe("DEAD");
+    expect(repo.outboxGet(row.id)?.attempts).toBe(0);
+    expect(textCalls + photoCalls).toBe(0);
+    expect(repo.signalGet(r.signal_id!)?.state).toBe("invalidated");
+  });
+  it("wrong outbox symbol is poison, never a mismatched text/chart delivery", async () => {
+    const [r] = await live.runLiveScan("ADAUSDT", "1h", "manual", { strategies: [strategy("STR-T4-LIVE", "SET-NO-CONTAMINATION", "pass")] });
+    const row = outboxRowsFor(r.opportunity_id!)[0];
+    repo.outboxSetPayload(row.id, JSON.stringify({ ...JSON.parse(row.payload_json), symbol: "BTCUSDT" }));
+    expect((await tg.deliverOutboxRow(row, repo)).ok).toBe(false);
+    expect(repo.outboxGet(row.id)?.state).toBe("DEAD");
+    expect(textCalls + photoCalls).toBe(0);
+  });
+});
+
+describe("T05 recovery: source candle revision", () => {
+  it("refuses a chart built from revised OHLCV even when symbol/timeframe/anchor still match", async () => {
+    const [r] = await live.runLiveScan("ADAUSDT", "1h", "manual", { strategies: [strategy("STR-T4-LIVE", "SET-REVISED-CANDLES", "pass")] });
+    const row = outboxRowsFor(r.opportunity_id!)[0];
+    const revised = series("ADAUSDT");
+    revised.candles[0] = { ...revised.candles[0], v: 999 };
+    ensureSeriesSpy.mockResolvedValueOnce(revised);
+    expect((await tg.deliverOutboxRow(row, repo)).ok).toBe(false);
+    expect(photoCalls).toBe(0);
+    expect(repo.outboxGet(row.id)?.state).toBe("FAILED");
+    expect(JSON.parse(repo.outboxGet(row.id)!.payload_json).delivery_progress.photo_required).toBe(true);
+  });
+});
+
+describe("T05 recovery: incomplete historical cache", () => {
+  it("refetches a partial cache before declaring the required decision chart unavailable", async () => {
+    const [r] = await live.runLiveScan("DOTUSDT", "1h", "manual", { strategies: [strategy("STR-T4-LIVE", "SET-PARTIAL-HISTORY", "pass")] });
+    const { getHistoryStore } = await import("../src/lib/market/history-store");
+    getHistoryStore().put("DOTUSDT", "1h", series("DOTUSDT").candles.slice(-1));
+    expect((await tg.deliverOutboxRow(outboxRowsFor(r.opportunity_id!)[0], repo)).ok).toBe(true);
+    expect(photoCalls).toBe(1); expect(textCalls).toBe(1);
+  });
+});
+
+// LOCAL deterministic account measurement seam. Production journal remains
+// UNAVAILABLE, and the unmocked closure suite proves that default fails closed.
+vi.mock("../src/lib/pipeline/live-gates", async (original) => {
+  const mod = await original<typeof import("../src/lib/pipeline/live-gates")>();
+  return { ...mod, loadLiveGateContext: (...args: Parameters<typeof mod.loadLiveGateContext>) => ({ ...mod.loadLiveGateContext(...args), daily_realized_loss: 0, period_realized_loss: 0 }) };
 });

@@ -23,7 +23,7 @@ const NAV = [
   { href: "/settings", key: "settings" },
 ] as const;
 
-interface HealthShape { ok: boolean; market: string; reason?: string; ts: number }
+interface HealthShape { evidence_mode?: string | null; ok: boolean; market: string; reason?: string; ts: number }
 
 /* Browser connectivity via useSyncExternalStore — the idiomatic React
  * subscription to external browser state (no setState-in-effect). */
@@ -96,13 +96,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col">
+      {health?.evidence_mode === "LOCAL_TEST_SYNTHETIC" && <div role="status" className="border-b border-amber-500 bg-amber-950 px-3 py-2 text-center text-xs text-amber-200">LOCAL TEST / SYNTHETIC EVIDENCE — not live TTT data, not real Telegram delivery, not strategy promotion</div>}
       <header className="sticky top-0 z-40 border-b hairline" style={{ background: "rgba(7,8,10,0.88)", backdropFilter: "blur(8px)" }}>
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2">
           <Link href="/" className="focus-ring flex items-baseline gap-2 rounded">
             <span className="gold-text text-lg font-bold tracking-[0.18em]">ASA</span>
             <span className="hidden text-[9px] uppercase tracking-[0.2em] text-dim sm:inline">advisory terminal · ttt only</span>
           </Link>
-          <nav className="flex flex-1 flex-wrap items-center gap-0.5 overflow-x-auto" aria-label="sections">
+          <nav className="order-last flex w-full flex-none flex-nowrap items-center gap-0.5 overflow-x-auto sm:order-none sm:w-auto sm:flex-1 sm:flex-wrap" aria-label="sections">
             {NAV.map((n) => {
               const active = n.href === "/" ? path === "/" : path.startsWith(n.href);
               return (

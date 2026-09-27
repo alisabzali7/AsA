@@ -195,15 +195,20 @@ export function admitOpportunity(a: AdmissionInput): AdmissionResult {
   if (a.setup_verdict !== "PASS") {
     reasons.push(`setup outcome ${a.setup_verdict} — only a PASS setup may be admitted`);
   }
-  if (!a.data_quality_ok) reasons.push("data quality insufficient");
-  if (a.stale) reasons.push("market data is stale");
+  if (a.data_quality_ok !== true) reasons.push("data quality insufficient");
+  if (a.stale !== false) reasons.push("market data is stale or freshness UNKNOWN");
+  if (!["pass", "block", "unavailable"].includes(a.risk_verdict)) reasons.push("risk result UNKNOWN — not approval");
+  if (!["pass", "block"].includes(a.portfolio_verdict)) reasons.push("portfolio result UNKNOWN — not approval");
+  if (!["pass", "block", "flag"].includes(a.psychology_verdict)) reasons.push("psychology result UNKNOWN — not approval");
+  if (!Number.isFinite(a.score) || !Number.isFinite(a.threshold)) reasons.push("score/threshold UNKNOWN or invalid");
   if (a.risk_verdict === "block") reasons.push("risk engine BLOCK");
   if (a.risk_verdict === "unavailable") reasons.push("risk result UNAVAILABLE — not treated as pass");
   if (a.derived_market_truth) reasons.push("derived series cannot be admitted as native market truth");
   if (a.portfolio_verdict === "block") reasons.push("portfolio risk BLOCK");
   if (a.psychology_verdict === "block") reasons.push("psychology hard block");
-  if (a.unresolved_contradiction) reasons.push("unresolved contradiction in evidence");
-  if (a.unknown_required_fields.length > 0) {
+  if (a.unresolved_contradiction !== false) reasons.push("unresolved contradiction in evidence or conflict state UNKNOWN");
+  if (!Array.isArray(a.unknown_required_fields)) reasons.push("required-field evidence UNKNOWN");
+  else if (a.unknown_required_fields.length > 0) {
     reasons.push(`required fields UNKNOWN: ${a.unknown_required_fields.join(", ")}`);
   }
   if (a.strategy_runtime_status === "DISABLED") reasons.push("strategy is DISABLED by the runtime gate");

@@ -102,6 +102,10 @@ export class MarketEngine {
       // repo warm-up (durable tables). A local persistence failure is fatal:
       // without it the runtime cannot safely persist opportunities/history.
       getRepo();
+      // Subscribe BEFORE discovery can enqueue a fast first backfill. Otherwise
+      // the boot-time candles.updated event can be lost until the next bar.
+      startLiveSignalScanner();
+      expireStaleSignals();
       this.configureCandleTargets();
 
       // 0) DISCOVERY FIRST (remediation P0-1): the operational universe must be
@@ -135,10 +139,7 @@ export class MarketEngine {
       // probe the notifier before draining so state is measured, never assumed
       this.interval("outbox", OUTBOX_INTERVAL_MS, async () => { await probeTelegram(); await drainOutbox(); });
       this.interval("signals", 10 * 60_000, () => { expireStaleSignals(); });
-      // T05 T4: the live signal path. Event-driven off the SAME candle-close
-      // detection this engine already runs (scheduleCloseRefreshes → fetch →
-      // candle.closed); no extra polling loop. Idempotent to attach.
-      startLiveSignalScanner();
+      // The live scanner was attached before discovery/backfill above.
       this.interval("health", HEALTH_INTERVAL_MS, () => this.publishHealth());
       // periodic re-discovery: post-boot listings are ingested into the catalog
       // and queued for candles through the SAME discovery/catalog path.
@@ -219,12 +220,16 @@ export class MarketEngine {
   }
 
   private interval(name: string, ms: number, fn: () => void | Promise<void>): void {
+    let running = false;
     const t = setInterval(() => {
+      if (running) return; // no retry amplification when a drain/probe exceeds its cadence
+      running = true;
       Promise.resolve()
         .then(fn)
         .catch((err) => {
           sharedStore.recordError("loop", name, err instanceof Error ? err.message : String(err));
-        });
+        })
+        .finally(() => { running = false; });
     }, ms);
     this.timers.push(t);
   }
@@ -465,7 +470,12 @@ export class MarketEngine {
 
   computeHealth(): { market: AppState; reason?: string } {
     const age = sharedStore.lastStatsSweepAtMs === null ? null : Date.now() - sharedStore.lastStatsSweepAtMs;
-    if (age === null) return { market: "CONNECTING", reason: "first stats sweep pending" };
+    if (age === null) {
+      const discovery = universeState();
+      if (["NETWORK_FAILURE", "INVALID_RESPONSE", "VALID_EMPTY"].includes(discovery))
+        return { market: "UNAVAILABLE", reason: `TTT discovery ${discovery}; no successful market snapshot` };
+      return { market: "CONNECTING", reason: "first stats sweep pending" };
+    }
     if (age < 30_000) return { market: "LIVE", reason: `stats age ${(age / 1000).toFixed(0)}s` };
     if (age < 120_000) return { market: "STALE", reason: `last stats ${(age / 1000).toFixed(0)}s ago` };
     if (age < 600_000) return { market: "DEGRADED", reason: `TTT unreachable since ${(age / 1000).toFixed(0)}s` };

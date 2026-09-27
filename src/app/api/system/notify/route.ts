@@ -12,15 +12,13 @@ import { NextResponse } from "next/server";
 import { guardMutation, readBody } from "@/lib/api-common";
 import { getRepo } from "@/db/sqlite";
 import { telegramStateLive, drainOutbox, formatSignalText, type TelegramSignalPayload } from "@/lib/notify/telegram";
+import { deliveryStateOf } from "@/lib/pipeline/provenance";
 import { TELEGRAM_DRY_RUN } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
 function outboxCounts(): Record<string, number> {
-  const rows = getRepo().outboxList("ALL", 500);
-  const counts: Record<string, number> = { QUEUED: 0, SENT: 0, FAILED: 0, DEAD: 0 };
-  for (const r of rows) counts[r.state] = (counts[r.state] ?? 0) + 1;
-  return counts;
+  return getRepo().outboxStateCounts();
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -64,10 +62,11 @@ export async function POST(req: Request): Promise<NextResponse> {
     ok: true,
     action,
     enqueued_row_id: enqueued,
+    enqueued_delivery: enqueued === null ? null : deliveryStateOf(repo.outboxGet(enqueued)),
     drained,
     dry_run: TELEGRAM_DRY_RUN,
     delivery: TELEGRAM_DRY_RUN
-      ? "DRY_RUN=1 — row persisted and left QUEUED; nothing was sent to Telegram"
+      ? "DRY_RUN=1 — nothing was sent to Telegram; see persisted row state for configuration errors"
       : drained.sent > 0
         ? "provider accepted at least one row"
         : "no row was accepted by the provider (see outbox errors)",

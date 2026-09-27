@@ -13,13 +13,14 @@ interface OppItem {
   blocked_factors?: string[]; unknown_factors?: string[];
   data_quality?: { state?: string; stale?: boolean; age_ms?: number | null; native?: boolean };
   actionable?: boolean;
+  signal_state?: string | null;
   note?: string;
 }
 interface OppShape { ok: boolean; items: OppItem[] }
 
 export default function OpportunitiesPage() {
   const { t } = useLang();
-  const { data, error, refresh } = usePoll<OppShape>("/api/opportunities?limit=100", 15000);
+  const { data, error, refresh, loading, age_ms } = usePoll<OppShape>("/api/opportunities?limit=100", 15000);
   const items = data?.items ?? [];
   return (
     <div className="flex flex-col gap-2">
@@ -30,13 +31,15 @@ export default function OpportunitiesPage() {
         </div>
         <button className="btn" onClick={refresh}>refresh</button>
       </div>
-      {error && <div className="text-[11px]" style={{ color: "#d9605e" }}>{error}</div>}
-      {items.length === 0 && (
-        <Empty text="No stored opportunities yet. Live advisory scans additionally require a strategy with LIVE_ADVISORY_ONLY runtime status (empirically proven); no strategy currently holds it." />
+      {loading && !data && <p role="status">Loading opportunities…</p>}
+      {error && <p role="alert" className="text-down">Opportunities unavailable: {error}. {data ? "Showing last received state." : "No decision state could be loaded."}</p>}
+      {data && age_ms !== null && age_ms > 30_000 && <p role="status">STALE — last successful opportunity refresh {Math.floor(age_ms / 1000)}s ago.</p>}
+      {!loading && !error && data && items.length === 0 && (
+        <Empty text="No stored opportunities yet. Live advisory scans additionally require a strategy with LIVE_ADVISORY_ONLY runtime status and current complete risk/admission evidence. Nothing is simulated." />
       )}
       <div className="grid gap-2 xl:grid-cols-2">
         {items.map((o) => (
-          <Panel key={o.id} title={`${o.symbol} · ${o.timeframe} · ${o.direction}`} right={<StatusChip state={o.actionable ? "READY" : (o.fresh === "EXPIRED" ? "EXPIRED" : o.state ?? "REJECTED")} label={o.actionable ? "READY" : (o.fresh === "EXPIRED" ? "EXPIRED" : o.state)} />}>
+          <Panel key={o.id} title={`${o.symbol} · ${o.timeframe} · ${o.direction}`} right={<StatusChip state={o.actionable ? "READY" : (o.signal_state && !["candidate","qualified","published"].includes(o.signal_state) ? o.signal_state : o.fresh === "EXPIRED" ? "EXPIRED" : o.state ?? "REJECTED")} label={o.actionable ? "READY" : (o.signal_state && !["candidate","qualified","published"].includes(o.signal_state) ? o.signal_state : o.fresh === "EXPIRED" ? "EXPIRED" : o.state)} />}>
             <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px]">
               <Badge color="#d4b874">score {o.score}</Badge>
               <Badge>{o.mode}</Badge>
@@ -52,6 +55,7 @@ export default function OpportunitiesPage() {
               <div><div className="eyebrow">targets</div><div className="mono">{o.targets?.length ? o.targets.map((x) => formatPrice(x)).join(" / ") : "—"}</div></div>
               <div><div className="eyebrow">risk</div><div style={{ color: o.risk?.verdict === "pass" ? "#3fb68b" : o.risk?.verdict === "block" ? "#d9605e" : "var(--color-muted)" }}>{o.risk?.verdict ?? "—"}</div></div>
             </div>
+            {!!o.blocked_factors?.length && <ul aria-label="admission blocks" className="mt-2 list-disc ps-4 text-[11px] text-down">{o.blocked_factors.map((reason,i) => <li key={i}>{reason}</li>)}</ul>}
             {o.risk?.reasons && o.risk.reasons.length > 0 && (
               <details className="mt-1.5 text-[10.5px] text-muted">
                 <summary className="cursor-pointer">risk reasons</summary>

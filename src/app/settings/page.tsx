@@ -10,22 +10,26 @@ interface ConfigShape { ok: boolean; env: Record<string, unknown>; prefs: Record
 export default function SettingsPage() {
   const { lang, setLang, t } = useLang();
   const cfg = usePoll<ConfigShape>("/api/system/config", 20000);
-  const [equity, setEquity] = useState("10000");
-  const [perTrade, setPerTrade] = useState("1");
-  const [maxLev, setMaxLev] = useState("5");
+  const [equityDraft, setEquity] = useState<string | null>(null);
+  const [perTradeDraft, setPerTrade] = useState<string | null>(null);
+  const [maxLevDraft, setMaxLev] = useState<string | null>(null);
   const [provider, setProvider] = useState("auto");
   const [msg, setMsg] = useState<string | null>(null);
+  const riskEnv = cfg.data?.env?.risk as Record<string,unknown> | undefined;
+  const equity = equityDraft ?? cfg.data?.prefs["risk.equity"] ?? String(riskEnv?.equity ?? 10000);
+  const perTrade = perTradeDraft ?? cfg.data?.prefs["risk.perTradePct"] ?? String(riskEnv?.per_trade_pct ?? 1);
+  const maxLev = maxLevDraft ?? cfg.data?.prefs["risk.maxLeverage"] ?? String(riskEnv?.max_leverage ?? 5);
 
   const save = async (section: "risk" | "ai", body: Record<string, unknown>) => {
     setMsg(null);
-    const res = await fetch("/api/system/config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ section, ...body }),
-    });
-    const j = (await res.json()) as { ok: boolean; error?: string };
-    setMsg(j.ok ? `saved (${section}) — applied to the next scan` : j.error ?? "failed");
-    cfg.refresh();
+    try {
+      const res = await fetch("/api/system/config", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({section,...body}),
+      });
+      const j = await res.json() as {ok:boolean;error?:string};
+      if (!res.ok || !j.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
+      setMsg(`saved (${section}) — applied to the next scan`); cfg.refresh();
+    } catch(e) {setMsg(`Not saved: ${e instanceof Error ? e.message : "network unavailable"}`);}
   };
 
   const env = cfg.data?.env as Record<string, unknown> | undefined;
@@ -35,6 +39,7 @@ export default function SettingsPage() {
   return (
     <div className="flex flex-col gap-2">
       <h1 className="text-[15px] font-semibold">{t("nav", "settings")}</h1>
+      {cfg.error && <p role="alert" className="text-down">Configuration unavailable: {cfg.error}</p>}
       <div className="grid gap-2 lg:grid-cols-2">
         <Panel title="language / زبان">
           <div className="flex items-center gap-2">
@@ -49,8 +54,8 @@ export default function SettingsPage() {
             <label className="flex flex-col gap-1 text-[10.5px]"><span className="eyebrow">risk/trade %</span><input className="input" type="number" step="0.1" value={perTrade} onChange={(e) => setPerTrade(e.target.value)} /></label>
             <label className="flex flex-col gap-1 text-[10.5px]"><span className="eyebrow">max leverage</span><input className="input" type="number" value={maxLev} onChange={(e) => setMaxLev(e.target.value)} /></label>
           </div>
-          <button className="btn-gold btn mt-2" onClick={() => void save("risk", { equity: Number(equity), perTradePct: Number(perTrade), maxLeverage: Number(maxLev) })}>save risk</button>
-          <p className="mt-1.5 text-[9.5px] text-dim">The risk engine applies saved values to every scan. These are advisory suggestions; you size and execute.</p>
+          <button className="btn-gold btn mt-2" disabled={!cfg.data || !!cfg.error} onClick={() => void save("risk", { equity: Number(equity), perTradePct: Number(perTrade), maxLeverage: Number(maxLev) })}>save risk</button>
+          <p className="mt-1.5 text-[9.5px] text-dim">Saved equity and fallback sizing are server-owned. The selected risk policy takes precedence over per-trade risk and leverage defaults. These are advisory suggestions; you size and execute.</p>
         </Panel>
         <Panel title="AI mode">
           <select className="input" value={provider} onChange={(e) => setProvider(e.target.value)}>
@@ -77,7 +82,7 @@ export default function SettingsPage() {
           <p className="mt-1.5 text-[9.5px] text-dim">{cfg.data?.note ?? "secrets never leave the server — masked as CONFIGURED/NOT CONFIGURED"}</p>
         </Panel>
       </div>
-      {msg && <div className="text-[11.5px]" style={{ color: msg.startsWith("saved") ? "#3fb68b" : "#d9605e" }}>{msg}</div>}
+      {msg && <div role="status" className="text-[11.5px]" style={{ color: msg.startsWith("saved") ? "#3fb68b" : "#d9605e" }}>{msg}</div>}
     </div>
   );
 }

@@ -1,0 +1,86 @@
+[
+  {
+    "branch": "agent/brain",
+    "matching_commits": 0
+  },
+  {
+    "branch": "agent/market",
+    "matching_commits": 0
+  },
+  {
+    "branch": "agent/product",
+    "matching_commits": 0
+  },
+  {
+    "branch": "agent/risk",
+    "matching_commits": 0
+  },
+  {
+    "branch": "agent/strategy",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0a02d-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0a97d-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0c2cc-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0c4d0-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0c7e2-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0c7e6-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0c7e8-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0c7eb-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0c7ee-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0c8d4-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0ca02-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0d2e6-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0d293-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a0d334-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "arena/01a096c6-asa",
+    "matching_commits": 0
+  },
+  {
+    "branch": "main",
+    "matching_commits": 0
+  }
+]

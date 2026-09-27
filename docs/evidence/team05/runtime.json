@@ -1,0 +1,686 @@
+{
+  "smoke": {
+    "results": [
+      {
+        "route": "/api/signals",
+        "http": 200,
+        "data": {
+          "ok": true,
+          "states": [
+            "candidate",
+            "qualified",
+            "blocked_by_risk",
+            "published",
+            "expired",
+            "invalidated",
+            "closed",
+            "archived"
+          ],
+          "note": "signal ≠ order. AsA never executes; states are explicit; stale signals are expired by the engine.",
+          "items": [],
+          "count": 0,
+          "ts": 1790411728628
+        }
+      },
+      {
+        "route": "/api/opportunities",
+        "http": 200,
+        "data": {
+          "ok": true,
+          "count": 0,
+          "items": [],
+          "ts": 1790411728655
+        }
+      },
+      {
+        "route": "/api/signals/missing",
+        "http": 404,
+        "data": {
+          "ok": false,
+          "error": "signal not found",
+          "states": [
+            "candidate",
+            "qualified",
+            "blocked_by_risk",
+            "published",
+            "expired",
+            "invalidated",
+            "closed",
+            "archived"
+          ]
+        }
+      },
+      {
+        "route": "/api/system/notify",
+        "http": 200,
+        "data": {
+          "ok": true,
+          "telegram": {
+            "configured": false,
+            "dry_run": true,
+            "chat_id_masked": null,
+            "state": "NOT_CONFIGURED",
+            "health": "NOT_CONFIGURED",
+            "reason": "set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID",
+            "bot_username": null,
+            "latency_ms": null,
+            "probed_at_ms": null
+          },
+          "outbox": {
+            "QUEUED": 0,
+            "SENT": 0,
+            "FAILED": 0,
+            "DEAD": 0
+          },
+          "note": "state ONLINE means the provider answered getMe; DEGRADED with dry_run means nothing is sent.",
+          "ts": 1790411728690
+        }
+      },
+      {
+        "route": "/api/system/health",
+        "http": 200,
+        "data": {
+          "ok": true,
+          "booted": false,
+          "market": "CONNECTING",
+          "reason": "first stats sweep pending",
+          "ts": 1790411728716
+        }
+      },
+      {
+        "route": "/api/system/status",
+        "http": 200,
+        "data": {
+          "ok": true,
+          "booted": true,
+          "boot_ms": 3773,
+          "phase": "running",
+          "health": {
+            "market": "CONNECTING",
+            "reason": "first stats sweep pending"
+          },
+          "last_stats_sweep_ms": null,
+          "stats_age_ms": null,
+          "live": {
+            "live": 0,
+            "total": 0
+          },
+          "universe": {
+            "source": "not-ready",
+            "state": "NETWORK_FAILURE",
+            "count": 0
+          },
+          "scheduler": {
+            "budget_per_min": 18.51,
+            "configured_per_min": 24,
+            "total_requests": 7,
+            "total_grants": 7,
+            "total_429": 0,
+            "current_waiters": 0,
+            "paused_until_ms": 0,
+            "paused": false,
+            "last_429_ms": null,
+            "rejected_non_ttt": 0,
+            "lanes": {
+              "focus": {
+                "waiting": 0,
+                "granted": 1,
+                "waited_ms": 0
+              },
+              "refresh": {
+                "waiting": 0,
+                "granted": 0,
+                "waited_ms": 0
+              },
+              "sweep": {
+                "waiting": 0,
+                "granted": 6,
+                "waited_ms": 0
+              },
+              "backfill": {
+                "waiting": 0,
+                "granted": 0,
+                "waited_ms": 0
+              }
+            },
+            "wakes_scheduled": 0
+          },
+          "candles": {
+            "queueDepth": 3,
+            "fetchedTotal": 0
+          },
+          "catalog_symbols": 0,
+          "ai": [
+            {
+              "id": "heuristic",
+              "configured": true,
+              "online": true,
+              "state": "ONLINE",
+              "latency_ms": 0,
+              "model": "heuristic-v1",
+              "model_available": true,
+              "models_count": 1,
+              "probed_at_ms": 1790411732513,
+              "error": null
+            },
+            {
+              "id": "ollama",
+              "configured": false,
+              "online": null,
+              "state": "NOT_CONFIGURED",
+              "latency_ms": null,
+              "model": null,
+              "model_available": null,
+              "models_count": null,
+              "probed_at_ms": null,
+              "error": null
+            },
+            {
+              "id": "openai",
+              "configured": false,
+              "online": null,
+              "state": "NOT_CONFIGURED",
+              "latency_ms": null,
+              "model": null,
+              "model_available": null,
+              "models_count": null,
+              "probed_at_ms": null,
+              "error": null
+            }
+          ],
+          "telegram": {
+            "configured": false,
+            "dry_run": true,
+            "chat_id_masked": null,
+            "state": "NOT_CONFIGURED",
+            "health": "NOT_CONFIGURED",
+            "reason": "set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID",
+            "bot_username": null,
+            "latency_ms": null,
+            "probed_at_ms": null
+          },
+          "live_scan": {
+            "subscribed": true,
+            "scans_total": 0,
+            "published_total": 0,
+            "refused_total": 0,
+            "errors_total": 0,
+            "in_flight": 0,
+            "last_scan_ms": null,
+            "last_publish_ms": null,
+            "last_publish_signal_id": null,
+            "last_error": null
+          },
+          "news": {
+            "state": "NOT_CONFIGURED",
+            "reason": "no news connector configured (NEWS_RSS_URL empty)",
+            "last_poll_ms": null,
+            "items_stored": 0,
+            "last_attempt_ms": null,
+            "last_success_ms": null,
+            "last_item_ms": null,
+            "last_error": null,
+            "capability": "generic RSS only — no economic-event calendar and no social/X connector exist in this build"
+          },
+          "storage": "OK",
+          "uptime_ms": 3774,
+          "ttt_errors": 4,
+          "errors_recent": [
+            {
+              "at_ms": 1790411730750,
+              "kind": "discovery",
+              "endpoint": "/futures/markets",
+              "message": "market discovery failed (boot): TTT network error: fetch failed (/futures/markets); universe state=NETWORK_FAILURE"
+            },
+            {
+              "at_ms": 1790411732507,
+              "kind": "discovery",
+              "endpoint": "/futures/markets",
+              "message": "market discovery failed (stats-recovery): TTT network error: fetch failed (/futures/markets); universe state=NETWORK_FAILURE"
+            },
+            {
+              "at_ms": 1790411732507,
+              "kind": "stats",
+              "endpoint": "/futures/markets/stats",
+              "message": "operational universe is NETWORK_FAILURE (no symbols available for stats sweep)"
+            },
+            {
+              "at_ms": 1790411732510,
+              "kind": "funding",
+              "endpoint": "/futures/markets/funding-history",
+              "message": "focus symbol BTCUSDT is not ready in the operational universe (state=NETWORK_FAILURE)"
+            }
+          ]
+        }
+      },
+      {
+        "route": "POST /api/system/notify (unconfigured production auth)",
+        "http": 503,
+        "data": {
+          "ok": false,
+          "error": "mutation denied: ASA_API_TOKEN is not configured in a production deployment (fail-closed)",
+          "remediation": "set ASA_API_TOKEN in the deployment environment and restart"
+        }
+      }
+    ],
+    "integrity": [
+      {
+        "integrity_check": "ok"
+      }
+    ],
+    "migrations": [
+      {
+        "version": 1,
+        "note": "telegram_outbox claim/lease columns present (fresh schema or previously migrated)"
+      },
+      {
+        "version": 2,
+        "note": "signals.outbox_id present (fresh schema or previously migrated)"
+      },
+      {
+        "version": 3,
+        "note": "idempotent transport-attempt accounting per claim"
+      },
+      {
+        "version": 4,
+        "note": "signal transition audit; historical transitions not fabricated"
+      }
+    ]
+  },
+  "after_source_ingest_restart": {
+    "ok": true,
+    "booted": true,
+    "boot_ms": 3677,
+    "phase": "running",
+    "health": {
+      "market": "CONNECTING",
+      "reason": "first stats sweep pending"
+    },
+    "last_stats_sweep_ms": null,
+    "stats_age_ms": null,
+    "live": {
+      "live": 0,
+      "total": 0
+    },
+    "universe": {
+      "source": "not-ready",
+      "state": "NETWORK_FAILURE",
+      "count": 0
+    },
+    "scheduler": {
+      "budget_per_min": 18.47,
+      "configured_per_min": 24,
+      "total_requests": 7,
+      "total_grants": 7,
+      "total_429": 0,
+      "current_waiters": 0,
+      "paused_until_ms": 0,
+      "paused": false,
+      "last_429_ms": null,
+      "rejected_non_ttt": 0,
+      "lanes": {
+        "focus": {
+          "waiting": 0,
+          "granted": 1,
+          "waited_ms": 0
+        },
+        "refresh": {
+          "waiting": 0,
+          "granted": 0,
+          "waited_ms": 0
+        },
+        "sweep": {
+          "waiting": 0,
+          "granted": 6,
+          "waited_ms": 0
+        },
+        "backfill": {
+          "waiting": 0,
+          "granted": 0,
+          "waited_ms": 0
+        }
+      },
+      "wakes_scheduled": 0
+    },
+    "candles": {
+      "queueDepth": 3,
+      "fetchedTotal": 0
+    },
+    "catalog_symbols": 0,
+    "ai": [
+      {
+        "id": "heuristic",
+        "configured": true,
+        "online": true,
+        "state": "ONLINE",
+        "latency_ms": 0,
+        "model": "heuristic-v1",
+        "model_available": true,
+        "models_count": 1,
+        "probed_at_ms": 1790411820814,
+        "error": null
+      },
+      {
+        "id": "ollama",
+        "configured": false,
+        "online": null,
+        "state": "NOT_CONFIGURED",
+        "latency_ms": null,
+        "model": null,
+        "model_available": null,
+        "models_count": null,
+        "probed_at_ms": null,
+        "error": null
+      },
+      {
+        "id": "openai",
+        "configured": false,
+        "online": null,
+        "state": "NOT_CONFIGURED",
+        "latency_ms": null,
+        "model": null,
+        "model_available": null,
+        "models_count": null,
+        "probed_at_ms": null,
+        "error": null
+      }
+    ],
+    "telegram": {
+      "configured": false,
+      "dry_run": true,
+      "chat_id_masked": null,
+      "state": "NOT_CONFIGURED",
+      "health": "NOT_CONFIGURED",
+      "reason": "set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID",
+      "bot_username": null,
+      "latency_ms": null,
+      "probed_at_ms": null
+    },
+    "live_scan": {
+      "subscribed": true,
+      "scans_total": 0,
+      "published_total": 0,
+      "refused_total": 0,
+      "errors_total": 0,
+      "in_flight": 0,
+      "last_scan_ms": null,
+      "last_publish_ms": null,
+      "last_publish_signal_id": null,
+      "last_error": null
+    },
+    "news": {
+      "state": "NOT_CONFIGURED",
+      "reason": "no news connector configured (NEWS_RSS_URL empty)",
+      "last_poll_ms": null,
+      "items_stored": 0,
+      "last_attempt_ms": null,
+      "last_success_ms": null,
+      "last_item_ms": null,
+      "last_error": null,
+      "capability": "generic RSS only — no economic-event calendar and no social/X connector exist in this build"
+    },
+    "storage": "OK",
+    "uptime_ms": 3678,
+    "ttt_errors": 4,
+    "errors_recent": [
+      {
+        "at_ms": 1790411819069,
+        "kind": "discovery",
+        "endpoint": "/futures/markets",
+        "message": "market discovery failed (boot): TTT network error: fetch failed (/futures/markets); universe state=NETWORK_FAILURE"
+      },
+      {
+        "at_ms": 1790411820810,
+        "kind": "discovery",
+        "endpoint": "/futures/markets",
+        "message": "market discovery failed (stats-recovery): TTT network error: fetch failed (/futures/markets); universe state=NETWORK_FAILURE"
+      },
+      {
+        "at_ms": 1790411820810,
+        "kind": "stats",
+        "endpoint": "/futures/markets/stats",
+        "message": "operational universe is NETWORK_FAILURE (no symbols available for stats sweep)"
+      },
+      {
+        "at_ms": 1790411820811,
+        "kind": "funding",
+        "endpoint": "/futures/markets/funding-history",
+        "message": "focus symbol BTCUSDT is not ready in the operational universe (state=NETWORK_FAILURE)"
+      }
+    ]
+  },
+  "source_ingest": {
+    "report": {
+      "ok": true,
+      "documents": [
+        {
+          "file_id": "1.txt",
+          "lines": 2450,
+          "chars": 349998,
+          "sha256": "b430f52e191c763e7c8752359ddc21820cbe8f79ea58b212f14ca0107d3a7244",
+          "truncated": true
+        },
+        {
+          "file_id": "2.txt",
+          "lines": 1987,
+          "chars": 350000,
+          "sha256": "0177294c7f5b14b758efab3cd8a3b39e3ed8444766c6bdba318978a3e872fbb1",
+          "truncated": true
+        },
+        {
+          "file_id": "3.txt",
+          "lines": 1100,
+          "chars": 253714,
+          "sha256": "bf0ae22b7fdbde3959c5563338058d378f030d5506ca5b15cf92f59a2be06cee",
+          "truncated": false
+        },
+        {
+          "file_id": "4.txt",
+          "lines": 2901,
+          "chars": 350000,
+          "sha256": "bc050e2aefbb9a0bf0894114d791a7e93dfa01afe263e25ade0b04b1b560db8a",
+          "truncated": true
+        },
+        {
+          "file_id": "5.txt",
+          "lines": 960,
+          "chars": 109216,
+          "sha256": "1c73c915fe90d7bd5c49f2b93ceab47b15850b795f53989914fa1f53d208baaf",
+          "truncated": false
+        }
+      ],
+      "fragments_written": 9398,
+      "lines_seen": 9398,
+      "coverage_ok": true,
+      "strategies": 104,
+      "executable_specs": 6,
+      "setups": 6,
+      "rules": 503,
+      "machine_rules": 31,
+      "claims": 553,
+      "conflicts": 3,
+      "unknown_fragments": 649,
+      "quarantined": 46,
+      "primitives": 32,
+      "features": 22,
+      "risk_policies": 8,
+      "psychology_policies": 10,
+      "errors": [],
+      "duration_ms": 310
+    },
+    "stats": {
+      "documents": 7,
+      "fragments": 12461,
+      "knowledge_items": 104,
+      "primitives": 32,
+      "features": 22,
+      "rules": 534,
+      "setups": 6,
+      "strategies": 104,
+      "risk_policies": 8,
+      "psychology_policies": 10,
+      "conflicts": 3,
+      "claims": 553,
+      "unknowns": 649,
+      "quarantined": 46
+    },
+    "user_psychology": {
+      "documents": [
+        {
+          "file_id": "USER-PSY-1",
+          "filename": "USER_PSYCHOLOGY_1.txt",
+          "original_filename": "my phychology/1.txt",
+          "sha256": "31e52de9d6f6aa0c2ddd072b3986cbc4bb0fe64365ccc3dba852fbe0816eab25",
+          "total_lines": 2423,
+          "total_chars": 349991,
+          "truncated": true,
+          "truncation_note": "The supplied file is ~350k characters and ends mid-sentence/content. Content beyond the supplied bytes is absent and is not reconstructed."
+        },
+        {
+          "file_id": "USER-PSY-2",
+          "filename": "USER_PSYCHOLOGY_2.txt",
+          "original_filename": "my phychology/2.txt",
+          "sha256": "485fa4f9afb49b43ba5fbe4a9b76fba72b157d1ab7a10c721638d5e18ec41e7a",
+          "total_lines": 640,
+          "total_chars": 90370,
+          "truncated": true,
+          "truncation_note": "The supplied file ends inside an unfinished source passage after a partial list of principles. No missing continuation is reconstructed."
+        }
+      ],
+      "fragments_written": 3063,
+      "lines_seen": 3063
+    }
+  },
+  "strategy_summary": {
+    "count": 7,
+    "live_eligible": 0,
+    "brain_lineage": {
+      "checked": 7,
+      "brain_strategy_ids": [
+        "STR-RAW-2-581",
+        "STR-RAW-2-803",
+        "STR-RAW-2-926",
+        "STR-RAW-2-1258",
+        "STR-RAW-4-2425",
+        "STR-RAW-4-2449"
+      ],
+      "violations": [],
+      "ok": true
+    },
+    "strategies": [
+      {
+        "id": "SET-STR-RAW-2-581",
+        "strategy_id": "STR-RAW-2-581",
+        "live_eligible": false,
+        "blocking": [
+          "governance_ceiling_allows_live: ceiling is CANDIDATE: empirical_status=UNTESTED — never promoted on source strength alone",
+          "validation_evidence_exists: no experiment has ever been run for this strategy — validation status is NOT_VALIDATED/UNKNOWN, never assumed",
+          "evidence_dataset_provenance: no evidence row exists, so dataset provenance cannot be established",
+          "evidence_versions_current: no evidence row to compare",
+          "evidence_methodology_declared: no evidence row to read",
+          "required_metrics_computed: no evidence row to read",
+          "evidence_verdict_reproducible: no evidence row to re-derive",
+          "oos_evidence_exists: no evidence row to read",
+          "evidence_quality_gate: no evidence row to evaluate"
+        ]
+      },
+      {
+        "id": "SET-STR-RAW-2-803",
+        "strategy_id": "STR-RAW-2-803",
+        "live_eligible": false,
+        "blocking": [
+          "governance_ceiling_allows_live: ceiling is CANDIDATE: empirical_status=UNTESTED — never promoted on source strength alone",
+          "validation_evidence_exists: no experiment has ever been run for this strategy — validation status is NOT_VALIDATED/UNKNOWN, never assumed",
+          "evidence_dataset_provenance: no evidence row exists, so dataset provenance cannot be established",
+          "evidence_versions_current: no evidence row to compare",
+          "evidence_methodology_declared: no evidence row to read",
+          "required_metrics_computed: no evidence row to read",
+          "evidence_verdict_reproducible: no evidence row to re-derive",
+          "oos_evidence_exists: no evidence row to read",
+          "evidence_quality_gate: no evidence row to evaluate"
+        ]
+      },
+      {
+        "id": "SET-STR-RAW-2-926",
+        "strategy_id": "STR-RAW-2-926",
+        "live_eligible": false,
+        "blocking": [
+          "governance_ceiling_allows_live: ceiling is CANDIDATE: empirical_status=UNTESTED — never promoted on source strength alone",
+          "validation_evidence_exists: no experiment has ever been run for this strategy — validation status is NOT_VALIDATED/UNKNOWN, never assumed",
+          "evidence_dataset_provenance: no evidence row exists, so dataset provenance cannot be established",
+          "evidence_versions_current: no evidence row to compare",
+          "evidence_methodology_declared: no evidence row to read",
+          "required_metrics_computed: no evidence row to read",
+          "evidence_verdict_reproducible: no evidence row to re-derive",
+          "oos_evidence_exists: no evidence row to read",
+          "evidence_quality_gate: no evidence row to evaluate"
+        ]
+      },
+      {
+        "id": "SET-STR-RAW-2-1258-short",
+        "strategy_id": "STR-RAW-2-1258",
+        "live_eligible": false,
+        "blocking": [
+          "governance_ceiling_allows_live: ceiling is CANDIDATE: empirical_status=UNTESTED — never promoted on source strength alone",
+          "validation_evidence_exists: no experiment has ever been run for this strategy — validation status is NOT_VALIDATED/UNKNOWN, never assumed",
+          "evidence_dataset_provenance: no evidence row exists, so dataset provenance cannot be established",
+          "evidence_versions_current: no evidence row to compare",
+          "evidence_methodology_declared: no evidence row to read",
+          "required_metrics_computed: no evidence row to read",
+          "evidence_verdict_reproducible: no evidence row to re-derive",
+          "oos_evidence_exists: no evidence row to read",
+          "evidence_quality_gate: no evidence row to evaluate"
+        ]
+      },
+      {
+        "id": "SET-STR-RAW-2-1258-long",
+        "strategy_id": "STR-RAW-2-1258",
+        "live_eligible": false,
+        "blocking": [
+          "governance_ceiling_allows_live: ceiling is CANDIDATE: empirical_status=UNTESTED — never promoted on source strength alone",
+          "validation_evidence_exists: no experiment has ever been run for this strategy — validation status is NOT_VALIDATED/UNKNOWN, never assumed",
+          "evidence_dataset_provenance: no evidence row exists, so dataset provenance cannot be established",
+          "evidence_versions_current: no evidence row to compare",
+          "evidence_methodology_declared: no evidence row to read",
+          "required_metrics_computed: no evidence row to read",
+          "evidence_verdict_reproducible: no evidence row to re-derive",
+          "oos_evidence_exists: no evidence row to read",
+          "evidence_quality_gate: no evidence row to evaluate"
+        ]
+      },
+      {
+        "id": "SET-STR-RAW-4-2425",
+        "strategy_id": "STR-RAW-4-2425",
+        "live_eligible": false,
+        "blocking": [
+          "governance_ceiling_allows_live: ceiling is CANDIDATE: empirical_status=UNTESTED — never promoted on source strength alone",
+          "validation_evidence_exists: no experiment has ever been run for this strategy — validation status is NOT_VALIDATED/UNKNOWN, never assumed",
+          "evidence_dataset_provenance: no evidence row exists, so dataset provenance cannot be established",
+          "evidence_versions_current: no evidence row to compare",
+          "evidence_methodology_declared: no evidence row to read",
+          "required_metrics_computed: no evidence row to read",
+          "evidence_verdict_reproducible: no evidence row to re-derive",
+          "oos_evidence_exists: no evidence row to read",
+          "evidence_quality_gate: no evidence row to evaluate"
+        ]
+      },
+      {
+        "id": "SET-STR-RAW-4-2449",
+        "strategy_id": "STR-RAW-4-2449",
+        "live_eligible": false,
+        "blocking": [
+          "governance_ceiling_allows_live: ceiling is CANDIDATE: empirical_status=UNTESTED — never promoted on source strength alone",
+          "validation_evidence_exists: no experiment has ever been run for this strategy — validation status is NOT_VALIDATED/UNKNOWN, never assumed",
+          "evidence_dataset_provenance: no evidence row exists, so dataset provenance cannot be established",
+          "evidence_versions_current: no evidence row to compare",
+          "evidence_methodology_declared: no evidence row to read",
+          "required_metrics_computed: no evidence row to read",
+          "evidence_verdict_reproducible: no evidence row to re-derive",
+          "oos_evidence_exists: no evidence row to read",
+          "evidence_quality_gate: no evidence row to evaluate"
+        ]
+      }
+    ]
+  },
+  "scope": "Actual local built-server responses; no successful external TTT data or Telegram send. No synthetic signal was inserted into the preview database."
+}

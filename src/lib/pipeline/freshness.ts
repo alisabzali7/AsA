@@ -3,15 +3,14 @@
  *
  * ONE table, shared by admission staleness (`tfStalenessMs` = 2 bars) and
  * READY/EXPIRED (`opportunityFreshness` = 4 bars) so the two contracts cannot
- * drift. 15m is only the unknown-tf fallback — strategies declare their own
- * timeframe and it is never hard-coded at the call site.
+ * drift. Unknown timeframes and invalid/future timestamps fail closed. Durations
+ * come from the domain registry, not a second timeframe table.
  */
+import { getTimeframe } from "../domain/timeframes";
+
 export function tfBarMs(tf: string): number {
-  const map: Record<string, number> = {
-    "1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000, "45m": 2_700_000,
-    "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000, "8h": 28_800_000, "1d": 86_400_000,
-  };
-  return map[tf] ?? 900_000;
+  const frame = getTimeframe(tf);
+  return frame ? frame.minutes * 60_000 : Number.NaN;
 }
 
 /** Staleness budget = 2 closed bars of the strategy's own timeframe. */
@@ -29,7 +28,8 @@ export function opportunityFreshness(
   nowMs: number,
   timeframe: string,
 ): { state: "READY" | "EXPIRED"; age_ms: number | null } {
-  if (anchor_close_ms === null) return { state: "EXPIRED", age_ms: null };
+  if (typeof anchor_close_ms !== "number" || !Number.isFinite(anchor_close_ms) || anchor_close_ms <= 0
+    || !Number.isFinite(nowMs) || anchor_close_ms > nowMs || !getTimeframe(timeframe)) return { state: "EXPIRED", age_ms: null };
   const age = nowMs - anchor_close_ms;
   return age <= 4 * tfBarMs(timeframe)
     ? { state: "READY", age_ms: age }

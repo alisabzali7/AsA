@@ -1,25 +1,21 @@
 /** GET /api/signals/[id] — one advisory signal with live delivery provenance. */
 import { NextResponse } from "next/server";
 import { getRepo } from "@/db/sqlite";
-import { SIGNAL_STATES } from "@/lib/pipeline/orchestrator";
-import { signalDelivery } from "@/lib/pipeline/provenance";
+import { SIGNAL_STATES, refreshSignalExpiry } from "@/lib/pipeline/signal-lifecycle";
+import { signalDelivery, parseStoredPayload } from "@/lib/pipeline/provenance";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<NextResponse> {
   const { id: raw } = await ctx.params;
-  const id = decodeURIComponent(raw);
+  const id = raw; // Next has already decoded route params; do not decode twice.
   const repo = getRepo();
-  const row = repo.signalGet(id) ?? (id.startsWith("sig-") ? repo.signalByOpp(id.slice(4)) : repo.signalByOpp(id));
+  let row = repo.signalGet(id) ?? (id.startsWith("sig-") ? repo.signalByOpp(id.slice(4)) : repo.signalByOpp(id));
   if (!row) {
     return NextResponse.json({ ok: false, error: "signal not found", states: SIGNAL_STATES }, { status: 404 });
   }
-  let payload: Record<string, unknown> = {};
-  try {
-    payload = JSON.parse(row.payload_json) as Record<string, unknown>;
-  } catch {
-    /* unreadable payload stays empty — never fabricated */
-  }
+  row = refreshSignalExpiry(repo, row, Date.now());
+  const { payload, status: payload_status } = parseStoredPayload(row.payload_json);
   const now = Date.now();
   const delivery = signalDelivery(repo, row, now);
   return NextResponse.json({
@@ -39,6 +35,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       updated_ms: row.updated_ms,
       delivery,
       payload,
+      payload_status,
+      lifecycle: { source: "recorded_transitions", history: repo.signalHistory(row.id), note: "Legacy history before audit capture is unknown." },
     },
     ts: now,
   });

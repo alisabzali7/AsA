@@ -16,6 +16,7 @@
  */
 import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import fs from "node:fs";
+import { syntheticMarket } from "./fixtures/publication-opportunity";
 import os from "node:os";
 import path from "node:path";
 
@@ -145,6 +146,7 @@ beforeAll(async () => {
   engine = await import("../src/lib/market/engine");
   candles = await import("../src/lib/market/candles");
   store = await import("../src/lib/market/store");
+  for (const symbol of ["BTCUSDT", "ETHUSDT"]) store.sharedStore.catalog.set(symbol, syntheticMarket(symbol));
   live = await import("../src/lib/pipeline/live-scan");
   tg = await import("../src/lib/notify/telegram");
   eventBus = (await import("../src/lib/events")).eventBus;
@@ -384,4 +386,10 @@ describe("T05 T5 — pre-transport error classification (transient vs determinis
     expect(row.state).toBe("SENT");
     spy.mockRestore();
   });
+});
+
+// LOCAL synthetic account measurements, not real account/PnL verification.
+vi.mock("../src/lib/pipeline/live-gates", async (original) => {
+  const mod = await original<typeof import("../src/lib/pipeline/live-gates")>();
+  return { ...mod, loadLiveGateContext: (...args: Parameters<typeof mod.loadLiveGateContext>) => ({...mod.loadLiveGateContext(...args),daily_realized_loss:0,period_realized_loss:0}) };
 });

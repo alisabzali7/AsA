@@ -11,25 +11,28 @@ import { prepareAnalysisInput } from "../analysis/input";
 import { getRepo } from "../../db/sqlite";
 import { promotedRuntimeStatus } from "../backtest/promotion";
 import { getRuntimeStrategy, listRuntimeStrategies, evaluateRuntime, type StrategyRuntimeDefinition } from "../strategy/runtime";
-import { evaluateRisk } from "../risk/engine";
+import { evaluateLiveRisk } from "../risk/live";
+import { isDeepStrictEqual } from "node:util";
 import { evaluatePortfolio } from "../risk/portfolio";
 import { evaluatePsychologyGate } from "../psychology/gate";
 import { admitOpportunity, SCORE_DISCLAIMER, type ScoreResult } from "../brain/score";
 import { buildPsychologyPolicies } from "../brain/policies";
 import { getProductionRiskPolicy } from "../risk/policy";
 import { scoreFromEvaluation } from "./scoring";
-import { buildChartEvidence, type ChartEvidence } from "../chart/evidence";
+import { buildChartEvidence, chartEvidenceMatches, type ChartEvidence } from "../chart/evidence";
+import { chartSource, validChartSource, type ChartSource } from "../chart/source";
 import { eventBus } from "../events";
 import { getRiskPrefs } from "../prefs";
 import { ASA_SCORE_THRESHOLD } from "../env";
 import type { TimeframeId } from "../domain/timeframes";
-import { loadLiveGateContext } from "./live-gates";
-import { opportunityFreshness } from "./freshness";
+import { loadLiveGateContext, liveMeasurementBlocks } from "./live-gates";
+import { opportunityFreshness, tfStalenessMs } from "./freshness";
 
 export { opportunityFreshness, tfBarMs, tfStalenessMs } from "./freshness";
 
 export const OPPORTUNITY_STATES = ["SCANNING", "ANALYZING", "CANDIDATE", "RISK_CHECK", "READY", "REJECTED", "COOLDOWN", "EXPIRED"] as const;
-export const SIGNAL_STATES = ["candidate", "qualified", "blocked_by_risk", "published", "expired", "invalidated", "closed", "archived"] as const;
+export { SIGNAL_STATES } from "./signal-lifecycle";
+import { signalHasExpired, refreshSignalExpiry } from "./signal-lifecycle";
 
 export interface OpportunityPayload {
   id: string;
@@ -80,7 +83,9 @@ export interface OpportunityPayload {
   score_semantics: string;
   /** annotation lineage consumed by the chart route AND the Telegram image */
   chart_evidence: ChartEvidence | null;
-  risk: { verdict: string; reasons: string[]; numbers?: Record<string, unknown> } | null;
+  /** Exact decision dataset reference; absent on legacy opportunities only. */
+  chart_source?: ChartSource;
+  risk: { verdict: string; reasons: string[]; unenforced?: string[]; numbers?: Record<string, unknown> } | null;
   ai: { provider: string; label: string } | null;
   provenance: {
     generated_at_ms: number;
@@ -165,31 +170,11 @@ export async function scanSymbol(
   const id = idFor(symbol, tf, ev.direction, strategy.setup_id, anchorSec);
 
   // ---- risk (direction-safe, target-aware)
-  const meta = sharedStore.catalog.get(symbol);
   const policy = getProductionRiskPolicy();
   const rp = getRiskPrefs();
-  let risk = null as ReturnType<typeof evaluateRisk> | null;
-  if (ev.levels.entry !== null && ev.levels.stop !== null) {
-    risk = evaluateRisk({
-      symbol,
-      direction: ev.direction,
-      entry: ev.levels.entry,
-      stop: ev.levels.stop,
-      target: ev.levels.targets[0] ?? null,
-      equity: rp.equity,
-      riskPerTradePct: policy.risk_per_trade_pct ?? rp.perTradePct,
-      maxLeverage: policy.max_leverage ?? rp.maxLeverage,
-      venueMaxLeverage: meta?.maxLeverage ?? null,
-      maintenanceMarginRate: meta?.maintenanceMarginRate ?? null,
-      takerFeeCoefficient: meta?.takerFeeCoefficient ?? null,
-      tickSize: meta?.tickSize ?? null,
-      qtyStep: meta?.stepSize ?? null,
-      // TTT does not expose minQty/minNotional on the verified public catalog;
-      // null makes the engine report them UNAVAILABLE rather than invent them.
-      minQty: null,
-      minNotional: null,
-    });
-  }
+  const risk = ev.levels.entry !== null && ev.levels.stop !== null
+    ? evaluateLiveRisk(symbol, ev.direction, ev.levels.entry, ev.levels.stop, ev.levels.targets[0] ?? null)
+    : null;
   const riskPass = risk?.verdict === "pass";
   const riskVerdict: "pass" | "block" | "unavailable" = risk == null ? "unavailable" : risk.verdict === "pass" ? "pass" : "block";
 
@@ -211,6 +196,15 @@ export async function scanSymbol(
     period_realized_loss: gates.period_realized_loss,
     candidate: { symbol, risk_amount: riskAmount, direction: ev.direction },
   });
+
+  if (mode === "live") {
+    const unavailable = liveMeasurementBlocks(gates, policy);
+    if (unavailable.length) {
+      portfolio.verdict = "block";
+      portfolio.reasons.push(...unavailable);
+      portfolio.blocked_by.push(...unavailable);
+    }
+  }
 
   // ---- contradictions come from the rule layer, never hard-coded
   const contradictions = ev.setup.blocked_rules.map((id) => `rule ${id} is BLOCKED (non-computable or invalidation fired)`);
@@ -283,7 +277,7 @@ export async function scanSymbol(
     score_breakdown: score,
     positive_factors: score.positive_factors,
     negative_factors: score.negative_factors,
-    blocked_factors: admission.reasons,
+    blocked_factors: [...admission.reasons, ...portfolio.blocked_by],
     unknown_factors: score.unknown_factors,
     source_refs: score.source_refs,
     data_quality: { bars: candles.length, stale, age_ms: ageMs, state: stale ? "STALE" : "FRESH" },
@@ -292,11 +286,13 @@ export async function scanSymbol(
       hard_blocks: psych.blocks.map((b) => b.reason),
       soft_warnings: psych.flags.map((f) => f.reason),
       score_modifier: -psych.score_penalty,
+      not_evaluated: psych.not_evaluated.map((p) => `${p.policy_id}: ${p.reason}`),
     },
     portfolio: { verdict: portfolio.verdict, reasons: portfolio.reasons, unenforced: portfolio.unenforced },
     score_semantics: SCORE_DISCLAIMER,
     chart_evidence: buildChartEvidence(ev, score.score),
-    risk: risk ? { verdict: risk.verdict, reasons: risk.reasons, numbers: risk.numbers as unknown as Record<string, unknown> } : null,
+    chart_source: chartSource(candles),
+    risk: risk ? { verdict: risk.verdict, reasons: risk.reasons, unenforced: risk.unenforced, numbers: risk.numbers as unknown as Record<string, unknown> } : null,
     ai: null,
     provenance: {
       generated_at_ms: nowMs,
@@ -340,7 +336,12 @@ export async function scanSymbol(
     // never silently discarded. publishSignal is the ONE publication path.
     const publish = publishSignal(payload);
     if (!publish.published) {
-      eventBus.emit("signal.publish.refused", { id: publish.id, symbol, opportunity_id: payload.id, reason: publish.reason });
+      // A mutable gate may change between scan and the publication lock.
+      // Persist refusal so API/UI cannot advertise READY without authorization.
+      payload.state = "REJECTED";
+      payload.blocked_factors = [...payload.blocked_factors, publish.reason];
+      repo.opportunityUpsert({ id:payload.id,symbol,timeframe:tf,direction:payload.direction,score:payload.score,
+        state:payload.state,mode,strategy_id:payload.strategy_id,payload_json:JSON.stringify(payload),created_ms:createdMs,updated_ms:Date.now() });
     }
     return { opportunity: payload, evaluated: true, publish };
   }
@@ -431,6 +432,23 @@ export interface PublishSignalResult {
  */
 export function publishSignal(opp: OpportunityPayload): PublishSignalResult {
   const repo = getRepo();
+  try {
+    // BEGIN IMMEDIATE precedes lifecycle reads as well as writes: concurrent
+    // activation of an existing candidate cannot enqueue a second delivery.
+    const result = repo.withTransaction(() => publishInTransaction(opp, repo));
+    if (result.published && !result.reason.startsWith("already published")) {
+      eventBus.emit("signal.created", { id: result.id, symbol: opp.symbol, state: "published" });
+      eventBus.emit("system", { message: `signal ${result.id}: ${result.reason}`, level: "info" });
+    } else if (!result.published) {
+      eventBus.emit("signal.publish.refused", { id: result.id, symbol: opp.symbol, opportunity_id: opp.id, reason: result.reason });
+    }
+    return result;
+  } catch (err) {
+    return { id: `sig-${opp.id}`, published: false, reason: `publication unavailable: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+function publishInTransaction(opp: OpportunityPayload, repo: ReturnType<typeof getRepo>): PublishSignalResult {
   const id = `sig-${opp.id}`;
 
   // ---- 1. final hard risk boundary (defense in depth at the publish step).
@@ -439,8 +457,9 @@ export function publishSignal(opp: OpportunityPayload): PublishSignalResult {
   // malformed risk is NEVER approval — there is no substitute metric and no
   // default. The contract vocabulary stays the risk engine's own: a result is
   // publishable exactly when `verdict === "pass"` on a well-formed result
-  // ({verdict: string, reasons: []}); `block` and every other value — plus
-  // absent or malformed results — are refused deterministically below.
+  // ({verdict: string, reasons: []}); it must ALSO match a fresh authoritative
+  // evaluation below. Shape alone is not authentication of a PASS. `block`
+  // and every other value are refused before re-evaluation.
   if (opp.state !== "READY") {
     return { id, published: false, reason: `opportunity state ${opp.state} is not publishable — only READY opportunities become signals` };
   }
@@ -450,11 +469,73 @@ export function publishSignal(opp: OpportunityPayload): PublishSignalResult {
   }
   const riskVerdict = (riskUnknown as { verdict?: unknown }).verdict;
   const riskReasons = (riskUnknown as { reasons?: unknown }).reasons;
-  if (typeof riskVerdict !== "string" || !Array.isArray(riskReasons)) {
+  if (typeof riskVerdict !== "string" || !Array.isArray(riskReasons) || !riskReasons.every((r) => typeof r === "string")) {
     return { id, published: false, reason: "risk result malformed (expected {verdict: string, reasons: []}) — publication requires an explicit risk-gate PASS" };
   }
   if (riskVerdict !== "pass") {
     return { id, published: false, reason: `risk gate verdict "${riskVerdict}" — only an explicit PASS may be published` };
+  }
+
+  const now = Date.now();
+  const fresh = opportunityFreshness(opp.anchor_close_ms, now, opp.timeframe);
+  if (opp.mode !== "live" || fresh.state !== "READY" || (fresh.age_ms ?? Infinity) > tfStalenessMs(opp.timeframe) || opp.data_quality?.stale !== false) {
+    return { id, published: false, reason: "publication requires a live, fresh opportunity with valid source time and timeframe" };
+  }
+  if (!opp.entry_zone || !Number.isFinite(opp.entry_zone.top) || !Number.isFinite(opp.entry_zone.bottom)
+      || opp.entry_zone.bottom > opp.entry_zone.top || typeof opp.stop !== "number"
+      || !Array.isArray(opp.targets) || opp.targets.length === 0 || !opp.targets.every((t) => Number.isFinite(t) && t > 0)) {
+    return { id, published: false, reason: "risk inputs missing/malformed — entry, stop and targets required" };
+  }
+  const checked = evaluateLiveRisk(opp.symbol, opp.direction, (opp.entry_zone.top + opp.entry_zone.bottom) / 2, opp.stop, opp.targets[0]);
+  if (checked.verdict !== "pass" || !isDeepStrictEqual(checked.numbers, opp.risk?.numbers)
+      || !isDeepStrictEqual(checked.reasons, riskReasons) || !isDeepStrictEqual(checked.unenforced, opp.risk?.unenforced)) {
+    return { id, published: false, reason: "risk PASS is forged, inconsistent or stale against current authoritative evaluation" };
+  }
+  if (opp.psychology?.hard_blocks?.length || opp.psychology?.state === "BLOCKED"
+      || opp.portfolio?.verdict === "block" || opp.blocked_factors?.length || opp.contradictions?.length) {
+    return { id, published: false, reason: "contradictory admission evidence — READY cannot override a hard block" };
+  }
+
+  if (!opp.setup_id || !Number.isFinite(opp.anchor_ts_ms)
+      || opp.anchor_close_ms !== opp.anchor_ts_ms + tfStalenessMs(opp.timeframe) / 2
+      || opp.id !== idFor(opp.symbol, opp.timeframe, opp.direction, opp.setup_id, opp.anchor_ts_ms / 1000)) {
+    return { id, published: false, reason: "noncanonical opportunity identity or cross-timeframe anchor — publication refused" };
+  }
+  const chart = opp.chart_evidence;
+  if (!chart || !chartEvidenceMatches(chart, opp) || chart.strategy_id !== opp.strategy_id
+      || chart.setup_id !== opp.setup_id || chart.bar_time !== opp.anchor_ts_ms / 1000
+      || !Array.isArray(chart.annotations) || !Array.isArray(chart.rules)
+      || !validChartSource(opp.chart_source, opp.anchor_ts_ms / 1000)) {
+    return { id, published: false, reason: "decision chart evidence missing or mismatched — incomplete qualification" };
+  }
+
+  // READY is not an authorization token. Read the scanner-owned persisted
+  // decision, then recheck mutable gates while holding the same IMMEDIATE
+  // transaction that inserts the signal and outbox. Two different candidates
+  // cannot both spend a portfolio slot based on the same old book.
+  const stored = repo.opportunityGet(opp.id);
+  if (!stored || stored.state !== "READY" || stored.mode !== "live"
+      || stored.symbol !== opp.symbol || stored.timeframe !== opp.timeframe
+      || stored.direction !== opp.direction || stored.strategy_id !== opp.strategy_id
+      || !isDeepStrictEqual(JSON.parse(stored.payload_json), JSON.parse(JSON.stringify(opp)))) {
+    return { id, published: false, reason: "stored opportunity missing, contradictory or changed since qualification" };
+  }
+  if (runtimeStatusFor(opp.strategy_id) !== "LIVE_ADVISORY_ONLY") {
+    return { id, published: false, reason: "current promotion gate does not authorize live advisory publication" };
+  }
+  const policy = getProductionRiskPolicy();
+  const gates = loadLiveGateContext(repo, now, { daily_loss_limit_pct: policy.daily_loss_limit_pct, excludeOppId: opp.id });
+  const measurementBlocks = liveMeasurementBlocks(gates, policy);
+  const psych = evaluatePsychologyGate(buildPsychologyPolicies(), gates.psychology);
+  const portfolio = evaluatePortfolio({ equity: getRiskPrefs().equity, policy, open_risks: gates.open_risks,
+    daily_realized_loss: gates.daily_realized_loss, period_realized_loss: gates.period_realized_loss,
+    candidate: { symbol: opp.symbol, direction: opp.direction, risk_amount: checked.numbers.risk_notional } });
+  if (measurementBlocks.length || psych.verdict === "block" || portfolio.verdict !== "pass") {
+    return { id, published: false, reason: `current admission gate BLOCK: ${[...measurementBlocks, ...psych.blocks.map((b) => b.reason), ...portfolio.blocked_by].join("; ")}` };
+  }
+  if (opp.portfolio?.verdict !== "pass" || !["READY", "CAUTION"].includes(opp.psychology?.state ?? "")
+      || !Number.isFinite(opp.score) || opp.score < getScoreThreshold() || opp.provenance?.data?.native_1d !== true) {
+    return { id, published: false, reason: "admission evidence missing/unknown, score below threshold or derived market source" };
   }
 
   // ---- 2/3. lifecycle-aware idempotency on the stable natural key (closure §V)
@@ -467,12 +548,13 @@ export function publishSignal(opp: OpportunityPayload): PublishSignalResult {
     return { id: existing!.id, published: false, reason: `existing signal is ${existing!.state} (terminal) — never resurrected or re-queued` };
   }
 
-  const now = Date.now();
   const payloadJson = JSON.stringify({ ...opp, published_at_ms: now });
   // Advisory payload (closure §V): complete decision context, no execution language.
   const entryPx = opp.entry_zone ? (opp.entry_zone.top + opp.entry_zone.bottom) / 2 : null;
   const outboxPayload = {
     kind: "signal",
+    signal_id: existing?.id ?? id,
+    delivery_progress: { photo_required: true, photo_sent: false, text_sent: false },
     advisory_only: true,
     symbol: opp.symbol,
     timeframe: opp.timeframe,
@@ -493,8 +575,8 @@ export function publishSignal(opp: OpportunityPayload): PublishSignalResult {
     data_quality: opp.data_quality,
     source_refs: opp.source_refs,
     opportunity_id: opp.id,
-    chart_json_url: `/api/charts/${opp.id}.json`,
-    chart_png_url: `/api/charts/${opp.id}.png`,
+    chart_json_url: `/api/charts/${existing?.id ?? id}.json`,
+    chart_png_url: `/api/charts/${existing?.id ?? id}.png`,
     generated_at_ms: now,
     timestamp: now,
   };
@@ -551,10 +633,8 @@ export function publishSignal(opp: OpportunityPayload): PublishSignalResult {
     return { id, published: false, reason: `publish aborted atomically: ${msg}` };
   }
 
-  eventBus.emit("signal.created", { id, symbol: opp.symbol, state: "published" });
-  eventBus.emit("system", { message: `signal ${id} published; outbox row ${outboxId} queued`, level: "info" });
   return {
-    id,
+    id: existing?.id ?? id,
     published: true,
     reason: action === "create" ? `published; outbox row ${outboxId} queued` : `activated from ${existing!.state}; outbox row ${outboxId} queued`,
   };
@@ -579,32 +659,18 @@ export function expireStaleSignals(maxAgeMs?: number, repo: ReturnType<typeof ge
     const page = repo.signalPage(PAGE, offset);
     if (page.length === 0) break;
     for (const s of page) {
-      if (s.state !== "published" && s.state !== "qualified") continue;
-      if (maxAgeMs !== undefined) {
-        // Explicit override (tests / ops): retrieval-age walk, preserved so
-        // pagination regressions stay byte-identical. Production callers omit
-        // this argument and use source-anchor freshness below.
-        if (now - s.updated_ms > maxAgeMs) staleIds.push(s.id);
-        continue;
-      }
-      let anchor: number | null = null;
-      let tf = s.timeframe;
-      try {
-        const p = JSON.parse(s.payload_json) as { anchor_close_ms?: unknown; timeframe?: unknown };
-        if (typeof p.anchor_close_ms === "number" && Number.isFinite(p.anchor_close_ms)) anchor = p.anchor_close_ms;
-        if (typeof p.timeframe === "string" && p.timeframe.length > 0) tf = p.timeframe;
-      } catch {
-        /* unreadable payload — cannot claim the signal is still fresh */
-      }
-      // A missing source anchor is EXPIRED, never upgraded by a recent updated_ms.
-      if (opportunityFreshness(anchor, now, tf).state === "EXPIRED") staleIds.push(s.id);
+      if (signalHasExpired(s, now, maxAgeMs)) staleIds.push(s.id);
     }
     if (page.length < PAGE) break;
     offset += PAGE;
   }
   // Phase 2: expire.
-  for (const id of staleIds) repo.signalUpdate({ id, state: "expired" });
-  return staleIds.length;
+  let expired = 0;
+  for (const id of staleIds) {
+    const row = repo.signalGet(id);
+    if (row && signalHasExpired(row, now, maxAgeMs) && refreshSignalExpiry(repo, row, now, maxAgeMs).state === "expired") expired++;
+  }
+  return expired;
 }
 
 export function listStrategiesSummary() {

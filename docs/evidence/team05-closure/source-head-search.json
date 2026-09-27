@@ -1,0 +1,661 @@
+[
+  {
+    "branch": "agent/brain",
+    "sha": "e95b3c1d9347c667685d4526f37d92508c87964f",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "agent/market",
+    "sha": "e95b3c1d9347c667685d4526f37d92508c87964f",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "agent/product",
+    "sha": "e95b3c1d9347c667685d4526f37d92508c87964f",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "agent/risk",
+    "sha": "e95b3c1d9347c667685d4526f37d92508c87964f",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "agent/strategy",
+    "sha": "e95b3c1d9347c667685d4526f37d92508c87964f",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0a02d-asa",
+    "sha": "5c0b19d0a5269cc42a4b119715b9f7cafbf379f1",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0a97d-asa",
+    "sha": "75ae50d3ffe8208ec8537066928a4cb26b01ed34",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0c2cc-asa",
+    "sha": "b5cd1c604e834a11f032e708ce9e72a885e16146",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0c4d0-asa",
+    "sha": "cb92c7e1fd48d6be6995239f598aa6a940e1cd15",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0c7e2-asa",
+    "sha": "701fc65936216ffd7436ecbaf206de5d1f618963",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0c7e6-asa",
+    "sha": "d6be02d9d02cc948be8504c328478e3fd26d71d2",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0c7e8-asa",
+    "sha": "609480ab87670e45e2cc6cb7952f43d49d03cdac",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0c7eb-asa",
+    "sha": "95d7866199da329b73c96e345133b659247e206a",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0c7ee-asa",
+    "sha": "a8825eeba108343f655d34f2be6a5e949ad2f0df",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0c8d4-asa",
+    "sha": "0527fd1b519a223a7abefad2e9e03afd274360bf",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0ca02-asa",
+    "sha": "c0be9d15d1941caedeb89760b573ebe4ca8577c8",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0d2e6-asa",
+    "sha": "7414fa66effc1d338b902108c213425fd9c0511e",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0d293-asa",
+    "sha": "41aa7be104d632a691ead16bb96d4bdb906b3dfe",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a0d334-asa",
+    "sha": "aa155cc26005e947ee4a587c0f18815e9e1d1fd7",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "arena/01a096c6-asa",
+    "sha": "1f6ca03ec3f93da13a3285fe3942f5c6d66a63ef",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  },
+  {
+    "branch": "main",
+    "sha": "dcba86b5eb57dd65a5ba2a3f1005b6a7f217731e",
+    "truncated": false,
+    "hits": [
+      {
+        "path": "_agent_arsenal/ARENA_MASTER_PROMPT_STARTER.md",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "df365862313b171f559fd578666f347eaf9b52ba",
+        "size": 1449,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/df365862313b171f559fd578666f347eaf9b52ba"
+      },
+      {
+        "path": "knowledge/raw/RAW_1.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efcdc79d491b7ffdad1d2508bb04a474fe2addf3",
+        "size": 617254,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/efcdc79d491b7ffdad1d2508bb04a474fe2addf3"
+      },
+      {
+        "path": "knowledge/raw/RAW_2.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "752db7976ef9d385076b252f552eb5eb9f20d584",
+        "size": 598290,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/752db7976ef9d385076b252f552eb5eb9f20d584"
+      },
+      {
+        "path": "knowledge/raw/RAW_4.txt",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de3624deb98df2b9fb856b9d9d703f9d6a5b4023",
+        "size": 600086,
+        "url": "https://api.github.com/repos/alisabzali7/AsA/git/blobs/de3624deb98df2b9fb856b9d9d703f9d6a5b4023"
+      }
+    ]
+  }
+]

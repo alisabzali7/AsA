@@ -13,8 +13,10 @@ export default function DashboardPage() {
   const { t } = useLang();
   const board = usePoll<BoardShape>("/api/market/board", 7000);
   const sse = useSse();
+  const health = usePoll<{market:string;reason?:string}>("/api/system/health",10000);
+  const healthState = health.error ? "UNAVAILABLE" : displayStateFor(health.data?.market ?? "CONNECTING", health.age_ms);
   const rows = board.data?.rows ?? [];
-  const live = rows.filter((r) => r.price !== null).length;
+  const live = rows.filter((r) => r.price !== null && displayStateFor(r.state, effectiveAgeMs(r.age_ms, board.age_ms)) === "LIVE").length;
   const movers = topByPrice(rows, 8);
   const gainers = topGainers(rows, 5);
   // Effective sweep age (server age + time since the snapshot arrived): the
@@ -25,14 +27,16 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-2">
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="TTT market" value={<span style={{ color: sweepEff !== null && sweepEff < 30000 ? "#3fb68b" : "#d6a24a" }}>{sweepEff !== null && sweepEff < 30000 ? "LIVE" : "CONNECTING/STALE"}</span>} sub={`last sweep ${sweepEff !== null ? fmtAge(sweepEff) : "—"} · SSE ${sse.connected ? "on" : "off"}`} />
-        <Metric label="universe live" value={`${live}/${rows.length}`} sub="TTT /futures/markets/stats — one request per sweep (dynamically discovered universe)" color="#d4b874" />
-        <Metric label="health endpoint" value={<StatusChip state={sse.connected ? "LIVE" : "CONNECTING"} />} sub="/api/system/health" />
+        <Metric label="TTT market" value={<span style={{ color: sweepEff !== null && sweepEff < 30000 ? "#3fb68b" : "#d6a24a" }}>{board.error ? "UNAVAILABLE" : sweepEff !== null && sweepEff < 30000 ? healthState : healthState === "LIVE" ? "STALE" : healthState}</span>} sub={`last sweep ${sweepEff !== null ? fmtAge(sweepEff) : "—"} · SSE ${sse.connected ? "on" : "off"}`} />
+        <Metric label="universe live" value={board.data ? `${live}/${rows.length}` : board.error ? "UNAVAILABLE" : "LOADING"} sub="TTT /futures/markets/stats — one request per sweep (dynamically discovered universe)" color="#d4b874" />
+        <Metric label="health endpoint" value={<StatusChip state={healthState} />} sub={health.data?.reason ?? "/api/system/health — independent of SSE connectivity"} />
         <Metric label="mode" value="ADVISORY" sub="AsA never executes — human executes" color="#8b8f99" />
       </div>
 
       <div className="grid gap-2 lg:grid-cols-[1fr_340px]">
         <Panel title="live board — top by price">
+          {board.loading && !board.data && <p role="status" className="text-xs text-muted">Loading TTT market snapshot…</p>}
+          {board.error && <p role="alert" className="text-xs text-down">Market snapshot unavailable: {board.error}. {board.data ? "Showing previously received rows, not a new live snapshot." : "No current market data available."}</p>}
           <div className="overflow-x-auto">
             <table className="tbl w-full">
               <thead><tr><th>{t("market", "symbol")}</th><th className="text-right">{t("market", "price")}</th><th className="text-right">24h</th><th>state</th></tr></thead>
@@ -60,7 +64,7 @@ export default function DashboardPage() {
                   </span>
                 </li>
               ))}
-              {rows.length === 0 && <li className="text-muted">waiting for first TTT snapshot…</li>}
+              {rows.length === 0 && <li className="text-muted">{board.error ? "Market data UNAVAILABLE — no gainers can be measured." : board.data ? "No eligible markets in this snapshot." : "waiting for first TTT snapshot…"}</li>}
               {rows.length > 0 && gainers.length === 0 && (
                 <li className="text-muted">no 24h gainers in this snapshot — losing rows are not gainers</li>
               )}
