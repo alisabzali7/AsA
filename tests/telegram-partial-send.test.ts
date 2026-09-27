@@ -206,7 +206,7 @@ describe("T05 partial-send retry safety", () => {
     expect(row.error).toBeNull();
     expect(photoCalls).toBe(1);
     expect(textCalls).toBe(1);
-    expect(progressOf(row)).toEqual({ photo_required: true, photo_sent: true, text_sent: true });
+    expect(progressOf(row)).toMatchObject({ photo_required: true, photo_sent: true, text_sent: true });
 
     // replaying the SAME logical row must not repeat any accepted sub-step
     const r2 = await deliverOutboxRow(rowById(id), repo);
@@ -225,7 +225,7 @@ describe("T05 partial-send retry safety", () => {
     expect(r1.error).toMatch(/text not delivered/);
     let row = rowById(id);
     expect(row.state).toBe("FAILED"); // truthful: the item is NOT delivered
-    expect(progressOf(row)).toEqual({ photo_required: true, photo_sent: true, text_sent: false });
+    expect(progressOf(row)).toMatchObject({ photo_required: true, photo_sent: true, text_sent: false });
 
     const r2 = await deliverOutboxRow(rowById(id), repo); // the retry
     expect(r2.ok).toBe(true);
@@ -233,7 +233,7 @@ describe("T05 partial-send retry safety", () => {
     expect(row.state).toBe("SENT");
     expect(photoCalls).toBe(1); // THE defect: the accepted photo is never re-sent
     expect(textCalls).toBe(2);
-    expect(progressOf(row)).toEqual({ photo_required: true, photo_sent: true, text_sent: true });
+    expect(progressOf(row)).toMatchObject({ photo_required: true, photo_sent: true, text_sent: true });
   });
 
   it("9. photo failure before text -> retry completes without duplicating the accepted text sub-step", async () => {
@@ -244,14 +244,14 @@ describe("T05 partial-send retry safety", () => {
     const r1 = await deliverOutboxRow(rowById(id), repo);
     expect(r1.ok).toBe(false);
     expect(r1.error).toMatch(/photo not delivered/);
-    expect(progressOf(rowById(id))).toEqual({ photo_required: true, photo_sent: false, text_sent: true });
+    expect(progressOf(rowById(id))).toMatchObject({ photo_required: true, photo_sent: false, text_sent: true });
 
     const r2 = await deliverOutboxRow(rowById(id), repo);
     expect(r2.ok).toBe(true);
     expect(rowById(id).state).toBe("SENT");
     expect(photoCalls).toBe(2); // photo retried until accepted (exactly one success)
     expect(textCalls).toBe(1); // the accepted text is NEVER repeated
-    expect(progressOf(rowById(id))).toEqual({ photo_required: true, photo_sent: true, text_sent: true });
+    expect(progressOf(rowById(id))).toMatchObject({ photo_required: true, photo_sent: true, text_sent: true });
   });
 
   it("10. terminal failure is truthful and observable: DEAD names the missing sub-step and is never retried", async () => {
@@ -310,6 +310,99 @@ describe("T05 partial-send retry safety", () => {
     expect(rowById(id).state).toBe("SENT");
     expect(photoCalls).toBe(0);
     expect(textCalls).toBe(1);
-    expect(progressOf(rowById(id))).toEqual({ photo_required: false, photo_sent: false, text_sent: true });
+    expect(progressOf(rowById(id))).toMatchObject({ photo_required: false, photo_sent: false, text_sent: true });
+  });
+});
+
+describe("T05 recovery: delayed worker snapshots", () => {
+  it("reloads persisted partial progress after claiming instead of replaying a stale payload", async () => {
+    seedOppWithEvidence("opp-stale-snapshot");
+    const id = enqueueSignalRow("opp-stale-snapshot");
+    const stale = rowById(id);
+    textResults = [false, true];
+    await deliverOutboxRow(stale, repo);
+    expect(photoCalls).toBe(1);
+    expect((await deliverOutboxRow(stale, repo)).ok).toBe(true);
+    expect(photoCalls).toBe(1);
+    expect(textCalls).toBe(2);
+  });
+  it("HTTP 200 with Telegram ok:false is NOT provider acceptance", async () => {
+    const saved = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ ok: false, description: "rejected" }), { status: 200 }));
+    try {
+      const id = repo.outboxEnqueue("system", { kind: "system", generated_at_ms: Date.now() });
+      expect((await deliverOutboxRow(rowById(id), repo)).ok).toBe(false);
+      expect(rowById(id).state).toBe("FAILED");
+    } finally { globalThis.fetch = saved; }
+  });
+});
+
+describe("T05 recovery: slow transport and ambiguous acceptance", () => {
+  it("does not start text after the lease expires during photo transport", async () => {
+    seedOppWithEvidence("opp-slow-photo");
+    const id = enqueueSignalRow("opp-slow-photo");
+    const saved = globalThis.fetch;
+    const now = Date.now();
+    let clock: ReturnType<typeof vi.spyOn> | undefined;
+    globalThis.fetch = vi.fn(async () => {
+      photoCalls++;
+      clock = vi.spyOn(Date, "now").mockReturnValue(now + 180_000);
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    try {
+      expect((await deliverOutboxRow(rowById(id), repo)).error).toMatch(/claim lost/);
+      expect(photoCalls).toBe(1); expect(textCalls).toBe(0);
+      expect(rowById(id).state).not.toBe("SENT");
+      expect(rowById(id).attempts).toBe(1);
+    } finally { clock?.mockRestore(); globalThis.fetch = saved; }
+  });
+  it("provider accepted/local write failed remains ambiguous, never claims exactly-once", async () => {
+    seedOppWithEvidence("opp-accept-crash");
+    const id = enqueueSignalRow("opp-accept-crash");
+    const original = repo.outboxSetPayload.bind(repo);
+    const fail = vi.spyOn(repo, "outboxSetPayload").mockImplementation((rowId, payload, claim) => {
+      if (JSON.parse(payload).delivery_progress?.photo_sent) throw new Error("simulated process loss before acceptance persisted");
+      return original(rowId, payload, claim);
+    });
+    try {
+      expect((await deliverOutboxRow(rowById(id), repo)).ok).toBe(false);
+      expect(rowById(id).state).toBe("FAILED");
+      expect(progressOf(rowById(id)).photo_sent).toBe(false);
+      expect(rowById(id).attempts).toBe(1);
+    } finally { fail.mockRestore(); }
+    expect((await deliverOutboxRow(rowById(id), repo)).ok).toBe(true);
+    expect(photoCalls).toBe(2); // Telegram has no idempotency key: unavoidable crash window.
+    expect(textCalls).toBe(1);
+  });
+});
+
+describe("T05 legacy compatibility is not terminal resurrection", () => {
+  it("refuses a legacy outbox row linked to a terminal signal even without signal_id", async () => {
+    seedOppWithEvidence("opp-legacy-terminal");
+    repo.signalInsert({ id: "legacy-terminal", state: "expired", symbol: "BTCUSDT", timeframe: "1h", direction: "short", strategy_id: "STR-RAW-2-803", score: 90, opp_id: "opp-legacy-terminal", payload_json: "{}", created_ms: 1, updated_ms: 1 });
+    const id = enqueueSignalRow("opp-legacy-terminal");
+    expect((await deliverOutboxRow(rowById(id), repo)).ok).toBe(false);
+    expect(rowById(id).state).toBe("DEAD");
+    expect(rowById(id).attempts).toBe(0);
+    expect(photoCalls + textCalls).toBe(0);
+  });
+});
+
+describe("T05 provider rejection matrix", () => {
+  it.each([401, 429, 502, "timeout"] as const)("%s cannot become SENT and spends one transport attempt", async (failure) => {
+    const saved = globalThis.fetch;
+    const provider = vi.fn(async () => {
+      if (failure === "timeout") throw new DOMException("TEST ONLY provider timeout", "TimeoutError");
+      return new Response(JSON.stringify({ ok: false, description: "TEST ONLY provider rejection" }), { status: failure });
+    });
+    globalThis.fetch = provider;
+    try {
+      const id = repo.outboxEnqueue("system", { kind: "system", generated_at_ms: Date.now() });
+      expect((await deliverOutboxRow(rowById(id), repo)).ok).toBe(false);
+      expect(provider).toHaveBeenCalledTimes(1);
+      expect(rowById(id).state).toBe("FAILED");
+      expect(rowById(id).attempts).toBe(1);
+      expect(rowById(id).sent_ms).toBeNull();
+    } finally { globalThis.fetch = saved; }
   });
 });

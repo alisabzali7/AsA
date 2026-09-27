@@ -20,7 +20,7 @@ interface OppItem {
   evidence?: string[]; contradictions?: string[];
   blocked_factors?: string[]; unknown_factors?: string[];
   data_quality?: { state?: string; stale?: boolean; age_ms?: number | null; native?: boolean };
-  actionable?: boolean;
+  actionable?: boolean; signal_id?: string | null; signal_state?: string | null;
   note?: string;
 }
 interface OppShape { ok: boolean; items: OppItem[] }
@@ -50,7 +50,7 @@ export default function OpportunitiesPage() {
       />
       {!ready && <TruthState status={poll.status} failure={poll.failure} onRetry={refresh} staleAgeMs={data ? poll.stale_age_ms : null} />}
       {ready && items.length === 0 && (
-        <Empty text="EMPTY — the backend answered successfully and no opportunities are stored. (Live advisory scans additionally require a strategy with LIVE_ADVISORY_ONLY runtime status; none currently holds it.)" />
+        <Empty text="EMPTY — the backend answered successfully and no opportunities are stored. Live advisory scans additionally require LIVE_ADVISORY_ONLY strategy status and current complete risk/admission evidence. Nothing is simulated." />
       )}
       <div className="grid gap-2 xl:grid-cols-2">
         {items.map((o, i) => (
@@ -61,7 +61,7 @@ export default function OpportunitiesPage() {
               title="open this symbol on the terminal"
               onClick={() => { setSel({ symbol: o.symbol, returnTo: "/opportunities" }); router.push(`/chart?symbol=${o.symbol}`); }}
             ><IconChart size={13} /></button>
-            <StatusChip state={o.actionable ? "READY" : (o.fresh === "EXPIRED" ? "EXPIRED" : o.state ?? "REJECTED")} label={o.actionable ? "READY" : (o.fresh === "EXPIRED" ? "EXPIRED" : o.state)} />
+            <StatusChip state={o.signal_state && !["candidate", "qualified", "published"].includes(o.signal_state) ? o.signal_state : o.actionable ? "READY" : o.fresh === "EXPIRED" ? "EXPIRED" : o.state ?? "REJECTED"} />
           </>}>
             <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px]">
               <Badge color="var(--color-gold)">score {o.score}</Badge>
@@ -78,6 +78,7 @@ export default function OpportunitiesPage() {
               <div><div className="eyebrow">targets</div><div className="mono">{o.targets?.length ? o.targets.map((x) => formatPrice(x)).join(" / ") : "—"}</div></div>
               <div><div className="eyebrow">risk</div><div style={{ color: o.risk?.verdict === "pass" ? "var(--color-up)" : o.risk?.verdict === "block" ? "var(--color-down)" : "var(--color-muted)" }}>{o.risk?.verdict ?? "—"}</div></div>
             </div>
+            {!!o.blocked_factors?.length && <ul aria-label="admission blocks" className="mt-2 list-disc ps-4 text-[11px] text-down">{o.blocked_factors.map((reason, ix) => <li key={ix} dir="auto">{reason}</li>)}</ul>}
             {(o.risk?.reasons?.length ?? 0) > 0 && (
               <Disclosure summary={`risk reasons (${o.risk!.reasons!.length})`} tone={o.risk!.verdict === "block" ? "warn" : "muted"}>
                 <ul className="space-y-0.5">{o.risk!.reasons!.map((r, ix) => <li key={ix} className="text-[10.5px] text-muted" dir="auto">· {r}</li>)}</ul>

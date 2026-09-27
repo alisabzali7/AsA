@@ -2,15 +2,18 @@
  * Telegram adapter + notification outbox consumer (master §64).
  * The outbox is DURABLE: a Telegram outage never breaks signal generation.
  * Default: NOT CONFIGURED (dry-run rows kept). Sends only after provider
- * acceptance (HTTP 200 from api.telegram.org). Advisory text only.
+ * acceptance (HTTP success AND Telegram JSON ok:true). Advisory text only.
  */
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_CONFIGURED, TELEGRAM_DRY_RUN } from "../env";
 import { getRepo } from "../../db/sqlite";
-import type { ChartEvidence, SnapshotCheckState } from "../chart/evidence";
+import { chartEvidenceMatches, type ChartEvidence, type SnapshotCheckState } from "../chart/evidence";
 import type { OutboxRow, OutboxClaim, Repo } from "../../db/repo";
 import { OUTBOX_CLAIM_LEASE_MS, OUTBOX_MAX_ATTEMPTS } from "../../db/repo";
+import { verifiedChartCandles, type ChartSource } from "../chart/source";
 import { eventBus } from "../events";
 import type { AppState } from "../domain/types";
+import { opportunityFreshness } from "../pipeline/freshness";
+import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 
 export interface TelegramSignalPayload {
@@ -38,6 +41,8 @@ export interface TelegramSignalPayload {
   timestamp?: number;
   /** opportunity id — used to fetch the annotated chart image */
   opportunity_id?: string | null;
+  /** Immutable published decision snapshot; absent only on legacy rows. */
+  signal_id?: string;
   chart_json_url?: string | null;
   generated_at_ms: number;
   /** sub-step delivery progress (persisted on the row by the outbox consumer) */
@@ -53,7 +58,8 @@ export interface TelegramSignalPayload {
  */
 export interface DeliveryProgress {
   /**
-   * Set the first time an annotated chart image was produced for this item.
+   * Required at enqueue for new signal rows. For legacy rows only, set the
+   * first time an annotated chart image was produced for this item.
    * From then on the photo is a REQUIRED sub-step until delivered — a
    * chart-bearing advisory is not complete until its chart actually went out.
    * Items that can never produce a picture ("we never invent a picture") stay
@@ -62,6 +68,11 @@ export interface DeliveryProgress {
   photo_required: boolean;
   photo_sent: boolean;
   text_sent: boolean;
+  /** Actual provider IDs when supplied; absent/null means UNKNOWN (legacy included). */
+  photo_message_id?: number | null;
+  text_message_id?: number | null;
+  photo_accepted_ms?: number;
+  text_accepted_ms?: number;
 }
 
 export type TelegramHealth =
@@ -153,8 +164,14 @@ export async function telegramStateLive(): Promise<TelegramStatus> {
   return telegramState();
 }
 
+interface ProviderAcceptance { ok: boolean; message_id: number | null }
+async function providerAcceptance(r: Response): Promise<ProviderAcceptance> {
+  const body = await r.json() as { ok?: unknown; result?: { message_id?: unknown } };
+  const id = body?.result?.message_id;
+  return { ok: r.ok && body?.ok === true, message_id: Number.isSafeInteger(id) && (id as number) > 0 ? id as number : null };
+}
 /** Send an annotated chart image with the advisory caption (closure §L). */
-async function sendTelegramPhoto(png: Uint8Array, caption: string): Promise<boolean> {
+async function sendTelegramPhoto(png: Uint8Array, caption: string): Promise<ProviderAcceptance> {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
   const form = new FormData();
   form.append("chat_id", TELEGRAM_CHAT_ID);
@@ -163,13 +180,13 @@ async function sendTelegramPhoto(png: Uint8Array, caption: string): Promise<bool
   form.append("photo", new Blob([new Uint8Array(png)], { type: "image/png" }), "asa-advisory.png");
   try {
     const r = await fetch(url, { method: "POST", body: form, signal: AbortSignal.timeout(30_000) });
-    return r.ok;
+    return await providerAcceptance(r);
   } catch {
-    return false;
+    return { ok: false, message_id: null };
   }
 }
 
-function sendTelegram(text: string): Promise<boolean> {
+function sendTelegram(text: string): Promise<ProviderAcceptance> {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
   return fetch(url, {
     method: "POST",
@@ -177,8 +194,8 @@ function sendTelegram(text: string): Promise<boolean> {
     body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: text.slice(0, 4000), disable_web_page_preview: true }),
     signal: AbortSignal.timeout(15_000),
   })
-    .then((r) => r.ok)
-    .catch(() => false);
+    .then(providerAcceptance)
+    .catch(() => ({ ok: false, message_id: null }));
 }
 
 /**
@@ -221,36 +238,47 @@ export function photoCaption(caption: string, state: SnapshotCheckState): string
  * a user receives is exactly what the decision was based on. Returns null when
  * the opportunity has no stored evidence — we never invent a picture.
  */
-async function renderAdvisoryPng(payload: TelegramSignalPayload): Promise<{ png: Uint8Array; state: SnapshotCheckState } | null> {
+async function renderAdvisoryPng(payload: TelegramSignalPayload, repo: Repo): Promise<{ png: Uint8Array; state: SnapshotCheckState } | null> {
   const oppId = payload.opportunity_id;
   if (!oppId) return null;
   try {
-    const { getRepo: repoFn } = await import("../../db/sqlite");
-    const row = repoFn().opportunityGet(oppId);
+    // New rows always resolve the immutable signal snapshot, never a rescanned
+    // opportunity. Legacy rows retain their explicitly weaker fallback.
+    const row = payload.signal_id ? repo.signalGet(payload.signal_id) : repo.opportunityGet(oppId);
     if (!row) return null;
-    const parsed = JSON.parse(row.payload_json) as { chart_evidence?: ChartEvidence };
+    if (payload.signal_id && (row.symbol !== payload.symbol || row.timeframe !== payload.timeframe
+      || row.direction !== payload.direction || !("opp_id" in row) || row.opp_id !== oppId)) return null;
+    const parsed = JSON.parse(row.payload_json) as { chart_evidence?: ChartEvidence; chart_source?: ChartSource };
     const evidence = parsed.chart_evidence;
     if (!evidence) return null;
     const { chartEvidenceMatches } = await import("../chart/evidence");
-    if (!chartEvidenceMatches(evidence, { symbol: row.symbol, timeframe: row.timeframe })) return null;
+    if (!chartEvidenceMatches(evidence, { symbol: row.symbol, timeframe: row.timeframe, direction: row.direction })) return null;
     const { candleManager } = await import("../market/candles");
     const { isTimeframe } = await import("../domain/timeframes");
     // AUDIT FIX (P1): validate the stored timeframe instead of `as never` —
     // a corrupt payload must not reach the fetcher.
     if (!isTimeframe(evidence.timeframe)) return null;
-    const series = await candleManager.ensureSeries(evidence.symbol, evidence.timeframe, true);
-    if (!series || series.symbol !== evidence.symbol || series.timeframe !== evidence.timeframe) return null;
-    // Task 10: the image claims to be "what the decision was based on" — so it
-    // must be the decision window. A re-fetched series whose window no longer
-    // reproduces the stored fingerprint is NOT sent as if it were.
-    const { verifyDecisionSnapshot } = await import("../chart/evidence");
-    const check = verifyDecisionSnapshot(evidence, series.candles);
-    // MISMATCH: the window changed. UNVERIFIABLE: the fetched history no
-    // longer holds the decision window, so the image could not be it. Only
-    // VERIFIED, or a LEGACY record (disclosed in the caption), is sent.
-    if (check.state === "MISMATCH" || check.state === "UNVERIFIABLE") return null;
+    const { getHistoryStore } = await import("../market/history-store");
+    const { decisionCandles } = await import("../chart/evidence");
+    const fit = (bars: import("../domain/types").Candle[]) => {
+      if (!payload.signal_id) return bars;
+      const anchored = decisionCandles(evidence, bars);
+      return parsed.chart_source ? verifiedChartCandles(anchored, parsed.chart_source) : anchored;
+    };
+    let candles = fit(payload.signal_id && evidence.bar_time != null
+      ? getHistoryStore().get(evidence.symbol, evidence.timeframe, parsed.chart_source?.from_s, evidence.bar_time)
+      : []);
+    if (candles.length === 0) {
+      const series = await candleManager.ensureSeries(evidence.symbol, evidence.timeframe, true);
+      if (!series || series.symbol !== evidence.symbol || series.timeframe !== evidence.timeframe) return null;
+      candles = fit(series.candles);
+    }
+    if (!candles.length) return null;
     const { renderEvidencePng } = await import("../chart/render");
-    return { png: renderEvidencePng(evidence, series.candles, { snapshotState: check.state }), state: check.state };
+    const { verifyDecisionSnapshot } = await import("../chart/evidence");
+    const check = verifyDecisionSnapshot(evidence, candles);
+    if (check.state === "MISMATCH" || check.state === "UNVERIFIABLE") return null;
+    return { png: renderEvidencePng(evidence, candles, { snapshotState: check.state }), state: check.state };
   } catch {
     return null; // never block the advisory text on a rendering failure
   }
@@ -265,6 +293,10 @@ class ClaimLostError extends Error {
 
 /** Deliver ONE outbox row through the Telegram provider. */
 export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): Promise<{ ok: boolean; error?: string }> {
+  // Caller rows are snapshots, not authority (a drain may have waited minutes).
+  const current = repo.outboxGet(row.id);
+  if (!current) return { ok: false, error: "outbox row not found" };
+  row = current;
   // Terminal/idempotent short-circuits (read-only — no claim, no attempt).
   if (row.state === "SENT") return { ok: true };
   if (row.state === "DEAD") return { ok: false, error: "row is DEAD (terminal) — never delivered again" };
@@ -302,6 +334,9 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
   // idempotency keys; exactly-once is NOT claimed).
   let attemptsAfterCount: number | null = null;
   const recordAttempt = (): void => {
+    // Recheck/renew before EVERY provider sub-step, including text after a
+    // slow photo. An expired owner cannot renew, even before reclamation.
+    if (!repo.outboxRenewClaim(row.id, claim, Date.now() + OUTBOX_CLAIM_LEASE_MS)) throw new ClaimLostError();
     if (attemptsAfterCount !== null) return; // exactly once per cycle
     const n = repo.outboxCountAttempt(row.id, claim);
     if (n === null) throw new ClaimLostError();
@@ -309,6 +344,9 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
   };
 
   try {
+    const owned = repo.outboxGet(row.id);
+    if (!owned || owned.claimed_by !== claim.token) throw new ClaimLostError();
+    row = owned;
     let payload: TelegramSignalPayload;
     try {
       payload = JSON.parse(row.payload_json) as TelegramSignalPayload;
@@ -333,8 +371,42 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
     // ever possible, so the transport budget is untouched (attempts stay 0).
     let caption: string;
     try {
-      if (payload === null || typeof payload !== "object") throw new Error("payload is not an object");
+      if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw new Error("payload is not an object");
+      if (!["system", "signal", "opportunity"].includes(payload.kind)) throw new Error("unknown payload kind");
+      // Legacy rows can lack signal_id but still resolve by opportunity. Do
+      // not deliver an expired/terminal advisory merely because its link uses
+      // the old representation. Unlinked legacy rows retain their old contract.
+      if (!payload.signal_id && payload.kind === "signal" && payload.opportunity_id) {
+        const legacy = repo.signalByOpp(payload.opportunity_id);
+        if (legacy) {
+          const snapshot = JSON.parse(legacy.payload_json);
+          if (legacy.state !== "published" || opportunityFreshness(snapshot?.anchor_close_ms, Date.now(), legacy.timeframe).state !== "READY") {
+            throw new Error("linked legacy signal missing freshness or no longer published");
+          }
+        }
+      }
+      if (payload.signal_id) {
+        const signal = repo.signalGet(payload.signal_id);
+        if (!signal || signal.state !== "published" || signal.opp_id !== payload.opportunity_id) throw new Error("signal missing or no longer published");
+        const snapshot = JSON.parse(signal.payload_json);
+        if (opportunityFreshness(snapshot.anchor_close_ms, Date.now(), signal.timeframe).state !== "READY") throw new Error("signal source anchor expired");
+        const evidence = snapshot.chart_evidence as ChartEvidence | undefined;
+        if (!evidence || !chartEvidenceMatches(evidence, signal) || evidence.strategy_id !== signal.strategy_id
+          || evidence.setup_id !== snapshot.setup_id || evidence.bar_time !== snapshot.anchor_ts_ms / 1000
+          || !Array.isArray(evidence.annotations) || !Array.isArray(evidence.rules)) {
+          throw new Error("required chart evidence absent, malformed or mismatched in immutable signal snapshot");
+        }
+        if (payload.symbol !== signal.symbol || payload.timeframe !== signal.timeframe || payload.direction !== signal.direction
+          || payload.strategy_id !== signal.strategy_id || payload.stop !== snapshot.stop
+          || payload.entry !== (snapshot.entry_zone.top + snapshot.entry_zone.bottom) / 2
+          || !isDeepStrictEqual(payload.targets, snapshot.targets) || !isDeepStrictEqual(payload.risk, snapshot.risk)) {
+          throw new Error("outbox/immutable signal identity or decision mismatch");
+        }
+      }
       caption = formatSignalText(payload);
+      // The contract promises full text. Do not silently truncate important
+      // risk/explanation fields into a different advisory.
+      if (caption.length > 4000) throw new Error("advisory exceeds the 4000-character transport contract");
     } catch (err) {
       const why = err instanceof Error ? err.message : String(err);
       repo.outboxMark(row.id, "DEAD", `poison payload: advisory text cannot be formatted (${why})`, claim);
@@ -343,7 +415,8 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
     }
     const prev = payload.delivery_progress;
     const progress: DeliveryProgress = {
-      photo_required: prev?.photo_required === true,
+      ...prev,
+      photo_required: payload.signal_id != null || prev?.photo_required === true,
       photo_sent: prev?.photo_sent === true,
       text_sent: prev?.text_sent === true,
     };
@@ -356,21 +429,26 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
     };
     const failures: string[] = [];
 
-    // SUB-STEP 1: annotated chart image rendered from the SAME ChartEvidence
-    // the web chart uses. Skipped entirely once delivered. If no picture can
-    // be produced the photo is not part of this item's contract — unless one
-    // WAS produced earlier, in which case it stays required until delivered.
+    // SUB-STEP 1: new signal rows require the immutable decision chart.
+    // Legacy rows retain their historical optional-photo contract. Failure
+    // to load historical candles never turns a required photo into optional.
     if (!progress.photo_sent) {
-      const rendered = await renderAdvisoryPng(payload);
+      const rendered = await renderAdvisoryPng(payload, repo);
       if (rendered) {
         progress.photo_required = true;
+        persistProgress(); // persist requirement BEFORE provider activity
         recordAttempt(); // entering transport: the provider request follows
-        if (await sendTelegramPhoto(rendered.png, photoCaption(caption, rendered.state))) {
+        const photo = await sendTelegramPhoto(rendered.png, photoCaption(caption, rendered.state));
+        if (photo.ok) {
           progress.photo_sent = true;
+          progress.photo_message_id = photo.message_id;
+          progress.photo_accepted_ms = Date.now();
         } else {
           failures.push("photo not accepted");
         }
         persistProgress();
+      } else if (progress.photo_required) {
+        failures.push("required chart unavailable or identity/anchor mismatch");
       }
     }
 
@@ -378,8 +456,11 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
     // is truncated by the caption cap). Skipped once delivered.
     if (!progress.text_sent) {
       recordAttempt(); // entering transport: the provider request follows
-      if (await sendTelegram(caption)) {
+      const text = await sendTelegram(caption);
+      if (text.ok) {
         progress.text_sent = true;
+        progress.text_message_id = text.message_id;
+        progress.text_accepted_ms = Date.now();
       } else {
         failures.push("text not accepted");
       }
@@ -452,13 +533,20 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
  * overlapping timers) are safe: each row is guarded by the atomic claim, so
  * at most one consumer per row enters the transport phase.
  */
-export async function drainOutbox(repo: Repo = getRepo()): Promise<{ attempted: number; sent: number; retried_failed: number }> {
+export async function drainOutbox(repo: Repo = getRepo()): Promise<{ inspected: number; attempted: number; sent: number; retried_failed: number }> {
   const retryable = repo.outboxRetryable(50);
   const retriedFailed = retryable.filter((r) => r.state === "FAILED").length;
   let sent = 0;
+  let attempted = 0;
   for (const row of retryable) {
-    const r = await deliverOutboxRow(row, repo);
-    if (r.ok) sent++;
+    try {
+      const r = await deliverOutboxRow(row, repo);
+      if ((repo.outboxGet(row.id)?.attempts ?? row.attempts) > row.attempts) attempted++;
+      if (r.ok) sent++;
+    } catch (err) {
+      // One row's infrastructure failure must not strand the rest of the batch.
+      eventBus.emit("system", { message: `outbox row ${row.id} drain error: ${err instanceof Error ? err.message : String(err)}`, level: "error" });
+    }
   }
-  return { attempted: retryable.length, sent, retried_failed: retriedFailed };
+  return { inspected: retryable.length, attempted, sent, retried_failed: retriedFailed };
 }

@@ -12,7 +12,7 @@
  *   7. chart evidence could render under a mismatched symbol/timeframe
  *   8. GET /api/opportunities presented freshness READY as if admitted
  */
-import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,6 +32,7 @@ import { chartEvidenceMatches, type ChartEvidence } from "../src/lib/chart/evide
 import { opportunityFreshness } from "../src/lib/pipeline/freshness";
 import { liveScanFlightKey } from "../src/lib/pipeline/live-scan";
 import type { JournalRow, SignalRow } from "../src/db/repo";
+import { publicationIdentity, persistPublicationFixture, syntheticMarket } from "./fixtures/publication-opportunity";
 import type { OpportunityPayload } from "../src/lib/pipeline/orchestrator";
 
 const POLICY = buildRiskPolicies().find((p) => p.policy_id === "RISK-ASA-CONSERVATIVE-DEFAULT")!;
@@ -216,11 +217,11 @@ describe("advisory open book — published signals are measured exposure", () =>
       mk({ id: "sig-dead", symbol: "XRPUSDT", opp_id: "dead", state: "expired" }),
     ];
     const book = advisoryOpenRisks(rows, now, "a");
-    expect(book.map((r) => r.symbol).sort()).toEqual(["ETHUSDT"]);
-    expect(book[0].direction).toBe("short");
-    expect(book.some((r) => r.symbol === "BTCUSDT")).toBe(false); // self excluded
-    expect(book.some((r) => r.symbol === "SOLUSDT")).toBe(false); // stale anchor
-    expect(book.some((r) => r.symbol === "XRPUSDT")).toBe(false); // terminal
+    expect(book!.map((r) => r.symbol).sort()).toEqual(["ETHUSDT"]);
+    expect(book![0].direction).toBe("short");
+    expect(book!.some((r) => r.symbol === "BTCUSDT")).toBe(false); // self excluded
+    expect(book!.some((r) => r.symbol === "SOLUSDT")).toBe(false); // stale anchor
+    expect(book!.some((r) => r.symbol === "XRPUSDT")).toBe(false); // terminal
   });
 });
 
@@ -252,6 +253,7 @@ describe("persistence / API — sqlite-backed", () => {
   let repo: import("../src/db/repo").Repo;
   let closeRepo: () => void;
   let expireStaleSignals: (maxAgeMs?: number, r?: import("../src/db/repo").Repo) => number;
+  let riskPass: NonNullable<OpportunityPayload["risk"]>;
   let publishSignal: (o: OpportunityPayload) => { id: string; published: boolean; reason: string };
   let idFor: (symbol: string, tf: string, direction: string, strategyId: string, anchorSec: number) => string;
   let loadLiveGateContext: typeof import("../src/lib/pipeline/live-gates").loadLiveGateContext;
@@ -265,6 +267,10 @@ describe("persistence / API — sqlite-backed", () => {
     const orch = await import("../src/lib/pipeline/orchestrator");
     expireStaleSignals = orch.expireStaleSignals as typeof expireStaleSignals;
     publishSignal = orch.publishSignal;
+    const store = (await import("../src/lib/market/store")).sharedStore;
+    for (const symbol of ["BTCUSDT", "BNBUSDT", "ETHUSDT"]) store.catalog.set(symbol, syntheticMarket(symbol));
+  (await import("../src/lib/market/operational-universe")).__setOperationalUniverse(["BTCUSDT", "BNBUSDT", "ETHUSDT"]);
+    riskPass = (await import("../src/lib/risk/live")).evaluateLiveRisk("BTCUSDT", "long", 100, 95, 110);
     idFor = orch.idFor;
     loadLiveGateContext = (await import("../src/lib/pipeline/live-gates")).loadLiveGateContext;
     getOpportunities = (await import("../src/app/api/opportunities/route")).GET as typeof getOpportunities;
@@ -275,20 +281,22 @@ describe("persistence / API — sqlite-backed", () => {
     fs.rmSync(TMP, { recursive: true, force: true });
   });
 
+  beforeEach(() => { for (const j of repo.journalList()) repo.journalDelete(j.id); for (const row of repo.signalActive()) repo.signalUpdate({id:row.id,state:"expired"}); });
+
   function opp(over: Partial<OpportunityPayload> = {}): OpportunityPayload {
     const id = over.id ?? `opp-${Math.random().toString(16).slice(2)}`;
-    return {
+    return persistPublicationFixture(repo, publicationIdentity({
       id, symbol: "BTCUSDT", timeframe: "1h", direction: "long", score: 90, setup: "s", thesis: "t",
-      entry_zone: null, invalidation: null, stop: null, targets: [], rr: null, strategy_id: "STR-T04",
+      entry_zone: { top: 100, bottom: 100 }, invalidation: null, stop: 95, targets: [110], rr: 2, strategy_id: "STR-T04",
       mode: "live", state: "READY", anchor_ts_ms: Date.now(), anchor_close_ms: Date.now(), freshness_ms: 0,
       evidence: [], contradictions: [], score_breakdown: null, positive_factors: [], negative_factors: [],
       blocked_factors: [], unknown_factors: [], source_refs: [],
       data_quality: { bars: 200, stale: false, age_ms: 0, state: "FRESH" },
       psychology: null, portfolio: null, setup_id: "SET-T04", score_semantics: "s", chart_evidence: null,
-      risk: { verdict: "pass", reasons: ["ok"], numbers: { risk_notional: 100 } }, ai: null,
+      risk: riskPass, ai: null,
       provenance: { generated_at_ms: Date.now(), data: { series_fetched_ms: Date.now(), stats_fetched_ms: null, native_1d: true, candles: { macro: null, context: null, trigger: 200 } } },
       ...over,
-    };
+    }));
   }
 
   it("expireStaleSignals (production path) keeps a 1d signal whose anchor is 2h old", () => {
@@ -297,7 +305,7 @@ describe("persistence / API — sqlite-backed", () => {
     const pub = publishSignal(o);
     expect(pub.published).toBe(true);
     const n = expireStaleSignals(undefined, repo);
-    const row = repo.signalByOpp("opp-1d")!;
+    const row = repo.signalByOpp(o.id)!;
     expect(row.state).toBe("published");
     expect(n).toBe(0);
   });
@@ -306,13 +314,17 @@ describe("persistence / API — sqlite-backed", () => {
     const now = Date.now();
     const o = opp({
       id: "opp-1h-old", timeframe: "1h", symbol: "ETHUSDT",
-      anchor_close_ms: now - 5 * 3_600_000,
+      anchor_close_ms: now,
     });
     expect(publishSignal(o).published).toBe(true);
-    repo.signalUpdate({ id: "sig-opp-1h-old", updated_ms: now }); // recent write must NOT keep it alive
-    const n = expireStaleSignals(undefined, repo);
+    repo.signalUpdate({ id: `sig-${o.id}`, updated_ms: now }); // recent write must NOT keep it alive
+    // Publish while fresh, then advance time. The publisher must no longer
+    // accept already-stale opportunities merely to seed an expiry test.
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now + 5 * 3_600_000);
+    let n: number;
+    try { n = expireStaleSignals(undefined, repo); } finally { clock.mockRestore(); }
     expect(n).toBeGreaterThanOrEqual(1);
-    expect(repo.signalByOpp("opp-1h-old")!.state).toBe("expired");
+    expect(repo.signalByOpp(o.id)!.state).toBe("expired");
   });
 
   it("loadLiveGateContext never reports daily PnL as 0 when the journal only has R-multiples", () => {
@@ -348,7 +360,7 @@ describe("persistence / API — sqlite-backed", () => {
   it("GET /api/signals/{id} returns live delivery provenance and 404s unknowns", async () => {
     const o = opp({ id: "opp-api", symbol: "BNBUSDT" });
     expect(publishSignal(o).published).toBe(true);
-    const ok = await getSignal(new Request("http://asa.local/api/signals/sig-opp-api"), { params: Promise.resolve({ id: "sig-opp-api" }) });
+    const ok = await getSignal(new Request("http://asa.local/api/signals/sig-opp-api"), { params: Promise.resolve({ id: `sig-${o.id}` }) });
     expect(ok.status).toBe(200);
     const body = await ok.json() as { ok: boolean; item: { delivery: { delivery_state: string }; state: string } };
     expect(body.ok).toBe(true);
@@ -384,4 +396,22 @@ describe("live scanner — different bars do not join an in-flight scan", () => 
     expect(a).not.toBe(eth);
     expect(a).not.toBe(tf);
   });
+});
+
+describe("T05 API corruption boundary", () => {
+  it("JSON null and arrays are UNAVAILABLE rather than fabricated decisions", async () => {
+    const { parseStoredPayload } = await import("../src/lib/pipeline/provenance");
+    for (const raw of ["null", "[]", "broken", "42"]) expect(parseStoredPayload(raw)).toEqual({ payload: {}, status: "UNAVAILABLE" });
+    expect(parseStoredPayload('{"state":"REJECTED"}').status).toBe("PARSED");
+  });
+});
+
+// TEST ONLY: boundary fixtures are not empirical promotion or account-loss proof.
+vi.mock("../src/lib/backtest/promotion", async (original) => ({
+  ...await original<typeof import("../src/lib/backtest/promotion")>(),
+  promotedRuntimeStatus: () => "LIVE_ADVISORY_ONLY",
+}));
+vi.mock("../src/lib/risk/policy", async (original) => {
+  const mod = await original<typeof import("../src/lib/risk/policy")>();
+  return { ...mod, getProductionRiskPolicy: () => ({ ...mod.getProductionRiskPolicy(), daily_loss_limit_pct: null, period_loss_limit_pct: null }) };
 });

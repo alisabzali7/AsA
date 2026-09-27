@@ -1,0 +1,32 @@
+{
+  "label": "LOCAL TEST / SYNTHETIC — never live provider/promotion proof",
+  "calls": [
+    {
+      "method": "sendMessage",
+      "accepted": true,
+      "message_id": 1790415783
+    }
+  ],
+  "delivery": {
+    "outbox_id": 1,
+    "link": "outbox_id",
+    "delivery_state": "SENT",
+    "outbox_state": "SENT",
+    "attempts": 2,
+    "error": null,
+    "progress": {
+      "photo_message_id": 1790415482,
+      "photo_accepted_ms": 1790415482568,
+      "text_message_id": 1790415783,
+      "text_accepted_ms": 1790415783647,
+      "photo_required": true,
+      "photo_sent": true,
+      "text_sent": true
+    },
+    "queued_ms": 1790415482435,
+    "sent_ms": 1790415783647,
+    "sending": null
+  },
+  "signal_count": 3,
+  "outbox_count": 3
+}

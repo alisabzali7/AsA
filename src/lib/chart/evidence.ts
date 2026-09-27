@@ -197,3 +197,10 @@ export function chartEvidenceMatches(
   if (identity.direction && evidence.direction !== identity.direction) return false;
   return true;
 }
+
+/** Snapshot charts end at the exact decision bar (epoch seconds), not today. */
+export function decisionCandles(evidence: ChartEvidence, candles: import("../domain/types").Candle[]): import("../domain/types").Candle[] {
+  if (evidence.bar_time == null || !Number.isFinite(evidence.bar_time)) return [];
+  const selected = candles.filter((c) => c.t <= evidence.bar_time!);
+  return selected.at(-1)?.t === evidence.bar_time ? selected : [];
+}

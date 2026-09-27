@@ -1,0 +1,566 @@
+=== BASELINE: npm test ===
+
+> asa@6.0.1 test
+> vitest run
+
+
+ RUN  v3.2.4 /home/user/AsA
+
+ ✓ tests/ttt-admission.test.ts (30 tests) 1434ms
+   ✓ transport is the single admission point > B1. a retried attempt pays again (network failure, then success)  674ms
+   ✓ transport is the single admission point > K2a. a timeout is retried and every retry pays: 2 attempts = 2 admissions  517ms
+ ✓ tests/audit-regressions.test.ts (33 tests) 6654ms
+   ✓ P0-7 backtest data-freshness contract > runBacktest surfaces the freshness contract in warnings AND lineage  453ms
+   ✓ P1-6 expireStaleSignals expires every stale signal despite pagination > two-phase walk: updates during pagination cannot skip rows  346ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > every compiled strategy binds to a Brain StrategyRecord (id + family + source overlap)  849ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > a compiled strategy with NO brain record is flagged MISSING_BRAIN_RECORD  751ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > a family drift between compiled strategy and brain record is flagged  916ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > a compiled strategy citing disjoint corpus lines is flagged NO_SOURCE_OVERLAP  997ms
+   ✓ audit B3/B4: discovery drives the operational universe honestly > a discovery FAILURE preserves the previous snapshot as STALE — not VALID_EMPTY, not legacy  1854ms
+ ✓ tests/strategy-promotion.test.ts (40 tests) 1472ms
+   ✓ the CURRENT repository state cannot promote anything > with an ingested brain but historical evidence, every compiled strategy is NOT_ELIGIBLE  953ms
+ ✓ tests/conflict-resolution.test.ts (38 tests) 8881ms
+   ✓ live registry integration — resolution is read, not assumed > reads the linked group's live resolution from the Brain store  856ms
+   ✓ live registry integration — resolution is read, not assumed > honors a live OPERATOR_CHOSEN adjudication recorded in the store  627ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > an OPERATOR_CHOSEN adjudication survives a full re-ingest  1406ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > an EMPIRICALLY_RESOLVED adjudication survives a full re-ingest  1382ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > adjudicated state is deterministic across repeated re-ingests  1747ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > promotion reads RESOLVED (not UNRESOLVED) for a linked record after re-ingest  1291ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > a pristine store still rebuilds every group UNRESOLVED — preservation invents nothing  1315ms
+ ✓ tests/history-boundary.test.ts (34 tests) 7048ms
+   ✓ sync-level semantics: fresh proof vs retained historical completeness > F. prior COMPLETE + current network failure: data preserved, no fresh success, no fresh proof  3329ms
+   ✓ adversarial sequences > valid bars → ok-empty → network failure never becomes COMPLETE  3511ms
+ ✓ tests/live-signal-runtime.test.ts (13 tests) 1040ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 5 + 6 — delivery linkage is truthful across FAILED → retry (partial progress) → SENT  324ms
+ ✓ tests/ttt-closure.test.ts (27 tests) 437ms
+ ✓ tests/remediation.test.ts (50 tests) 3308ms
+   ✓ P1 Brain rules are honestly classified, never overclaimed > no stored source-text rule is a runtime candidate  831ms
+   ✓ P1 Brain rules are honestly classified, never overclaimed > every rule with empty predicates carries a non_executable_reason  631ms
+   ✓ P1 Brain rules are honestly classified, never overclaimed > source_status is not blanket SOURCE_VERIFIED  1049ms
+   ✓ P1 Brain rules are honestly classified, never overclaimed > rule_class distinguishes UNKNOWN / CLAIM / UNFORMALIZED  588ms
+ ✓ tests/rule-closure.test.ts (26 tests) 4700ms
+   ✓ ingest registers the machine rule graph into the Brain registry > registry holds BOTH populations: source text (DISABLED) + machine rules (registered)  761ms
+   ✓ ingest registers the machine rule graph into the Brain registry > every compiled strategy record gains rule_ids + compiled binding, gate unchanged  801ms
+   ✓ ingest registers the machine rule graph into the Brain registry > bidirectional closure verification passes on a freshly ingested brain  501ms
+   ✓ closure verifier detects registry corruption > a missing machine row is a MISSING_REGISTRY_ROW violation  553ms
+   ✓ closure verifier detects registry corruption > a drifted predicate is a PREDICATE_MISMATCH violation  350ms
+   ✓ closure verifier detects registry corruption > an orphan machine row is an ORPHAN_MACHINE_RULE violation  420ms
+   ✓ closure verifier detects registry corruption > a source-text rule promoted out of DISABLED is a violation  323ms
+   ✓ tri-state evidence is preserved, never auto-resolved > UNKNOWN source-text rules stay DISABLED and unbound after machine registration  322ms
+ ✓ tests/live-timeframe-coverage.test.ts (9 tests) 999ms
+   ✓ T05 T5 — production timeframe close-event coverage > every production timeframe has a correct close boundary and (when a series is watched) yields ONE candle.closed per new bar — 1d explicitly  472ms
+ ✓ tests/analysis-layer.test.ts (24 tests) 21ms
+ ✓ tests/strategy-engine.test.ts (35 tests) 6340ms
+   ✓ backtest — no lookahead > never enters before the bar after the signal  774ms
+   ✓ backtest — no lookahead > resolves a same-bar stop+target tie to the STOP (conservative)  813ms
+   ✓ backtest — no lookahead > applies fees and slippage so gross R exceeds net R  705ms
+   ✓ backtest — no lookahead > never overlaps positions for one strategy/symbol  673ms
+   ✓ backtest — no lookahead > is deterministic across runs  1320ms
+   ✓ backtest — no lookahead > uses the same risk engine as advisory, compounding on live equity  641ms
+   ✓ OOS and walk-forward mechanics > splits chronologically and never tests on training decisions  693ms
+   ✓ OOS and walk-forward mechanics > produces the requested number of walk-forward windows  653ms
+ ✓ tests/freeze.test.ts (37 tests) 6485ms
+   ✓ §H OOS is leakage-safe > the OOS split is chronological — no test signal predates the split  894ms
+   ✓ §H OOS is leakage-safe > in-sample and out-of-sample position sets do not overlap  743ms
+   ✓ §H OOS is leakage-safe > walk-forward windows advance chronologically and are all persistedable  708ms
+   ✓ §H OOS is leakage-safe > promotion never reaches ROBUST on a losing strategy regardless of window count  1292ms
+   ✓ §I4 reproducibility: same data + same config = same result > two identical backtests produce byte-identical positions and metrics  1310ms
+   ✓ §I4 reproducibility: same data + same config = same result > a different dataset yields a different fingerprint and may differ in result  1424ms
+ ✓ tests/decision-truth-recovery.test.ts (22 tests) 129ms
+ ✓ tests/ai-clone.test.ts (20 tests) 4977ms
+   ✓ AI Clone route: deterministic context + LLM conversation (real POST, mock provider) > context propagation: deterministic facts reach the response unchanged and the LLM is actually in the loop  4189ms
+ ✓ tests/indicators-robustness.test.ts (30 tests) 23ms
+ ✓ tests/market-truth-pipeline.test.ts (29 tests) 85ms
+ ✓ tests/telegram-claim-lease.test.ts (11 tests) 414ms
+ ✓ tests/closure.test.ts (40 tests) 5284ms
+   ✓ §M position vs fill accounting > a laddered exit is ONE position, not several trades  776ms
+   ✓ §M position vs fill accounting > exit quantities never exceed the entry quantity (no double counting)  681ms
+   ✓ §M position vs fill accounting > fees are charged per fill on the actual filled notional  673ms
+   ✓ §M position vs fill accounting > all fill timestamps are absolute and inside the series range  634ms
+   ✓ §M position vs fill accounting > same-bar policy is explicit and recorded  1288ms
+   ✓ §M position vs fill accounting > reports gross and net R separately plus fee/slippage impact  597ms
+   ✓ §M position vs fill accounting > builds a true equity curve  599ms
+ ✓ tests/validation-pipeline.test.ts (16 tests) 1607ms
+   ✓ Scenarios A through H (Promotion & Lifecycle Invariants) > Scenario H: Validation Pipeline execution over TTT replay fixture generates typed outputs  1517ms
+ ✓ tests/market-data.test.ts (37 tests) 107ms
+ ✓ tests/bundle-contract.test.ts (17 tests) 22ms
+ ✓ tests/signal-publish.test.ts (14 tests) 120ms
+ ✓ tests/brain-governance.test.ts (32 tests) 360ms
+ ✓ tests/telegram-partial-send.test.ts (6 tests) 518ms
+ ✓ tests/audit-consistency.test.ts (15 tests) 13ms
+ ✓ tests/mining-project.test.ts (33 tests) 33ms
+ ✓ tests/brain-safety.test.ts (26 tests) 46ms
+ ✓ tests/pwa-state.test.ts (25 tests) 11ms
+ ✓ tests/setup-admission-gate.test.ts (11 tests) 110ms
+ ✓ tests/chart-telegram.test.ts (18 tests) 96ms
+ ✓ tests/scanner-safety.test.ts (11 tests) 149ms
+ ✓ tests/i18n-scan.test.ts (9 tests) 321ms
+ ✓ tests/market-runtime-recovery.test.ts (4 tests) 3480ms
+   ✓ market runtime boot and recovery > boots loops during TTT outage, then discovers the universe and publishes stats without restart  3386ms
+ ✓ tests/market-store.test.ts (7 tests) 25ms
+ ✓ tests/setup-guard-unknown.test.ts (5 tests) 6ms
+ ✓ tests/backtest.test.ts (10 tests) 1134ms
+   ✓ runBacktest determinism & lineage (Brain-backed engine) > is deterministic: identical input -> identical positions  386ms
+ ✓ tests/retention-news.test.ts (5 tests) 17ms
+ ✓ tests/scheduler-guard.test.ts (10 tests) 28929ms
+   ✓ TTT HTTP transport > backs off with bounded retries on 429 and eventually surfaces rate_limited  14264ms
+   ✓ TTT HTTP transport > returns validated JSON with provenance on success  14619ms
+ ✓ tests/opportunity-freshness.test.ts (8 tests) 83ms
+ ✓ tests/udf-normalize.test.ts (10 tests) 70ms
+ ✓ tests/telegram-attempts-accounting.test.ts (2 tests) 41ms
+ ✓ tests/ttt-signer.test.ts (9 tests) 20ms
+ ✓ tests/board-selectors.test.ts (9 tests) 6ms
+ ✓ tests/risk-engine.test.ts (6 tests) 4ms
+ ✓ tests/universe-tf.test.ts (7 tests) 6ms
+ ✓ tests/user-psychology-source.test.ts (3 tests) 14ms
+
+ Test Files  47 passed (47)
+      Tests  913 passed (913)
+   Start at  08:08:13
+   Duration  112.30s (transform 2.06s, setup 0ms, collect 2.74s, tests 97.08s, environment 18ms, prepare 3.94s)
+
+
+
+=== BASELINE: npm run typecheck ===
+
+> asa@6.0.1 typecheck
+> tsc --noEmit
+
+
+
+=== BASELINE: npm run lint ===
+
+> asa@6.0.1 lint
+> eslint .
+
+
+
+=== BASELINE: npm run build ===
+
+> asa@6.0.1 build
+> next build
+
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+▲ Next.js 16.2.6 (Turbopack)
+
+  Creating an optimized production build ...
+Turbopack build encountered 1 warnings:
+./next.config.ts
+Encountered unexpected file in NFT list
+A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+- filesystem operations (like path.join, path.resolve or fs.readFile), or
+- very dynamic requires (like require('./' + foo)).
+To resolve this, you can
+- remove them if possible, or
+- only use them in development, or
+- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+
+Import trace:
+  App Route:
+    ./next.config.ts
+    ./src/lib/backtest/validation-pipeline.ts
+    ./src/app/api/brain/validation/route.ts
+
+
+✓ Compiled successfully in 17.2s
+  Running TypeScript ...
+  Finished TypeScript in 19.6s ...
+  Collecting page data using 1 worker ...
+  Generating static pages using 1 worker (0/22) ...
+  Generating static pages using 1 worker (5/22)
+  Generating static pages using 1 worker (10/22)
+  Generating static pages using 1 worker (16/22)
+✓ Generating static pages using 1 worker (22/22) in 745ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /ai-clone
+├ ƒ /api/ai-clone
+├ ƒ /api/ai/analyze
+├ ƒ /api/ai/status
+├ ƒ /api/analysis/[symbol]/[tf]
+├ ƒ /api/analysis/mtf/[symbol]
+├ ƒ /api/brain
+├ ƒ /api/brain/explorer
+├ ƒ /api/brain/mining
+├ ƒ /api/brain/policies
+├ ƒ /api/brain/policy-origin
+├ ƒ /api/brain/rules
+├ ƒ /api/brain/strategies
+├ ƒ /api/brain/trace
+├ ƒ /api/brain/unknowns
+├ ƒ /api/brain/validation
+├ ƒ /api/charts/[id]
+├ ƒ /api/fundamental/news
+├ ƒ /api/market/board
+├ ƒ /api/market/candles
+├ ƒ /api/market/catalog
+├ ƒ /api/market/derivatives
+├ ƒ /api/market/focus
+├ ƒ /api/market/history
+├ ƒ /api/market/matrix
+├ ƒ /api/market/orderbook
+├ ƒ /api/market/prices
+├ ƒ /api/market/stats
+├ ƒ /api/market/symbols
+├ ƒ /api/market/sync-status
+├ ƒ /api/market/trades
+├ ƒ /api/opportunities
+├ ƒ /api/psychology/summary
+├ ƒ /api/research/ai-calls
+├ ƒ /api/research/backtest
+├ ƒ /api/research/backtest/[id]
+├ ƒ /api/research/strategies
+├ ƒ /api/signals
+├ ƒ /api/signals/[id]
+├ ƒ /api/signals/journal
+├ ƒ /api/signals/journal/[id]
+├ ƒ /api/system/config
+├ ƒ /api/system/events
+├ ƒ /api/system/health
+├ ƒ /api/system/logs
+├ ƒ /api/system/notify
+├ ƒ /api/system/status
+├ ○ /backtest
+├ ○ /brain
+├ ○ /brain/conflicts
+├ ○ /brain/psychology
+├ ○ /brain/risk
+├ ○ /brain/rules
+├ ○ /brain/search
+├ ○ /brain/strategies
+├ ○ /brain/unknowns
+├ ○ /chart
+├ ○ /fundamental
+├ ○ /market
+├ ○ /opportunities
+├ ○ /psychology
+├ ○ /research
+├ ○ /settings
+├ ○ /signals
+└ ○ /system
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+
+=== FINAL: npm test ===
+
+> asa@6.0.1 test
+> vitest run
+
+
+ RUN  v3.2.4 /home/user/AsA
+
+ ✓ tests/scheduler-guard.test.ts (10 tests) 27757ms
+   ✓ TTT HTTP transport > backs off with bounded retries on 429 and eventually surfaces rate_limited  12516ms
+   ✓ TTT HTTP transport > returns validated JSON with provenance on success  15162ms
+ ✓ tests/freeze.test.ts (37 tests) 6879ms
+   ✓ §H OOS is leakage-safe > the OOS split is chronological — no test signal predates the split  789ms
+   ✓ §H OOS is leakage-safe > in-sample and out-of-sample position sets do not overlap  792ms
+   ✓ §H OOS is leakage-safe > walk-forward windows advance chronologically and are all persistedable  789ms
+   ✓ §H OOS is leakage-safe > promotion never reaches ROBUST on a losing strategy regardless of window count  1522ms
+   ✓ §I4 reproducibility: same data + same config = same result > two identical backtests produce byte-identical positions and metrics  1395ms
+   ✓ §I4 reproducibility: same data + same config = same result > a different dataset yields a different fingerprint and may differ in result  1472ms
+ ✓ tests/history-boundary.test.ts (34 tests) 7747ms
+   ✓ sync-level semantics: fresh proof vs retained historical completeness > F. prior COMPLETE + current network failure: data preserved, no fresh success, no fresh proof  3876ms
+   ✓ adversarial sequences > valid bars → ok-empty → network failure never becomes COMPLETE  3689ms
+ ✓ tests/strategy-engine.test.ts (35 tests) 6725ms
+   ✓ backtest — no lookahead > never enters before the bar after the signal  1077ms
+   ✓ backtest — no lookahead > resolves a same-bar stop+target tie to the STOP (conservative)  879ms
+   ✓ backtest — no lookahead > applies fees and slippage so gross R exceeds net R  749ms
+   ✓ backtest — no lookahead > never overlaps positions for one strategy/symbol  665ms
+   ✓ backtest — no lookahead > is deterministic across runs  1349ms
+   ✓ backtest — no lookahead > uses the same risk engine as advisory, compounding on live equity  629ms
+   ✓ OOS and walk-forward mechanics > splits chronologically and never tests on training decisions  664ms
+   ✓ OOS and walk-forward mechanics > produces the requested number of walk-forward windows  635ms
+ ✓ tests/closure.test.ts (40 tests) 6265ms
+   ✓ §M position vs fill accounting > a laddered exit is ONE position, not several trades  814ms
+   ✓ §M position vs fill accounting > exit quantities never exceed the entry quantity (no double counting)  723ms
+   ✓ §M position vs fill accounting > fees are charged per fill on the actual filled notional  858ms
+   ✓ §M position vs fill accounting > all fill timestamps are absolute and inside the series range  957ms
+   ✓ §M position vs fill accounting > same-bar policy is explicit and recorded  1487ms
+   ✓ §M position vs fill accounting > reports gross and net R separately plus fee/slippage impact  685ms
+   ✓ §M position vs fill accounting > builds a true equity curve  705ms
+ ✓ tests/team05-workers.test.ts (4 tests) 5303ms
+   ✓ T05 SQLite failure injection > SQLITE_BUSY does not leave a partial enqueue and recovery succeeds after lock release  5023ms
+ ✓ tests/ai-clone.test.ts (20 tests) 4996ms
+   ✓ deterministic context (buildCloneFacts — via the real store) > symbol branch: measured values appear verbatim with source + freshness; stale marker only past 60 s  364ms
+   ✓ AI Clone route: deterministic context + LLM conversation (real POST, mock provider) > context propagation: deterministic facts reach the response unchanged and the LLM is actually in the loop  3872ms
+ ✓ tests/market-runtime-recovery.test.ts (4 tests) 3992ms
+   ✓ market runtime boot and recovery > boots loops during TTT outage, then discovers the universe and publishes stats without restart  3875ms
+ ✓ tests/conflict-resolution.test.ts (38 tests) 4004ms
+   ✓ live registry integration — resolution is read, not assumed > reads the linked group's live resolution from the Brain store  332ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > an OPERATOR_CHOSEN adjudication survives a full re-ingest  644ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > an EMPIRICALLY_RESOLVED adjudication survives a full re-ingest  611ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > adjudicated state is deterministic across repeated re-ingests  842ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > promotion reads RESOLVED (not UNRESOLVED) for a linked record after re-ingest  559ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > a pristine store still rebuilds every group UNRESOLVED — preservation invents nothing  583ms
+ ✓ tests/audit-regressions.test.ts (33 tests) 3443ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > every compiled strategy binds to a Brain StrategyRecord (id + family + source overlap)  343ms
+   ✓ audit B3/B4: discovery drives the operational universe honestly > a discovery FAILURE preserves the previous snapshot as STALE — not VALID_EMPTY, not legacy  1698ms
+ ✓ tests/rule-closure.test.ts (26 tests) 3251ms
+   ✓ ingest registers the machine rule graph into the Brain registry > registry holds BOTH populations: source text (DISABLED) + machine rules (registered)  380ms
+   ✓ ingest registers the machine rule graph into the Brain registry > every compiled strategy record gains rule_ids + compiled binding, gate unchanged  334ms
+   ✓ ingest registers the machine rule graph into the Brain registry > bidirectional closure verification passes on a freshly ingested brain  325ms
+   ✓ closure verifier detects registry corruption > a missing machine row is a MISSING_REGISTRY_ROW violation  305ms
+   ✓ closure verifier detects registry corruption > a drifted predicate is a PREDICATE_MISMATCH violation  325ms
+   ✓ closure verifier detects registry corruption > an orphan machine row is an ORPHAN_MACHINE_RULE violation  320ms
+   ✓ closure verifier detects registry corruption > a strategy record losing its rule_ids is a STRATEGY_RULE_IDS_MISMATCH violation  310ms
+   ✓ tri-state evidence is preserved, never auto-resolved > UNKNOWN source-text rules stay DISABLED and unbound after machine registration  314ms
+   ✓ tri-state evidence is preserved, never auto-resolved > conflict groups remain UNRESOLVED — registration never resolves evidence  313ms
+ ✓ tests/validation-pipeline.test.ts (16 tests) 2074ms
+   ✓ Scenarios A through H (Promotion & Lifecycle Invariants) > Scenario H: Validation Pipeline execution over TTT replay fixture generates typed outputs  1960ms
+ ✓ tests/ttt-admission.test.ts (30 tests) 1276ms
+   ✓ transport is the single admission point > B1. a retried attempt pays again (network failure, then success)  644ms
+   ✓ transport is the single admission point > K2a. a timeout is retried and every retry pays: 2 attempts = 2 admissions  565ms
+ ✓ tests/remediation.test.ts (50 tests) 1361ms
+   ✓ P1 Brain rules are honestly classified, never overclaimed > no stored source-text rule is a runtime candidate  384ms
+   ✓ P1 Brain rules are honestly classified, never overclaimed > every rule with empty predicates carries a non_executable_reason  313ms
+ ✓ tests/backtest.test.ts (10 tests) 1202ms
+   ✓ runBacktest determinism & lineage (Brain-backed engine) > is deterministic: identical input -> identical positions  408ms
+ ✓ tests/telegram-partial-send.test.ts (15 tests) 760ms
+ ✓ tests/live-timeframe-coverage.test.ts (9 tests) 931ms
+   ✓ T05 T5 — production timeframe close-event coverage > every production timeframe has a correct close boundary and (when a series is watched) yields ONE candle.closed per new bar — 1d explicitly  476ms
+ ✓ tests/live-signal-runtime.test.ts (21 tests) 647ms
+ ✓ tests/strategy-promotion.test.ts (40 tests) 564ms
+   ✓ the CURRENT repository state cannot promote anything > with an ingested brain but historical evidence, every compiled strategy is NOT_ELIGIBLE  341ms
+ ✓ tests/telegram-claim-lease.test.ts (11 tests) 446ms
+ ✓ tests/brain-governance.test.ts (32 tests) 382ms
+ ✓ tests/i18n-scan.test.ts (9 tests) 313ms
+ ✓ tests/ttt-closure.test.ts (27 tests) 187ms
+ ✓ tests/team05-api.test.ts (5 tests) 171ms
+ ✓ tests/scanner-safety.test.ts (11 tests) 141ms
+ ✓ tests/signal-publish.test.ts (20 tests) 146ms
+ ✓ tests/decision-truth-recovery.test.ts (23 tests) 126ms
+ ✓ tests/market-data.test.ts (37 tests) 117ms
+ ✓ tests/setup-admission-gate.test.ts (18 tests) 112ms
+ ✓ tests/opportunity-freshness.test.ts (8 tests) 88ms
+ ✓ tests/market-truth-pipeline.test.ts (29 tests) 102ms
+ ✓ tests/udf-normalize.test.ts (10 tests) 89ms
+ ✓ tests/telegram-attempts-accounting.test.ts (2 tests) 66ms
+ ✓ tests/chart-telegram.test.ts (18 tests) 61ms
+ ✓ tests/brain-safety.test.ts (26 tests) 55ms
+ ✓ tests/mining-project.test.ts (33 tests) 35ms
+ ✓ tests/team05-persistence-recovery.test.ts (10 tests) 40ms
+ ✓ tests/market-store.test.ts (7 tests) 21ms
+ ✓ tests/analysis-layer.test.ts (24 tests) 25ms
+ ✓ tests/ttt-signer.test.ts (9 tests) 37ms
+ ✓ tests/retention-news.test.ts (5 tests) 24ms
+ ✓ tests/bundle-contract.test.ts (17 tests) 29ms
+ ✓ tests/indicators-robustness.test.ts (30 tests) 20ms
+ ✓ tests/audit-consistency.test.ts (15 tests) 14ms
+ ✓ tests/pwa-state.test.ts (25 tests) 14ms
+ ✓ tests/user-psychology-source.test.ts (3 tests) 15ms
+ ✓ tests/universe-tf.test.ts (7 tests) 9ms
+ ✓ tests/risk-engine.test.ts (16 tests) 7ms
+ ✓ tests/setup-guard-unknown.test.ts (5 tests) 8ms
+ ✓ tests/board-selectors.test.ts (9 tests) 5ms
+
+ Test Files  50 passed (50)
+      Tests  973 passed (973)
+   Start at  08:44:31
+   Duration  105.13s (transform 1.75s, setup 0ms, collect 2.79s, tests 92.08s, environment 9ms, prepare 3.42s)
+
+
+
+=== FINAL: targeted 16-file command (see report) ===
+
+ RUN  v3.2.4 /home/user/AsA
+
+ ✓ tests/team05-workers.test.ts (4 tests) 5280ms
+   ✓ T05 SQLite failure injection > SQLITE_BUSY does not leave a partial enqueue and recovery succeeds after lock release  5026ms
+ ✓ tests/market-runtime-recovery.test.ts (4 tests) 4529ms
+   ✓ market runtime boot and recovery > boots loops during TTT outage, then discovers the universe and publishes stats without restart  4411ms
+ ✓ tests/audit-regressions.test.ts (33 tests) 3811ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > every compiled strategy binds to a Brain StrategyRecord (id + family + source overlap)  385ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > a compiled strategy with NO brain record is flagged MISSING_BRAIN_RECORD  305ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > a family drift between compiled strategy and brain record is flagged  303ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > a compiled strategy citing disjoint corpus lines is flagged NO_SOURCE_OVERLAP  334ms
+   ✓ audit B3/B4: discovery drives the operational universe honestly > a discovery FAILURE preserves the previous snapshot as STALE — not VALID_EMPTY, not legacy  1924ms
+ ✓ tests/live-timeframe-coverage.test.ts (9 tests) 959ms
+   ✓ T05 T5 — production timeframe close-event coverage > every production timeframe has a correct close boundary and (when a series is watched) yields ONE candle.closed per new bar — 1d explicitly  479ms
+ ✓ tests/telegram-partial-send.test.ts (15 tests) 767ms
+ ✓ tests/live-signal-runtime.test.ts (21 tests) 641ms
+ ✓ tests/telegram-claim-lease.test.ts (11 tests) 422ms
+ ✓ tests/team05-api.test.ts (5 tests) 178ms
+ ✓ tests/signal-publish.test.ts (20 tests) 155ms
+ ✓ tests/decision-truth-recovery.test.ts (23 tests) 132ms
+ ✓ tests/setup-admission-gate.test.ts (18 tests) 131ms
+ ✓ tests/opportunity-freshness.test.ts (8 tests) 108ms
+ ✓ tests/telegram-attempts-accounting.test.ts (2 tests) 71ms
+ ✓ tests/chart-telegram.test.ts (18 tests) 65ms
+ ✓ tests/team05-persistence-recovery.test.ts (10 tests) 36ms
+ ✓ tests/risk-engine.test.ts (16 tests) 7ms
+
+ Test Files  16 passed (16)
+      Tests  217 passed (217)
+   Start at  08:46:17
+   Duration  21.23s (transform 969ms, setup 0ms, collect 742ms, tests 17.29s, environment 3ms, prepare 1.07s)
+
+
+
+=== FINAL: npm run typecheck ===
+
+> asa@6.0.1 typecheck
+> tsc --noEmit
+
+
+
+=== FINAL: npm run lint ===
+
+> asa@6.0.1 lint
+> eslint .
+
+
+
+=== FINAL: npm run build ===
+
+> asa@6.0.1 build
+> next build
+
+▲ Next.js 16.2.6 (Turbopack)
+
+  Creating an optimized production build ...
+Turbopack build encountered 1 warnings:
+./next.config.ts
+Encountered unexpected file in NFT list
+A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+- filesystem operations (like path.join, path.resolve or fs.readFile), or
+- very dynamic requires (like require('./' + foo)).
+To resolve this, you can
+- remove them if possible, or
+- only use them in development, or
+- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+
+Import trace:
+  App Route:
+    ./next.config.ts
+    ./src/lib/backtest/validation-pipeline.ts
+    ./src/app/api/brain/validation/route.ts
+
+
+✓ Compiled successfully in 7.1s
+  Running TypeScript ...
+  Finished TypeScript in 10.4s ...
+  Collecting page data using 1 worker ...
+  Generating static pages using 1 worker (0/22) ...
+  Generating static pages using 1 worker (5/22)
+  Generating static pages using 1 worker (10/22)
+  Generating static pages using 1 worker (16/22)
+✓ Generating static pages using 1 worker (22/22) in 491ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /ai-clone
+├ ƒ /api/ai-clone
+├ ƒ /api/ai/analyze
+├ ƒ /api/ai/status
+├ ƒ /api/analysis/[symbol]/[tf]
+├ ƒ /api/analysis/mtf/[symbol]
+├ ƒ /api/brain
+├ ƒ /api/brain/explorer
+├ ƒ /api/brain/mining
+├ ƒ /api/brain/policies
+├ ƒ /api/brain/policy-origin
+├ ƒ /api/brain/rules
+├ ƒ /api/brain/strategies
+├ ƒ /api/brain/trace
+├ ƒ /api/brain/unknowns
+├ ƒ /api/brain/validation
+├ ƒ /api/charts/[id]
+├ ƒ /api/fundamental/news
+├ ƒ /api/market/board
+├ ƒ /api/market/candles
+├ ƒ /api/market/catalog
+├ ƒ /api/market/derivatives
+├ ƒ /api/market/focus
+├ ƒ /api/market/history
+├ ƒ /api/market/matrix
+├ ƒ /api/market/orderbook
+├ ƒ /api/market/prices
+├ ƒ /api/market/stats
+├ ƒ /api/market/symbols
+├ ƒ /api/market/sync-status
+├ ƒ /api/market/trades
+├ ƒ /api/opportunities
+├ ƒ /api/psychology/summary
+├ ƒ /api/research/ai-calls
+├ ƒ /api/research/backtest
+├ ƒ /api/research/backtest/[id]
+├ ƒ /api/research/strategies
+├ ƒ /api/signals
+├ ƒ /api/signals/[id]
+├ ƒ /api/signals/journal
+├ ƒ /api/signals/journal/[id]
+├ ƒ /api/system/config
+├ ƒ /api/system/events
+├ ƒ /api/system/health
+├ ƒ /api/system/logs
+├ ƒ /api/system/notify
+├ ƒ /api/system/status
+├ ○ /backtest
+├ ○ /brain
+├ ○ /brain/conflicts
+├ ○ /brain/psychology
+├ ○ /brain/risk
+├ ○ /brain/rules
+├ ○ /brain/search
+├ ○ /brain/strategies
+├ ○ /brain/unknowns
+├ ○ /chart
+├ ○ /fundamental
+├ ○ /market
+├ ○ /opportunities
+├ ○ /psychology
+├ ○ /research
+├ ○ /settings
+├ ○ /signals
+└ ○ /system
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+
+=== LOCKFILE: npm ci --dry-run --ignore-scripts --no-audit --no-fund ===
+add @esbuild/win32-x64 0.28.2
+add @esbuild/win32-ia32 0.28.2
+add @esbuild/win32-arm64 0.28.2
+add @esbuild/sunos-x64 0.28.2
+add @esbuild/openharmony-arm64 0.28.2
+add @esbuild/openbsd-x64 0.28.2
+add @esbuild/openbsd-arm64 0.28.2
+add @esbuild/netbsd-x64 0.28.2
+add @esbuild/netbsd-arm64 0.28.2
+add @esbuild/linux-s390x 0.28.2
+add @esbuild/linux-riscv64 0.28.2
+add @esbuild/linux-ppc64 0.28.2
+add @esbuild/linux-mips64el 0.28.2
+add @esbuild/linux-loong64 0.28.2
+add @esbuild/linux-ia32 0.28.2
+add @esbuild/linux-arm64 0.28.2
+add @esbuild/linux-arm 0.28.2
+add @esbuild/freebsd-x64 0.28.2
+add @esbuild/freebsd-arm64 0.28.2
+add @esbuild/darwin-x64 0.28.2
+add @esbuild/darwin-arm64 0.28.2
+add @esbuild/android-x64 0.28.2
+add @esbuild/android-arm64 0.28.2
+add @esbuild/android-arm 0.28.2
+add @esbuild/aix-ppc64 0.28.2
+
+added 25 packages in 406ms

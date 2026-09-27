@@ -94,12 +94,23 @@ describe("market runtime boot and recovery", () => {
     const { operationalUniverse, universeMeta } = await import("../src/lib/market/operational-universe");
     const { sharedStore } = await import("../src/lib/market/store");
     const engine = new MarketEngine();
+    const { candleManager } = await import("../src/lib/market/candles");
+    const { liveScanState } = await import("../src/lib/pipeline/live-scan");
+    const subscribedAtBackfill: boolean[] = [];
+    const enqueue = candleManager.enqueueBackfill.bind(candleManager);
+    vi.spyOn(candleManager, "enqueueBackfill").mockImplementation((...args) => {
+      subscribedAtBackfill.push(liveScanState().subscribed);
+      return enqueue(...args);
+    });
     try {
       await expect(engine.start()).resolves.toBeUndefined();
+      expect(subscribedAtBackfill.length).toBeGreaterThan(0);
+      expect(subscribedAtBackfill.every(Boolean)).toBe(true);
       expect(engine.isRunning()).toBe(true);
       expect(universeMeta().discovery_complete).toBe(false);
       expect(operationalUniverse()).toEqual([]);
       expect(sharedStore.lastStatsSweepAtMs).toBeNull();
+      expect(engine.computeHealth()).toMatchObject({market:"UNAVAILABLE",reason:expect.stringContaining("NETWORK_FAILURE")});
 
       mode = "up";
       await (engine as unknown as { sweepStats(): Promise<void> }).sweepStats();

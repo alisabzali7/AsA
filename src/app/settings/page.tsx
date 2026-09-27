@@ -99,7 +99,7 @@ export default function SettingsPage() {
             <label className="flex flex-col gap-1 text-[10.5px]"><span className="eyebrow">risk/trade %</span><input className="input" type="number" step="0.1" value={val(perTrade, prefs?.["risk.perTradePct"])} placeholder={cfg.status === "OK" ? "unset (env default)" : "loading…"} onChange={(e) => setPerTrade(e.target.value)} /></label>
             <label className="flex flex-col gap-1 text-[10.5px]"><span className="eyebrow">max leverage</span><input className="input" type="number" value={val(maxLev, prefs?.["risk.maxLeverage"])} placeholder={cfg.status === "OK" ? "unset (env default)" : "loading…"} onChange={(e) => setMaxLev(e.target.value)} /></label>
           </div>
-          <button className="btn-gold btn mt-2" onClick={() => void save("risk", { equity: Number(equity), perTradePct: Number(perTrade), maxLeverage: Number(maxLev) })}>save risk</button>
+          <button className="btn-gold btn mt-2" onClick={() => void save("risk", { ...(equity !== null ? { equity } : {}), ...(perTrade !== null ? { perTradePct: perTrade } : {}), ...(maxLev !== null ? { maxLeverage: maxLev } : {}) })}>save risk</button>
           <p className="mt-1.5 text-[9.5px] text-dim">The risk engine applies saved values to every scan. These are advisory suggestions; you size and execute.</p>
         </Panel>
         <Panel title="AI mode">
@@ -137,7 +137,7 @@ export default function SettingsPage() {
           <p className="mt-1.5 text-[9.5px] text-dim">{cfg.data?.note ?? "secrets never leave the server — masked as CONFIGURED/NOT CONFIGURED"}</p>
         </Panel>
       </div>
-      {msg && <div className="text-[11.5px]" style={{ color: msg.startsWith("saved") ? "var(--color-up)" : "var(--color-down)" }}>{msg}</div>}
+      {msg && <div role="status" className="text-[11.5px]" style={{ color: msg.startsWith("saved") ? "var(--color-up)" : "var(--color-down)" }}>{msg}</div>}
     </div>
   );
 }

@@ -33,7 +33,7 @@ const health = usePoll<SystemHealthShape>("/api/system/health", 10000);
   const sse = useSse(onEvent);
   const [sel] = useSelection();
   const rows = board.data?.rows ?? [];
-  const live = rows.filter((r) => r.price !== null).length;
+  const live = rows.filter((r) => r.price !== null && displayStateFor(r.state, effectiveAgeMs(r.age_ms, board.age_ms)) === "LIVE").length;
   const movers = topByPrice(rows, 7);
   const gainers = topGainers(rows, 5);
   // Effective sweep age (server age + time since this snapshot arrived): the
@@ -48,7 +48,7 @@ const health = usePoll<SystemHealthShape>("/api/system/health", 10000);
   const healthChip = !health.data
     ? health.status === "LOADING" ? "CONNECTING" : health.status
     : healthDisplayState(health.data, health.status !== "OK", health.age_ms);
-  const marketLive = boardReady && sweepEff !== null && sweepEff < 30000;
+  const marketLive = boardReady && sweepEff !== null && sweepEff < 30000 && healthChip === "LIVE" && live > 0;
   const terminalHref = sel.symbol ? `/chart?symbol=${sel.symbol}` : "/chart";
 
   return (
@@ -66,7 +66,7 @@ const health = usePoll<SystemHealthShape>("/api/system/health", 10000);
             <p className="mt-1.5 max-w-[62ch] text-[12px] leading-relaxed text-muted">
               {boardReady
                 ? marketLive
-                  ? `market sweep is live — ${live}/${rows.length} universe rows priced · sweep age ${fmtAge(sweepEff)}`
+                  ? `market sweep is live — ${live}/${rows.length} universe rows live · sweep age ${fmtAge(sweepEff)}`
                   : `board snapshot retained from ${fmtAge(sweepEff)} ago — treated as STALE, not live`
                 : `market feed is ${board.status.toLowerCase()}${board.failure?.server_state ? ` (${board.failure.server_state})` : ""} — the terminal shows the provider's verdict, never a substitute`}
             </p>

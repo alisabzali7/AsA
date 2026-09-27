@@ -24,10 +24,11 @@
  * NOTE on isolation: env-dependent paths are set BEFORE any src module is
  * dynamically imported (same pattern as audit-regressions.test.ts).
  */
-import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { publicationIdentity, persistPublicationFixture, syntheticMarket } from "./fixtures/publication-opportunity";
 import type { OpportunityPayload } from "../src/lib/pipeline/orchestrator";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "asa-sigpub-"));
@@ -54,6 +55,9 @@ beforeAll(async () => {
   publishActionFor = orch.publishActionFor;
   expireStaleSignals = (maxAgeMs?: number, r?: Repo) => orch.expireStaleSignals(maxAgeMs, r ?? repo);
   SIGNAL_STATES = orch.SIGNAL_STATES;
+  (await import("../src/lib/market/store")).sharedStore.catalog.set("BTCUSDT", syntheticMarket("BTCUSDT"));
+  (await import("../src/lib/market/operational-universe")).__setOperationalUniverse(["BTCUSDT"]);
+  RISK_PASS = (await import("../src/lib/risk/live")).evaluateLiveRisk("BTCUSDT", "long", 100, 95, 110);
 });
 
 afterAll(() => {
@@ -64,7 +68,7 @@ afterAll(() => {
 let seq = 0;
 function makeOpp(overrides: Partial<OpportunityPayload> = {}): OpportunityPayload {
   seq += 1;
-  return {
+  return persistPublicationFixture(repo, publicationIdentity({
     id: `opptest${seq}`,
     symbol: "BTCUSDT",
     timeframe: "1h",
@@ -72,12 +76,12 @@ function makeOpp(overrides: Partial<OpportunityPayload> = {}): OpportunityPayloa
     score: 90,
     setup: "s",
     thesis: "t",
-    entry_zone: null,
+    entry_zone: { top: 100, bottom: 100 },
     invalidation: null,
-    stop: null,
-    targets: [],
+    stop: 95,
+    targets: [110],
     rr: null,
-    strategy_id: "STR-RAW-2-803",
+    strategy_id: "STR-TEST-CLOSURE",
     mode: "live",
     state: "READY",
     anchor_ts_ms: 0,
@@ -99,18 +103,18 @@ function makeOpp(overrides: Partial<OpportunityPayload> = {}): OpportunityPayloa
     chart_evidence: null,
     // FIX (T05 T2): an explicit valid risk-PASS is the ONLY publishable risk
     // state — fixtures must never rely on a missing risk object.
-    risk: { verdict: "pass", reasons: ["risk checks passed"], numbers: {} },
+    risk: RISK_PASS,
     ai: null,
     provenance: {
       generated_at_ms: 0,
       data: { series_fetched_ms: 0, stats_fetched_ms: null, native_1d: true, candles: { macro: null, context: null, trigger: 1 } },
     },
     ...overrides,
-  };
+  }));
 }
 
 const RISK_BLOCK = { verdict: "block", reasons: ["LONG requires stop < entry"], numbers: {} };
-const RISK_PASS = { verdict: "pass", reasons: ["risk checks passed"], numbers: {} };
+let RISK_PASS: NonNullable<OpportunityPayload["risk"]>;
 
 /** Outbox rows queued for ONE opportunity — the duplicate-delivery detector. */
 function outboxRowsFor(oppId: string) {
@@ -349,5 +353,114 @@ describe("T05 publish boundary: FINAL hard risk boundary (strict)", () => {
     const op = JSON.parse(outbox.payload_json) as Record<string, unknown>;
     expect(op.advisory_only).toBe(true);
     expect(op.opportunity_id).toBe(opp.id);
+  });
+});
+
+describe("T05 recovery: final boundary adversarial inputs", () => {
+  it("rejects a forged PASS over an invalid direction-safe stop", () => {
+    const opp = makeOpp({ entry_zone: { top: 100, bottom: 100 }, stop: 110, targets: [130] });
+    expect(publishSignal(opp).published).toBe(false);
+    expect(outboxRowsFor(opp.id)).toHaveLength(0);
+  });
+  it("rejects stale/future/unknown-timeframe publication even with a READY label", () => {
+    for (const changes of [
+      { anchor_close_ms: Date.now() - 5 * 3600_000 },
+      { anchor_close_ms: Date.now() + 3600_000 },
+      { timeframe: "unknown" },
+    ]) {
+      const opp = makeOpp(changes);
+      expect(publishSignal(opp).published).toBe(false);
+      expect(outboxRowsFor(opp.id)).toHaveLength(0);
+    }
+  });
+});
+
+describe("T05 recovery: authoritative risk revalidation", () => {
+  it("rejects changed policy after the decision, without consuming identity or enqueue", () => {
+    const opp = makeOpp();
+    repo.configSet("pref.risk.equity", "20000");
+    try {
+      const result = publishSignal(opp);
+      expect(result.published).toBe(false);
+      expect(result.reason).toMatch(/inconsistent or stale/);
+      expect(repo.signalByOpp(opp.id)).toBeNull();
+      expect(outboxRowsFor(opp.id)).toHaveLength(0);
+    } finally { repo.configSet("pref.risk.equity", "10000"); }
+  });
+  it("refuses contradictory admission evidence even when risk passes", () => {
+    const opp = makeOpp({ psychology: { state: "BLOCKED", hard_blocks: ["user block"], soft_warnings: [], score_modifier: 0 } });
+    expect(publishSignal(opp).published).toBe(false);
+    expect(outboxRowsFor(opp.id)).toHaveLength(0);
+  });
+});
+
+describe("T05 recovery: logical identity and evidence cannot be caller-renamed", () => {
+  it("cannot create another signal by renaming the same logical opportunity", () => {
+    const opp = makeOpp();
+    expect(publishSignal(opp).published).toBe(true);
+    const renamed = { ...opp, id: `${opp.id}-replay` };
+    expect(publishSignal(renamed).published).toBe(false);
+    expect(outboxRowsFor(opp.id)).toHaveLength(1);
+    expect(outboxRowsFor(renamed.id)).toHaveLength(0);
+  });
+  it("missing or wrong chart evidence cannot qualify a newly published signal", () => {
+    const opp = makeOpp();
+    for (const chart of [null, { ...opp.chart_evidence!, timeframe: "15m" }, { ...opp.chart_evidence!, bar_time: 1 }]) {
+      const result = publishSignal({ ...opp, chart_evidence: chart });
+      expect(result.published).toBe(false);
+      expect(result.reason).toMatch(/chart evidence/);
+    }
+    expect(outboxRowsFor(opp.id)).toHaveLength(0);
+  });
+});
+
+// TEST ONLY: boundary fixtures are not empirical promotion or account-loss proof.
+vi.mock("../src/lib/backtest/promotion", async (original) => {
+  const mod = await original<typeof import("../src/lib/backtest/promotion")>();
+  return { ...mod,
+  promotedRuntimeStatus: (id: string) => id === "STR-TEST-CLOSURE" ? "LIVE_ADVISORY_ONLY" : mod.promotedRuntimeStatus(id),
+}; });
+vi.mock("../src/lib/risk/policy", async (original) => {
+  const mod = await original<typeof import("../src/lib/risk/policy")>();
+  return { ...mod, getProductionRiskPolicy: () => ({ ...mod.getProductionRiskPolicy(), daily_loss_limit_pct: null, period_loss_limit_pct: null }) };
+});
+
+beforeEach(() => { for (const row of repo.signalActive()) repo.signalUpdate({id:row.id,state:"expired"}); });
+
+describe("closure: current authoritative admission, not caller READY", () => {
+  it("refuses an unpromoted strategy even with a correct numeric PASS and stored READY", () => {
+    const o = makeOpp({ strategy_id: "STR-TEST-UNPROMOTED" });
+    const result = publishSignal(o);
+    expect(result.published).toBe(false);
+    expect(result.reason).toMatch(/promotion/);
+    expect(repo.signalByOpp(o.id)).toBeNull();
+    expect(outboxRowsFor(o.id)).toHaveLength(0);
+  });
+  it("refuses a changed or missing stored decision", () => {
+    const o = makeOpp();
+    expect(publishSignal({ ...o, thesis: "forged explanation" }).reason).toMatch(/stored opportunity/);
+    const spy = vi.spyOn(repo, "opportunityGet").mockReturnValueOnce(null);
+    try { expect(publishSignal(o).published).toBe(false); } finally { spy.mockRestore(); }
+    expect(outboxRowsFor(o.id)).toHaveLength(0);
+  });
+  it("rechecks psychology changed after qualification", () => {
+    const o = makeOpp();
+    repo.configSet("pref.psychology.declared_state", "unfit");
+    try {
+      const result = publishSignal(o);
+      expect(result.published).toBe(false);
+      expect(result.reason).toMatch(/current admission gate BLOCK/);
+      expect(outboxRowsFor(o.id)).toHaveLength(0);
+    } finally { repo.configSet("pref.psychology.declared_state", "ok"); }
+  });
+  it("serializes different candidates against current opposing exposure", async () => {
+    const first = makeOpp();
+    const risk = (await import("../src/lib/risk/live")).evaluateLiveRisk("BTCUSDT", "short", 100, 105, 90);
+    const second = makeOpp({ direction: "short", stop: 105, targets: [90], risk }); // both qualified before either published
+    expect(publishSignal(first).published).toBe(true);
+    const result = publishSignal(second);
+    expect(result.published).toBe(false);
+    expect(result.reason).toMatch(/current admission gate BLOCK/);
+    expect(outboxRowsFor(second.id)).toHaveLength(0);
   });
 });

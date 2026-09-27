@@ -102,6 +102,10 @@ export class MarketEngine {
       // repo warm-up (durable tables). A local persistence failure is fatal:
       // without it the runtime cannot safely persist opportunities/history.
       getRepo();
+      // Subscribe BEFORE discovery can enqueue a fast first backfill. Otherwise
+      // the boot-time candles.updated event can be lost until the next bar.
+      startLiveSignalScanner();
+      expireStaleSignals();
       this.configureCandleTargets();
 
       // 0) DISCOVERY FIRST (remediation P0-1): the operational universe must be
@@ -135,10 +139,7 @@ export class MarketEngine {
       // probe the notifier before draining so state is measured, never assumed
       this.interval("outbox", OUTBOX_INTERVAL_MS, async () => { await probeTelegram(); await drainOutbox(); });
       this.interval("signals", 10 * 60_000, () => { expireStaleSignals(); });
-      // T05 T4: the live signal path. Event-driven off the SAME candle-close
-      // detection this engine already runs (scheduleCloseRefreshes → fetch →
-      // candle.closed); no extra polling loop. Idempotent to attach.
-      startLiveSignalScanner();
+      // The live scanner was attached before discovery/backfill above.
       this.interval("health", HEALTH_INTERVAL_MS, () => this.publishHealth());
       // periodic re-discovery: post-boot listings are ingested into the catalog
       // and queued for candles through the SAME discovery/catalog path.
@@ -219,12 +220,16 @@ export class MarketEngine {
   }
 
   private interval(name: string, ms: number, fn: () => void | Promise<void>): void {
+    let running = false;
     const t = setInterval(() => {
+      if (running) return; // no retry amplification when a drain/probe exceeds its cadence
+      running = true;
       Promise.resolve()
         .then(fn)
         .catch((err) => {
           sharedStore.recordError("loop", name, err instanceof Error ? err.message : String(err));
-        });
+        })
+        .finally(() => { running = false; });
     }, ms);
     this.timers.push(t);
   }
@@ -469,6 +474,9 @@ export class MarketEngine {
       // Never received a stats sweep. State stays CONNECTING (we are still
       // trying), but the REASON must not pretend everything is fine after the
       // venue has been failing since boot — surface the measured failures.
+      const discovery = universeState();
+      if (["NETWORK_FAILURE", "INVALID_RESPONSE", "VALID_EMPTY"].includes(discovery))
+        return { market: "UNAVAILABLE", reason: `TTT discovery ${discovery}; no successful market snapshot` };
       const failures = this.statsLoop.consecutiveErrors;
       return {
         market: "CONNECTING",

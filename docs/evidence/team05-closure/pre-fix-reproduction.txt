@@ -1,0 +1,66 @@
+
+ RUN  v3.2.4 /home/user/AsA
+
+ ❯ tests/team05-closure-gates.test.ts (2 tests | 2 failed) 48ms
+   × closure: complete, honest advisory exposure > does not lose active exposure behind 500 newer terminal rows 45ms
+     → expected [] to deeply equal [ { symbol: 'old-active', …(2) } ]
+   × closure: complete, honest advisory exposure > unknown risk notional is unavailable, never a zero-risk holding 2ms
+     → expected [ { symbol: 'unknown', …(2) } ] to be null
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/team05-closure-gates.test.ts > closure: complete, honest advisory exposure > does not lose active exposure behind 500 newer terminal rows
+AssertionError: expected [] to deeply equal [ { symbol: 'old-active', …(2) } ]
+
+- Expected
++ Received
+
+- [
+-   {
+-     "direction": "long",
+-     "risk_amount": 100,
+-     "symbol": "old-active",
+-   },
+- ]
++ []
+
+ ❯ tests/team05-closure-gates.test.ts:18:30
+     16|       for(let i=0; i<501; i++) repo.signalInsert(signal(`closed-${i}`,…
+     17|       const ctx = loadLiveGateContext(repo, now, { daily_loss_limit_pc…
+     18|       expect(ctx.open_risks).toEqual([{symbol:"old-active", direction:…
+       |                              ^
+     19|       expect(ctx.daily_realized_loss).toBeNull();
+     20|     } finally { repo.close(); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/team05-closure-gates.test.ts > closure: complete, honest advisory exposure > unknown risk notional is unavailable, never a zero-risk holding
+AssertionError: expected [ { symbol: 'unknown', …(2) } ] to be null
+
+- Expected:
+null
+
++ Received:
+[
+  {
+    "direction": "long",
+    "risk_amount": 0,
+    "symbol": "unknown",
+  },
+]
+
+ ❯ tests/team05-closure-gates.test.ts:23:129
+     21|   });
+     22|   it("unknown risk notional is unavailable, never a zero-risk holding"…
+     23|     expect(advisoryOpenRisks([signal("unknown", { payload_json: JSON.s…
+       |                                                                                                                                 ^
+     24|   });
+     25| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  08:59:51
+   Duration  493ms (transform 141ms, setup 0ms, collect 178ms, tests 48ms, environment 0ms, prepare 75ms)

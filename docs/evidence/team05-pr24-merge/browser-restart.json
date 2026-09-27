@@ -1,0 +1,28 @@
+{
+  "label": "LOCAL TEST ONLY",
+  "checks": 2,
+  "signals": 3,
+  "delivery": {
+    "outbox_id": 1,
+    "link": "outbox_id",
+    "delivery_state": "SENT",
+    "outbox_state": "SENT",
+    "attempts": 2,
+    "error": null,
+    "progress": {
+      "photo_message_id": 1790490393,
+      "photo_accepted_ms": 1790490393640,
+      "text_message_id": 1790490616,
+      "text_accepted_ms": 1790490616893,
+      "photo_required": true,
+      "photo_sent": true,
+      "text_sent": true
+    },
+    "queued_ms": 1790490393358,
+    "sent_ms": 1790490616893,
+    "sending": null
+  },
+  "errors": [],
+  "settings_equity": "12000",
+  "note": "process restarted; exactly one local HTTP text request, no repeated photo; no external Telegram acceptance"
+}

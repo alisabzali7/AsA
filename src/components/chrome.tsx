@@ -22,7 +22,7 @@ import { FOOTER_EXACT } from "@/lib/i18n/strings";
 import { IconClose, IconCommandCenter, IconDensity, IconLang, IconSearch, IconSettings } from "./icons";
 import { SheetClose, useOverlay } from "./overlay";
 
-interface HealthShape { ok: boolean; market: string; reason?: string; ts: number }
+interface HealthShape { evidence_mode?: string | null; ok: boolean; market: string; reason?: string; ts: number }
 
 /* Browser connectivity via useSyncExternalStore — the idiomatic React
  * subscription to external browser state (no setState-in-effect). */
@@ -161,12 +161,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* --------------------------------------------------- content column */}
       <div className="asa-main flex min-h-screen flex-col">
         <header className="sticky top-0 z-[var(--z-sticky)] border-b hairline" style={{ background: "color-mix(in srgb, var(--color-obsidian) 84%, transparent)", backdropFilter: "blur(10px) saturate(1.15)" }}>
-          <div className="flex h-12 items-center gap-2 px-3">
+          <div className="flex min-h-12 flex-wrap items-center gap-2 px-3 py-2 lg:h-12 lg:flex-nowrap lg:py-0">
             <Link href="/" className="focus-ring flex items-baseline gap-1.5 rounded lg:hidden">
               <span className="gold-text text-[15px] font-bold tracking-[0.18em]">ASA</span>
             </Link>
             <button
-              className="focus-ring btn flex-1 justify-start gap-2 !py-1 lg:max-w-[340px] lg:flex-none"
+              className="focus-ring btn min-w-0 flex-1 justify-start gap-2 !py-1 lg:max-w-[340px] lg:flex-none"
               onClick={openPalette}
               aria-label="open command palette"
               aria-keyshortcuts="Meta+K Control+K"
@@ -223,6 +223,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* route transition: the shell persists, <main> re-keys per route —
             one entrance animation (opacity + 6px lift), no per-node storms */}
         <main id="main" key={path ?? "root"} className="page-enter mx-auto w-full max-w-[1560px] flex-1 px-3 pb-24 pt-3 lg:pb-6">
+          {health?.evidence_mode === "LOCAL_TEST_SYNTHETIC" && <div role="status" className="mb-3 rounded border border-amber-500 bg-amber-950 px-3 py-2 text-center text-xs text-amber-200">LOCAL TEST / SYNTHETIC EVIDENCE — not live TTT data, not real Telegram delivery, not strategy promotion</div>}
           {children}
         </main>
 

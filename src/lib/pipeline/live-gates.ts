@@ -21,7 +21,7 @@ export type DeclaredPsychState = PsychologyState["declared_state"];
 export interface LiveGateContext {
   psychology: PsychologyState;
   /** measured live advisory book; never a fabricated empty list */
-  open_risks: OpenRisk[];
+  open_risks: OpenRisk[] | null;
   /**
    * Account-currency realized loss today. `null` = UNAVAILABLE (the journal
    * stores a self-reported R-multiple, not venue PnL) — callers MUST NOT
@@ -119,20 +119,19 @@ function signalStillFresh(s: SignalRow, nowMs: number): boolean {
  * signal table — it is the book's own exposure, not a claim the human filled
  * the order. Terminal / expired / unanchored rows are excluded.
  */
-export function advisoryOpenRisks(signals: SignalRow[], nowMs: number, excludeOppId?: string | null): OpenRisk[] {
+export function advisoryOpenRisks(signals: SignalRow[], nowMs: number, excludeOppId?: string | null): OpenRisk[] | null {
   const out: OpenRisk[] = [];
   for (const s of signals) {
     if (s.state !== "published" && s.state !== "qualified") continue;
     if (excludeOppId && s.opp_id === excludeOppId) continue;
-    if (s.direction !== "long" && s.direction !== "short") continue;
+    if (s.direction !== "long" && s.direction !== "short") return null;
     if (!signalStillFresh(s, nowMs)) continue;
     const notional = riskNotionalFromSignal(s);
+    if (notional === null) return null; // the heat of this book cannot be certified
     out.push({
       symbol: s.symbol,
       direction: s.direction,
-      // unknown notional is 0 size in the book but still occupies a slot
-      // (concurrency / duplicate-symbol); heat uses max(0, amount).
-      risk_amount: notional ?? 0,
+      risk_amount: notional,
     });
   }
   return out;
@@ -163,7 +162,7 @@ export function loadLiveGateContext(
     standards_declared: standards,
   });
 
-  const signals = repo.signalList(500);
+  const signals = repo.signalActive();
   const open_risks = advisoryOpenRisks(signals, nowMs, opts.excludeOppId);
 
   return {
@@ -173,7 +172,8 @@ export function loadLiveGateContext(
     period_realized_loss: null,
     daily_loss_reason:
       "journal records a self-reported R-multiple, not account-currency PnL — daily/period realized loss is UNAVAILABLE (not assumed 0)",
-    open_book_reason: `advisory open book measured from ${open_risks.length} fresh published/qualified signal(s)`,
+    open_book_reason: open_risks === null ? "advisory open book UNAVAILABLE — an active risk amount or direction is invalid"
+      : `advisory open book measured from ${open_risks.length} fresh published/qualified signal(s)`,
   };
 }
 
@@ -183,4 +183,18 @@ function safeConfig(repo: Repo, key: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Live-only fail-closed requirements. Null policy means no specified limit;
+ * null measurement for a specified limit is NOT permission to skip that limit.
+ * Research evaluation may still expose its explicit `unenforced` accounting.
+ */
+export function liveMeasurementBlocks(ctx: LiveGateContext, policy: import("../brain/types").RiskPolicy): string[] {
+  const blocks: string[] = [];
+  if (ctx.open_risks === null) blocks.push("advisory open book UNAVAILABLE");
+  if (policy.daily_loss_limit_pct !== null && (ctx.daily_realized_loss === null || !Number.isFinite(ctx.daily_realized_loss) || ctx.daily_realized_loss < 0))
+    blocks.push("daily realized loss UNAVAILABLE for configured hard limit");
+  if (policy.period_loss_limit_pct !== null && (ctx.period_realized_loss === null || !Number.isFinite(ctx.period_realized_loss) || ctx.period_realized_loss < 0))
+    blocks.push("period realized loss UNAVAILABLE for configured hard limit");
+  return blocks;
 }
