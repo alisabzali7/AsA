@@ -1,7 +1,17 @@
 "use client";
-/** Shared data hooks: typed polling + SSE subscription + formatting. */
+/** Shared data hooks: normalized provider polling + SSE subscription + formatting.
+ *
+ *  The provider contract (see resource-state.ts): every poll carries an
+ *  explicit status — LOADING / OK / UNAVAILABLE / OFFLINE / ERROR — plus the
+ *  server's own verdict (state + reason) whenever a failure is a truthful
+ *  "unavailable" answer rather than a fault. Features may format and
+ *  downgrade freshness, never invent a success state.
+ */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fmtAge } from "@/lib/i18n/strings";
+import { createSequenceGuard } from "@/lib/poll-sequence";
+import { decimalsFor } from "@/lib/chart/adapter";
+import { loadResource, type ResourceFailure, type ResourceStatus } from "./resource-state";
 
 export interface ApiState<T> {
   data: T | null;
@@ -9,6 +19,12 @@ export interface ApiState<T> {
   loading: boolean;
   age_ms: number | null;
   refresh: () => void;
+  /** normalized provider status — the state model the UI renders from */
+  status: ResourceStatus;
+  /** structured failure verdict (server state + reason) when not OK */
+  failure: ResourceFailure | null;
+  /** elapsed time since the LAST successful payload (null = never succeeded) */
+  stale_age_ms: number | null;
 }
 
 /** Poll a JSON endpoint at a cadence; also refreshable manually.
@@ -16,10 +32,16 @@ export interface ApiState<T> {
  *  the correct place for components to react to fresh data without calling
  *  setState synchronously inside an effect. */
 export function usePoll<T>(url: string | null, intervalMs = 7000, enabled = true, onData?: (d: T) => void): ApiState<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [age, setAge] = useState<number | null>(null);
+  /**
+   * IDENTITY RULE (merged from the Team-02 closure): the snapshot is stored
+   * WITH the URL that produced it, and every field is returned only while
+   * that URL is still the requested one. Switching symbol/timeframe can
+   * therefore never keep painting the previous series' data.
+   */
+  const [snap, setSnap] = useState<{ url: string | null; data: T | null; error: string | null; status: ResourceStatus; failure: ResourceFailure | null }>({ url: null, data: null, error: null, status: "LOADING", failure: null });
+  const [age, setAge] = useState<{ url: string | null; ms: number | null }>({ url: null, ms: null });
+  const [staleAge, setStaleAge] = useState<{ url: string | null; ms: number | null }>({ url: null, ms: null });
+  const lastOkAtRef = useRef<{ url: string; ms: number } | null>(null);
   const [tick, setTick] = useState(0);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const onDataRef = useRef(onData);
@@ -27,25 +49,143 @@ export function usePoll<T>(url: string | null, intervalMs = 7000, enabled = true
   useEffect(() => {
     if (!enabled || !url) return;
     let dead = false;
+    // overlapping polls of this URL may resolve out of order — only the newest
+    // issued request may write state (response-ordering guard)
+    const seq = createSequenceGuard();
     const load = async () => {
-      try {
-        const r = await fetch(url, { cache: "no-store" });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = (await r.json()) as T;
-        if (!dead) { setData(j); setError(null); setAge(0); onDataRef.current?.(j); }
-      } catch (e) {
-        if (!dead) setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!dead) setLoading(false);
+      const ticket = seq.issue();
+      const r = await loadResource(url);
+      if (r.status === "OK") {
+        if (!dead && seq.accept(ticket)) {
+          setSnap({ url, data: r.data as T, error: null, status: "OK", failure: null });
+          setAge({ url, ms: 0 });
+          lastOkAtRef.current = { url, ms: r.at_ms };
+          setStaleAge({ url, ms: 0 });
+          onDataRef.current?.(r.data as T);
+        }
+      } else {
+        // never clear the last authoritative payload FOR THIS URL — the UI keeps
+        // showing it with a decaying age (cached-not-live), which is truthful;
+        // another URL's payload is NEVER inherited
+        if (!dead && seq.accept(ticket)) setSnap((p) => ({ url, data: p.url === url ? p.data : null, error: r.failure ? r.failure.message : "request failed", status: r.status, failure: r.failure }));
       }
     };
     void load();
     timer.current = setInterval(() => void load(), intervalMs);
-    const ageTimer = setInterval(() => setAge((a) => (a === null ? null : a + 1000)), 1000);
-    return () => { dead = true; if (timer.current) clearInterval(timer.current); clearInterval(ageTimer); };
+    const ageTimer = setInterval(() => {
+      setAge((a) => (a.ms === null ? a : { url: a.url, ms: a.ms + 1000 }));
+      const ok = lastOkAtRef.current;
+      setStaleAge(ok ? { url: ok.url, ms: Date.now() - ok.ms } : { url: null, ms: null });
+    }, 1000);
+    // OFFLINE recovery: the moment the browser is back, re-ask the server
+    // instead of waiting for the next poll tick to flip the state.
+    const onOnline = () => void load();
+    window.addEventListener("online", onOnline);
+    // global refresh bus (command-palette "Refresh all data"): re-ask now,
+    // do not fake anything — a failed refresh keeps the honest prior state
+    const onBus = () => void load();
+    window.addEventListener("asa:refresh", onBus);
+    return () => {
+      dead = true;
+      if (timer.current) clearInterval(timer.current);
+      clearInterval(ageTimer);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("asa:refresh", onBus);
+    };
   }, [url, intervalMs, enabled, tick]);
   const refresh = useCallback(() => setTick((x) => x + 1), []);
-  return { data, error, loading, age_ms: age, refresh };
+  const current = snap.url === url;
+  return {
+    data: current ? snap.data : null,
+    error: current ? snap.error : null,
+    loading: !current || snap.status === "LOADING",
+    age_ms: age.url === url ? age.ms : null,
+    refresh,
+    status: current ? snap.status : "LOADING",
+    failure: current ? snap.failure : null,
+    stale_age_ms: staleAge.url === url ? staleAge.ms : null,
+  };
+}
+
+/* ------------------------------------------------------------------ mutations
+ *
+ * Production deployments fail-closed on every mutation route unless
+ * `x-asa-token` matches ASA_API_TOKEN (server env). The browser never learns
+ * the token from the bundle: the operator may paste it once into Settings,
+ * where it is kept ONLY in localStorage and attached to mutation requests.
+ * Nothing about a denial is hidden — `postJson` surfaces the server's own
+ * error message, and callers render it verbatim.
+ */
+
+export function asaToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try { return window.localStorage.getItem("asa-token"); } catch { return null; }
+}
+
+/* useSyncExternalStore seam for the stored token: hydration-safe (the server
+ * snapshot is the empty "unknown" value) and reactive across tabs. */
+const tokenListeners = new Set<() => void>();
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === "asa-token") tokenListeners.forEach((l) => l());
+  });
+}
+export function subscribeAsaToken(cb: () => void): () => void {
+  tokenListeners.add(cb);
+  return () => { tokenListeners.delete(cb); };
+}
+export function getAsaTokenSnapshot(): string {
+  return asaToken() ?? "";
+}
+export function getAsaTokenServerSnapshot(): string {
+  return "";
+}
+export function setAsaToken(v: string | null): void {
+  try {
+    if (v) window.localStorage.setItem("asa-token", v);
+    else window.localStorage.removeItem("asa-token");
+    tokenListeners.forEach((l) => l());
+  } catch { /* private mode */ }
+}
+
+/** POST/DELETE with the operator token attached. Returns parsed JSON + the
+ *  HTTP ok flag; a network failure returns {ok:false, error} — never a fake
+ *  success. */
+export async function postJson<J = Record<string, unknown>>(
+  url: string,
+  body: unknown,
+  method: "POST" | "DELETE" = "POST",
+): Promise<{ ok: boolean; status: number; data: J | null; error: string | null }> {
+  try {
+    const token = asaToken();
+    const res = await fetch(url, {
+      method,
+      headers: {
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { "x-asa-token": token } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text().catch(() => "");
+    let parsed: (J & { ok?: boolean; error?: string }) | null = null;
+    try { parsed = text.trim() ? (JSON.parse(text) as J & { ok?: boolean; error?: string }) : null; } catch { /* non-JSON */ }
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        data: parsed as J | null,
+        error: parsed?.error ?? `HTTP ${res.status}`,
+      };
+    }
+    if (parsed && parsed.ok === false) {
+      return { ok: false, status: res.status, data: parsed as J, error: parsed.error ?? "server refused the operation" };
+    }
+    return { ok: true, status: res.status, data: parsed as J, error: null };
+  } catch (e) {
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, status: 0, data: null, error: offline ? `offline — request not sent (${msg})` : msg };
+  }
 }
 
 /** Subscribe to the AsA SSE bus. Returns the latest matching events. */
@@ -57,10 +197,15 @@ export function useSse(onEvent?: (e: { type: string; ts: number }) => void): { c
   useEffect(() => {
     let retries = 0;
     let es: EventSource | null = null;
+    let onlineListener: (() => void) | null = null;
     const open = () => {
       es = new EventSource("/api/system/events?stream=1");
       es.onopen = () => { setConnected(true); retries = 0; };
-      es.onerror = () => { setConnected(false); es?.close(); retries++; if (retries < 5) setTimeout(open, 3000 * retries); };
+      es.onerror = () => {
+        setConnected(false); es?.close(); retries++;
+        // bounded backoff while offline; recovery is event-driven, not polling
+        if (retries < 5) setTimeout(open, 3000 * retries);
+      };
       es.onmessage = (ev) => {
         try {
           const e = JSON.parse(ev.data) as { type: string; ts: number };
@@ -70,31 +215,31 @@ export function useSse(onEvent?: (e: { type: string; ts: number }) => void): { c
       };
     };
     open();
-    return () => { es?.close(); setConnected(false); };
+    onlineListener = () => { retries = 0; es?.close(); open(); };
+    window.addEventListener("online", onlineListener);
+    return () => { es?.close(); setConnected(false); if (onlineListener) window.removeEventListener("online", onlineListener); };
   }, []);
   return { connected, lastAt };
 }
 
 export function stateColor(state: string): string {
   switch (state) {
-    case "LIVE": case "READY": case "CONNECTED": return "#3fb68b";
-    case "STALE": case "DEGRADED": case "PARTIAL": return "#d6a24a";
-    case "CONNECTING": case "SCANNING": case "ANALYZING": case "RISK_CHECK": case "candidate": case "qualified": return "#8b8f99";
-    case "UNAVAILABLE": case "ERROR": case "REJECTED": case "COOLDOWN": case "EXPIRED": case "blocked_by_risk": return "#d9605e";
+    case "LIVE": case "READY": case "CONNECTED": case "OK": return "var(--color-up)";
+    case "STALE": case "DEGRADED": case "PARTIAL": case "UNAVAILABLE": case "NETWORK_FAILURE": case "NOT_READY": case "INVALID_RESPONSE": return "var(--color-warn)";
+    case "CONNECTING": case "SCANNING": case "ANALYZING": case "RISK_CHECK": case "candidate": case "qualified": return "var(--color-muted)";
+    case "OFFLINE": case "ERROR": case "REJECTED": case "COOLDOWN": case "EXPIRED": case "blocked_by_risk": return "var(--color-down)";
     case "NOT_CONFIGURED": case "INSUFFICIENT_DATA": case "published": case "PENDING": return "#5d616b";
-    default: return "#8b8f99";
+    default: return "var(--color-muted)";
   }
 }
 
 export function formatPrice(p: number | null | undefined, tick?: number | null): string {
   if (p === null || p === undefined || !Number.isFinite(p)) return "—";
-  let digits = 2;
-  if (tick !== null && tick !== undefined && tick > 0 && tick < 1) digits = Math.min(10, Math.max(0, -Math.floor(Math.log10(tick))));
-  else if (p < 0.01) digits = 6;
-  else if (p < 1) digits = 4;
-  else if (p < 1000) digits = 2;
-  else digits = 1;
-  return p.toLocaleString("en-US", { maximumFractionDigits: digits, minimumFractionDigits: digits > 4 ? 4 : 2 });
+  let digits: number;
+  if (tick !== null && tick !== undefined && tick > 0 && tick < 1) digits = Math.min(12, Math.max(0, -Math.floor(Math.log10(tick))));
+  else if (Math.abs(p) >= 1000) digits = 1;
+  else digits = decimalsFor(p);
+  return p.toLocaleString("en-US", { maximumFractionDigits: digits, minimumFractionDigits: Math.min(digits, 2) });
 }
 
 export { fmtAge };

@@ -19,16 +19,16 @@ try {
   await page.request.get(base+"/api/system/status");
   for(const [route,name] of [["/","dashboard"],["/signals","signals-empty"],["/opportunities","opportunities-empty"],["/system","delivery-runtime"]]) {
     await page.goto(base+route); await page.getByRole("heading").first().waitFor();
-    if(route==="/") {await page.getByRole("alert").filter({hasText:"Market snapshot unavailable"}).waitFor();assert.equal(await page.getByText("LIVE",{exact:true}).count(),0);}
-    if(route==="/signals")await page.getByText("No signals yet.",{exact:false}).waitFor();
-    if(route==="/opportunities")await page.getByText("No stored opportunities yet.",{exact:false}).waitFor();
+    if(route==="/") {await page.getByText("market feed is unavailable",{exact:false}).waitFor();assert.equal(await page.getByText("LIVE",{exact:true}).count(),0);}
+    if(route==="/signals")await page.getByText("no signals are stored.",{exact:false}).waitFor();
+    if(route==="/opportunities")await page.getByText("no opportunities are stored.",{exact:false}).waitFor();
     if(route==="/system")await page.getByText("NOT_CONFIGURED",{exact:false}).first().waitFor();
     await page.screenshot({path:path.join(output,`real-${name}.png`),fullPage:true});record(`real ${name}`,"unmodified built application and actual runtime API");
   }
   await page.goto(base+"/signals/UNKNOWN-CLOSURE");
   await page.getByRole("alert").filter({hasText:"Signal evidence unavailable"}).waitFor();
   await page.screenshot({path:path.join(output,"real-missing-detail.png"),fullPage:true});record("real missing detail","HTTP 404 -> explicit unavailable, no fabricated lifecycle");
-  await page.goto(base+"/signals");await page.getByText("No signals yet.",{exact:false}).waitFor();
+  await page.goto(base+"/signals");await page.getByText("no signals are stored.",{exact:false}).waitFor();
   await page.setViewportSize({width:390,height:844});await page.getByRole("button",{name:"switch language",exact:true}).click();
   await page.waitForFunction(()=>document.documentElement.dir==="rtl");
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
@@ -50,6 +50,9 @@ try {
   assert.equal(blocked.items.find(x=>x.id===fixture.blocked_opportunity).risk.verdict,"block");
   const signals=await (await test.request.get(`${local}/api/signals`)).json();
   assert.ok(signals.items.every(x=>x.opp_id!==fixture.blocked_opportunity));
+  const chartEvidence=await (await test.request.get(`${local}/api/charts/${fixture.sent_signal}.json`)).json();
+  assert.equal(chartEvidence.snapshot_check.state,"VERIFIED");
+  assert.equal(chartEvidence.candles_provenance.decision_dataset_verified,true);
   const chart=await test.request.get(`${local}/api/charts/${fixture.sent_signal}.png`);
   assert.equal(chart.status(),200);assert.match(chart.headers()["content-type"],/image\/png/);
   await fs.writeFile(path.join(output,"local-immutable-chart.png"),await chart.body());record("LOCAL immutable chart","real chart API/renderer reads exact persisted synthetic OHLCV fingerprint during real discovery outage");
@@ -61,13 +64,16 @@ try {
 
   await test.getByRole("button",{name:"switch language",exact:true}).click();await test.setViewportSize({width:1440,height:1000});
   await test.goto(local+"/settings");await test.getByText("LOCAL TEST / SYNTHETIC EVIDENCE",{exact:false}).waitFor();
+  const previousPrefs=(await (await test.request.get(`${local}/api/system/config`)).json()).prefs;
   await test.getByLabel("equity (USD)").fill("12000");await test.getByRole("button",{name:"save risk",exact:true}).click();
   await test.getByText("saved (risk) — applied to the next scan",{exact:true}).waitFor();
   const config=await (await test.request.get(`${local}/api/system/config`)).json();assert.equal(config.prefs["risk.equity"],"12000");
+  assert.equal(config.prefs["risk.perTradePct"],previousPrefs["risk.perTradePct"]);
+  assert.equal(config.prefs["risk.maxLeverage"],previousPrefs["risk.maxLeverage"]);
   await test.reload();await test.waitForFunction(()=>document.querySelector('input[type="number"]')?.value==="12000");
   await test.screenshot({path:path.join(output,"local-ui-api-db-ui.png"),fullPage:true});record("LOCAL UI -> API -> SQLite -> reloaded UI","actual guarded risk preference save, equity 12000, no intercepted response or source edit");
-  await qa.setOffline(true);await test.getByRole("button",{name:"save risk",exact:true}).click();await test.getByText("Not saved:",{exact:false}).waitFor();
-  record("LOCAL offline mutation","truthful Not saved; no unhandled promise rejection");
+  await qa.setOffline(true);await test.getByRole("button",{name:"save risk",exact:true}).click();await test.getByText("offline — request not sent",{exact:false}).first().waitFor();
+  record("LOCAL offline mutation","truthful offline refusal; no unhandled promise rejection");
   assert.deepEqual(errors,[]);
   await fs.writeFile(path.join(output,"results.json"),JSON.stringify({results,errors,note:"All local nonempty evidence is TEST/SYNTHETIC. No real Telegram acceptance, live strategy promotion or production mutation claimed."},null,2));
   console.log(JSON.stringify({checks:results.length,results,errors},null,2));

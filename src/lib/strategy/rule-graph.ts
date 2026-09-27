@@ -33,7 +33,7 @@
  * machine-checkable.
  */
 import { COMPILED_STRATEGIES, type CompiledStrategy } from "./compiled";
-import type { RuleDefinition } from "../rules/engine";
+import type { RuleDefinition, RulePredicate } from "../rules/engine";
 import type { RuleBinding, RuleSpec, SourceRef, StrategyRecord } from "../brain/types";
 
 /** How a node's predicates combine (mirrors rules/engine.ts evaluateRule). */
@@ -44,6 +44,8 @@ export interface PredicateNode {
   expr: string;
   /** feature ids this predicate reads */
   requires: string[];
+  /** present when the predicate measures a stand-in for the source quantity */
+  proxy?: RulePredicate["proxy"];
 }
 
 export interface MachineRuleNode {
@@ -128,7 +130,7 @@ function nodeFor(
     source_refs: rule.source_refs,
     source_status: rule.source_status,
     empirical_status: rule.empirical_status,
-    predicates: rule.predicates.map((p) => ({ expr: p.expr, requires: [...p.requires] })),
+    predicates: rule.predicates.map((p) => ({ expr: p.expr, requires: [...p.requires], ...(p.proxy ? { proxy: { ...p.proxy } } : {}) })),
     operator: rule.operator,
     feature_dependencies: [...rule.feature_dependencies],
     direction: rule.direction,

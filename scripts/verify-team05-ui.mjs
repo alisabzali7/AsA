@@ -22,8 +22,8 @@ try {
   const real = await response.json();
   assert.equal(real.ok, true);
   await page.goto(`${base}/signals`);
-  if (real.items.length === 0) await page.getByText("No signals yet.", { exact: false }).waitFor();
-  assert.match(await page.locator("body").innerText(), /ADVISORY ONLY/);
+  if (real.items.length === 0) await page.getByText("no signals are stored.", { exact: false }).waitFor();
+  assert.match(await page.locator("body").innerText(), /advisory only/i);
   await page.screenshot({ path: path.join(output, "real-desktop.png"), fullPage: true });
   record("real API → empty/success UI", { http: 200, real_signal_count: real.items.length });
 
@@ -53,13 +53,13 @@ try {
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(fixture) });
   });
   await test.goto(`${base}/signals`);
-  await test.getByText("Loading advisory signals…", { exact: true }).waitFor();
-  assert.equal(await test.getByText("No signals yet.", { exact: false }).count(), 0);
+  await test.getByRole("status").filter({hasText:"request in flight — no authoritative answer yet"}).first().waitFor();
+  assert.equal(await test.getByText("no signals are stored.", { exact: false }).count(), 0);
   await test.screenshot({ path: path.join(output, "test-only-loading.png"), fullPage: true });
   record("loading is not empty success", "delayed API test interception");
   mode = "error"; release();
-  await test.getByRole("alert").filter({ hasText: "Signals unavailable" }).waitFor();
-  assert.equal(await test.getByText("No signals yet.", { exact: false }).count(), 0);
+  await test.getByRole("status").filter({ hasText: "TEST ONLY" }).waitFor();
+  assert.equal(await test.getByText("no signals are stored.", { exact: false }).count(), 0);
   await test.screenshot({ path: path.join(output, "test-only-error.png"), fullPage: true });
   record("HTTP 503 → visible error", "test interception; not reported as empty");
 
@@ -75,12 +75,14 @@ try {
   await test.clock.install();
   mode = "error";
   await test.clock.fastForward(31_000);
-  await test.getByRole("alert").filter({ hasText: "last received state" }).waitFor();
+  await test.getByRole("status").filter({ hasText: "TEST ONLY" }).waitFor();
   // fastForward intentionally coalesces intervals; advance age one tick at a time.
   await test.clock.runFor(31_000);
-  await test.getByText("STALE — last successful signal refresh", { exact: false }).waitFor();
+  await test.getByRole("status").filter({ hasText: /cached.*not live/i }).waitFor();
+  assert.equal(await test.getByText("delivery SENT", {exact:true}).count(), 0);
+  assert.equal(await test.getByText("delivery FAILED", {exact:true}).count(), 0);
   await test.screenshot({ path: path.join(output, "test-only-stale.png"), fullPage: true });
-  record("failed refresh preserves explicitly stale cached state", "test clock and HTTP failure; delivery remains FAILED");
+  record("failed refresh discloses cached age and withholds current delivery cards", "test clock and HTTP failure; cached delivery is not presented as current");
   await qa.setOffline(true);
   await test.getByText("OFFLINE", { exact: false }).first().waitFor();
   await test.screenshot({ path: path.join(output, "test-only-offline.png"), fullPage: true });

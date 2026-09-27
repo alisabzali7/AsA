@@ -117,8 +117,9 @@ describe("Task B & Task L: Non-Finite Inputs & Finite-Output Invariant", () => {
   it("structure primitives handle non-finite candles safely without throw or NaN", () => {
     expect(findSwings(badCandles, 2, 2)).toEqual([]);
     const st = analyzeStructure(badCandles);
-    expect(st.trend).toBe("range");
-    expect(st.reason).toBe("insufficient bars");
+    // missing evidence is "undetermined", never a "range" reading
+    expect(st.trend).toBe("undetermined");
+    expect(st.reason).toMatch(/insufficient bars|non-finite/);
     expect(st.sr_levels).toEqual([]);
     expect(st.fvgs).toEqual([]);
     expect(st.order_blocks).toEqual([]);
@@ -342,7 +343,7 @@ describe("Task I & J: Structure Arithmetic and Boundary Safety", () => {
       makeCandle(1000 + i * 60, 0, 0, 0, 0, 0)
     );
     const res = analyzeStructure(zeroCandles);
-    expect(res.trend).toBe("range");
+    expect(res.trend).toBe("undetermined");
     expect(res.sr_levels).toEqual([]);
     expect(res.fib).toEqual([]);
   });
@@ -350,11 +351,12 @@ describe("Task I & J: Structure Arithmetic and Boundary Safety", () => {
   it("all-rising and all-falling series produce valid structure outcomes without crash", () => {
     const risingCandles = makeSeries(Array.from({ length: 30 }, (_, i) => 100 + i * 5));
     const resRising = analyzeStructure(risingCandles);
-    expect(["up", "range"]).toContain(resRising.trend);
+    // strictly monotonic synthetic series have no fractal pivots -> undetermined
+    expect(["up", "undetermined"]).toContain(resRising.trend);
 
     const fallingCandles = makeSeries(Array.from({ length: 30 }, (_, i) => 300 - i * 5));
     const resFalling = analyzeStructure(fallingCandles);
-    expect(["down", "range"]).toContain(resFalling.trend);
+    expect(["down", "undetermined"]).toContain(resFalling.trend);
   });
 });
 
@@ -366,8 +368,8 @@ describe("Task K: Bundle Safety", () => {
     expect(b.indicators.ema20).toBeNull();
     expect(b.indicators.rsi14).toBeNull();
     expect(b.indicators.atr14).toBeNull();
-    expect(b.structure.trend).toBe("range");
-    expect(b.structure.reason).toBe("insufficient bars");
+    expect(b.structure.trend).toBe("undetermined");
+    expect(b.structure.reason).toMatch(/insufficient bars/);
   });
 
   it("buildBundle handles single candle without non-finite metrics in indicators", () => {

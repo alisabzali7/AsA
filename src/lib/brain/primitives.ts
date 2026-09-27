@@ -30,40 +30,40 @@ export function buildPrimitives(): Primitive[] {
 
   return [
     // structure
-    p("PRM-SWING", "structure", "Swing high/low", "Fractal pivot highs and lows over a lookback window.", "analysis/structure:swings", "DERIVED", ["پیوت", "سقف/کف"]),
-    p("PRM-TREND", "structure", "Trend state", "Trend classification from swing sequence and EMA alignment.", "analysis/structure:trend", "DERIVED", ["روند"]),
-    p("PRM-BOS", "structure", "Break of structure", "Close beyond the prior swing in trend direction.", "analysis/structure:last_bos", "DERIVED", ["شکست ساختار"]),
-    p("PRM-CHOCH", "structure", "Change of character", "First counter-trend structural break.", "analysis/structure:last_choch", "DERIVED", ["CHOCH", "تغییر کرکتر", "QM"]),
-    p("PRM-RANGE", "structure", "Range / consolidation", "Bounded price region with repeated rejections at both edges.", "analysis/structure:range", "DERIVED", ["رنج"]),
+    p("PRM-SWING", "structure", "Swing high/low", "Fractal pivot highs and lows over a lookback window.", "analysis/structure:findSwings", "DERIVED", ["پیوت", "سقف/کف"]),
+    p("PRM-TREND", "structure", "Trend state", "Trend classification from swing sequence and EMA alignment.", "analysis/structure:classifyTrend", "DERIVED", ["روند"]),
+    p("PRM-BOS", "structure", "Break of structure", "Close beyond the prior swing in trend direction.", "analysis/structure:structureEvents", "DERIVED", ["شکست ساختار"]),
+    p("PRM-CHOCH", "structure", "Change of character", "First counter-trend structural break.", "analysis/structure:structureEvents", "DERIVED", ["CHOCH", "تغییر کرکتر", "QM"]),
+    p("PRM-RANGE", "structure", "Range / consolidation", "Bounded price region with repeated rejections at both edges.", null, "DERIVED", ["رنج"]),
     p("PRM-IMPULSE", "structure", "Impulse leg", "Directional expansion leg preceding a correction.", null, "DERIVED", ["موج ایمپالس"]),
 
     // levels
-    p("PRM-SR", "level", "Support / resistance", "Horizontal levels from clustered swing touches.", "analysis/structure:sr_levels", "DERIVED", ["حمایت", "مقاومت"]),
+    p("PRM-SR", "level", "Support / resistance", "Horizontal levels from clustered swing touches.", "analysis/structure:clusterSwingLevels", "DERIVED", ["حمایت", "مقاومت"]),
     p("PRM-PRZ", "level", "Potential reversal zone", "Confluence band of levels/fib/structure.", null, "DERIVED", ["PRZ"]),
     p("PRM-ROUND", "level", "Round / psychological number", "Round price levels used as magnet/《sentimental》 levels.", null, "DERIVED", ["اعداد رند"]),
 
     // candles
-    p("PRM-BODY", "candle", "Body/wick ratio", "Candle body vs total range and wick proportions.", "analysis/candles:bodyRatio", "DERIVED"),
-    p("PRM-PINBAR", "candle", "Pin bar", "Long-wick rejection candle meeting corpus size rules.", "analysis/candles:pinbar", "DERIVED", ["پین بار"]),
-    p("PRM-REJECTION", "candle", "Rejection", "Wick rejection at a level.", "analysis/candles:rejection", "DERIVED"),
+    p("PRM-BODY", "candle", "Body/wick ratio", "Candle body vs total range and wick proportions.", "features/detectors:candleAnatomy", "DERIVED"),
+    p("PRM-PINBAR", "candle", "Pin bar", "Long-wick rejection candle meeting corpus size rules.", "features/detectors:detectPinbar", "DERIVED", ["پین بار"]),
+    p("PRM-REJECTION", "candle", "Rejection", "Wick rejection at a level.", "features/detectors:detectRejectionAt", "DERIVED"),
 
     // indicators
-    p("PRM-RSI", "indicator", "RSI state", "RSI(14) value and overbought/oversold zone state.", "analysis/indicators:rsi14", "DERIVED", ["RSI", "اشباع"]),
-    p("PRM-MACD", "indicator", "MACD state", "MACD line/signal/histogram state.", "analysis/indicators:macd", "DERIVED", ["مکدی"]),
+    p("PRM-RSI", "indicator", "RSI state", "RSI(14) value and overbought/oversold zone state.", "analysis/indicators:rsi", "DERIVED", ["RSI", "اشباع"]),
+    p("PRM-MACD", "indicator", "MACD state", "MACD line/signal/histogram state (parameters not in source: OPEN SPECIFICATION).", null, "DERIVED", ["مکدی"]),
     p("PRM-MA", "indicator", "MA alignment", "EMA20/EMA50 (and configured MAs) relative alignment.", "analysis/indicators:ema", "DERIVED", ["مووینگ"]),
     p("PRM-ICHIMOKU", "indicator", "Ichimoku state", "Tenkan/Kijun/cloud relationships.", null, "DERIVED", ["ایچیموکو"]),
-    p("PRM-ATR", "volatility", "ATR", "Average true range (14) absolute and % of price.", "analysis/indicators:atr14", "DERIVED"),
-    p("PRM-MOMENTUM", "momentum", "Momentum", "Rate-of-change / impulse strength measure.", "analysis/indicators:momentum", "DERIVED", ["مومنتوم"]),
-    p("PRM-DIVERGENCE", "divergence", "Divergence", "Price vs oscillator swing divergence.", null, "DERIVED", ["واگرایی", "دایورجنس"]),
+    p("PRM-ATR", "volatility", "ATR", "Average true range (14) absolute and % of price.", "analysis/indicators:atr", "DERIVED"),
+    p("PRM-MOMENTUM", "momentum", "Momentum", "Slope/strength of the last swing leg, judged relative to prior legs (RAW_4:1193/1196); strength thresholds are OPEN SPECIFICATION.", "analysis/momentum:legMomentum", "DERIVED", ["مومنتوم"]),
+    p("PRM-DIVERGENCE", "divergence", "Divergence", "Price vs RSI swing divergence (regular bullish/bearish, hidden bullish; RAW_1:891/892/899). PARTIAL: MACD confirmation (RAW_1:787) not implemented.", "analysis/divergence:detectRsiDivergences", "DERIVED", ["واگرایی", "دایورجنس"]),
 
     // fib / harmonic / smc
-    p("PRM-FIB", "fibonacci", "Fibonacci levels", "Retracement/extension levels from a selected swing leg.", "analysis/fib:levels", "DERIVED", ["فیبوناچی"]),
+    p("PRM-FIB", "fibonacci", "Fibonacci levels", "Retracement levels of the last confirmed alternating swing leg.", "analysis/structure:fibOfLastLeg", "DERIVED", ["فیبوناچی"]),
     p("PRM-HARMONIC", "harmonic", "Harmonic structure", "AB=CD and ratio-based harmonic patterns.", null, "DERIVED", ["هارمونیک", "AB=CD"]),
-    p("PRM-OB", "smc", "Order block", "Last opposing candle before an impulsive structural break.", null, "DERIVED", ["اردر بلاک"]),
+    p("PRM-OB", "smc", "Order block", "Last opposing candle before a structural break (RAW_5:679/957).", "analysis/structure:findOrderBlocks", "DERIVED", ["اردر بلاک"]),
     p("PRM-RB", "smc", "Rejection block", "Wick-defined block left by aggressive rejection.", null, "DERIVED", ["رجکشن بلاک"]),
 
     // regime & market data
-    p("PRM-REGIME", "regime", "Market regime", "Trending vs ranging vs volatile classification.", "analysis/regime:classify", "DERIVED"),
+    p("PRM-REGIME", "regime", "Market regime", "Volatility regime (ATR expansion/compression vs its average); trending/ranging is PRM-TREND.", "features/detectors:detectVolatilityRegime", "DERIVED"),
     p("PRM-FUNDING", "regime", "Funding rate", "Perp funding rate and history.", "ttt/client:getStats", "MEASURED"),
     p("PRM-OI", "regime", "Open interest", "Current OI (measured); OI delta derived from AsA snapshot ring.", "ttt/client:getStats", "MEASURED"),
     p("PRM-BASIS", "regime", "Mark/index basis", "Mark vs index spread.", "ttt/client:getStats", "DERIVED"),
@@ -106,12 +106,12 @@ export function buildFeatures(): FeatureSpec[] {
     f("FTR-SWINGS", "PRM-SWING", "Swing points", "fractal pivots with configurable strength", ["high", "low"], CORE, 50, 100, "DERIVED",
       ["low-volatility series can yield zero swings"]),
     f("FTR-TREND", "PRM-TREND", "Trend state", "swing sequence (HH/HL vs LH/LL) confirmed by MA alignment", ["FTR-SWINGS", "FTR-MA-ALIGN"], CORE, 50, 100, "DERIVED",
-      ["conflicting swing/MA evidence -> 'range'"]),
+      ["conflicting swing/MA evidence -> 'range'", "missing swings or EMA50 warmup -> 'undetermined' (never 'range')"]),
     f("FTR-BOS", "PRM-BOS", "Break of structure", "close beyond prior swing extreme in trend direction", ["FTR-SWINGS", "close"], CORE, 50, 100, "DERIVED"),
     f("FTR-CHOCH", "PRM-CHOCH", "Change of character", "first close beyond opposing swing after a trend leg", ["FTR-SWINGS", "close"], CORE, 50, 100, "DERIVED"),
     f("FTR-SR", "PRM-SR", "S/R levels", "clustered swing touches within ATR-scaled tolerance", ["FTR-SWINGS", "FTR-ATR14"], CORE, 100, 100, "DERIVED"),
-    f("FTR-FIB", "PRM-FIB", "Fibonacci retracement", "0.382/0.5/0.618/0.786 of the last impulse leg", ["FTR-SWINGS"], CORE, 50, 100, "DERIVED",
-      ["undefined when no impulse leg is identified"]),
+    f("FTR-FIB", "PRM-FIB", "Fibonacci retracement", "levels 0/0.236/0.382/0.5/0.618/0.786/1 of the last confirmed alternating swing leg (0 = leg end)", ["FTR-SWINGS"], CORE, 50, 100, "DERIVED",
+      ["undefined when no alternating confirmed leg exists"]),
     f("FTR-PINBAR", "PRM-PINBAR", "Pin bar", "wick >= 2x body AND body <= 1/3 range AND size > prior candles (corpus rule 4)", ["open", "high", "low", "close"], CORE, 3, 50, "DERIVED",
       ["equal-size pinbars vs prior candles are INVALID per corpus RAW_4"]),
     f("FTR-FUNDING", "PRM-FUNDING", "Funding rate", "TTT /futures/markets/stats fundingRate", ["ttt.stats"], ["*"], null, 0, "MEASURED"),

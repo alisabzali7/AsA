@@ -2,14 +2,18 @@
 /** Signals — advisory lifecycle + manual journal (self-reported R). */
 import { useState } from "react";
 import { useLang } from "@/components/lang";
-import { usePoll } from "@/components/hooks";
+import { usePoll, postJson } from "@/components/hooks";
 import { Badge, Empty, Panel, StatusChip } from "@/components/ui";
+import { TruthState } from "@/components/data-state";
+import { PageHead } from "@/components/chrome";
+import { useToast } from "@/components/toast";
 
-import { SIGNAL_STATES } from "@/lib/pipeline/signal-lifecycle";
+import { SIGNAL_STATES as LIFECYCLE } from "@/lib/domain/signal-states";
 
 interface DeliveryView {
   delivery_state?: string; attempts?: number | null; error?: string | null;
-  sent_ms?: number | null; outbox_id?: number | null; link?: string | null;
+  sent_ms?: number | null; outbox_id?: number | null;
+  link?: string | null;
   progress?: { photo_required: boolean; photo_sent: boolean; text_sent: boolean } | null;
 }
 interface SigItem {
@@ -23,53 +27,61 @@ interface JShape { ok: boolean; items: JItem[] }
 
 export default function SignalsPage() {
   const { t } = useLang();
-  const { data, refresh, loading, error, age_ms } = usePoll<SigShape>("/api/signals?limit=100", 15000);
+  const toast = useToast();
+  const poll = usePoll<SigShape>("/api/signals?limit=100", 15000);
+  const { data, refresh } = poll;
+  const ready = poll.status === "OK";
   const journal = usePoll<JShape>("/api/signals/journal", 10000);
   const [sym, setSym] = useState("BTCUSDT");
   const [dir, setDir] = useState<"long" | "short">("long");
   const [notes, setNotes] = useState("");
   const [r, setR] = useState("");
   const [saved, setSaved] = useState<string | null>(null);
-  const items = data?.items ?? [];
+  const [saving, setSaving] = useState(false);
+  const items = ready ? data?.items ?? [] : [];
 
   const save = async () => {
     setSaved(null);
-    try {
-      const res = await fetch("/api/signals/journal", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: sym, direction: dir, notes, r_multiple: r === "" ? null : Number(r) }),
-      });
-      const j = await res.json() as { ok: boolean; error?: string };
-      if (!res.ok || !j.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
+    setSaving(true);
+    // postJson attaches the operator token when present; every server verdict
+    // (200 ok:false, 401, 503 fail-closed, offline) surfaces verbatim.
+    const j = await postJson<{ ok: boolean; error?: string }>("/api/signals/journal", {
+      symbol: sym, direction: dir, notes, r_multiple: r === "" ? null : Number(r),
+    });
+    setSaving(false);
+    if (j.ok) {
       setNotes(""); setR(""); setSaved("saved"); journal.refresh(); refresh();
-    } catch (e) { setSaved(`Not saved: ${e instanceof Error ? e.message : "network unavailable"}`); }
+      toast.push({ title: "journal entry stored", body: `${sym} · ${dir} — the server accepted it; R stays self-reported`, tone: "success" });
+    } else {
+      const msg = j.error ?? `failed (HTTP ${j.status})`;
+      setSaved(msg);
+      toast.push({ title: "journal entry not stored", body: msg, tone: "error", action: { label: "retry save", run: () => void save() } });
+    }
   };
 
   const del = async (id: number) => {
-    try {
-      const res = await fetch(`/api/signals/journal/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setSaved("deleted"); journal.refresh();
-    } catch (e) { setSaved(`Not deleted: ${e instanceof Error ? e.message : "network unavailable"}`); }
+    const j = await postJson(`/api/signals/journal/${id}`, undefined, "DELETE");
+    if (!j.ok) setSaved(`delete failed: ${j.error}`);
+    journal.refresh();
   };
 
   return (
     <div className="grid gap-2 xl:grid-cols-[1fr_360px]">
       <div className="flex flex-col gap-2">
-        <h1 className="text-[15px] font-semibold">{t("nav", "signals")}</h1>
-        <p className="-mt-1 text-[11px] text-muted">
-          Lifecycle states: {SIGNAL_STATES.join(" · ")} · signal ≠ order · stale published signals are expired by the engine
-        </p>
-        {loading && !data && <p role="status">Loading advisory signals…</p>}
-        {error && <p role="alert" className="text-down">Signals unavailable: {error}. {data ? "Showing last received state, not a current delivery confirmation." : "No signal state could be loaded."}</p>}
-        {data && age_ms !== null && age_ms > 30_000 && <p role="status" className="text-muted">STALE — last successful signal refresh {Math.floor(age_ms / 1000)}s ago.</p>}
-        {!loading && !error && data && items.length === 0 && <Empty text="No signals yet. Signals are only published after the strategy, admission and hard risk gates pass. Nothing is simulated." />}
-        {items.map((s) => (
-          <Panel key={s.id} title={`${s.symbol} · ${s.direction} @ ${s.timeframe}`} right={<StatusChip state={s.state} label={s.state} />}>
+        <PageHead
+          title={t("nav", "signals")}
+          sub={`Lifecycle: ${LIFECYCLE.join(" → ")} · signal ≠ order · stale published signals are expired by the engine`}
+          right={ready ? <span className="meta-strip"><span className="mono iso">{items.length} records</span></span> : undefined}
+        />
+        {!ready && <TruthState status={poll.status} failure={poll.failure} onRetry={refresh} staleAgeMs={data ? poll.stale_age_ms : null} />}
+        {ready && items.length === 0 && <Empty text="EMPTY — the backend answered and no signals are stored. Signals require every gate, including current complete risk and empirical strategy promotion. Nothing is simulated." />}
+        {items.map((s, i) => (
+          <div key={s.id} className="rise" style={{ ["--i" as never]: i % 8 }}>
+          <Panel title={`${s.symbol} · ${s.direction} @ ${s.timeframe}`} right={<StatusChip state={s.state} label={s.state} />}>
             <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
-              <Badge color="#d4b874">score {s.score}</Badge>
+              <Badge color="var(--color-gold)">score {s.score}</Badge>
               <Badge>{s.strategy_id}</Badge>
-              <Badge color={s.delivery?.delivery_state === "SENT" ? "#3fb68b" : s.delivery?.delivery_state === "FAILED" || s.delivery?.delivery_state === "DEAD" ? "#d9605e" : undefined}>
+              <Badge color={s.delivery?.delivery_state === "SENT" ? "var(--color-up)" : s.delivery?.delivery_state === "FAILED" || s.delivery?.delivery_state === "DEAD" ? "var(--color-down)" : undefined}>
                 delivery {s.delivery?.delivery_state ?? "UNLINKED"}
               </Badge>
               <span className="text-dim">created {new Date(s.created_ms).toLocaleString()}</span>
@@ -82,9 +94,10 @@ export default function SignalsPage() {
               {s.delivery?.link === "legacy_payload_match" && <> · legacy payload link (historical lineage incomplete)</>}
               {s.delivery?.progress && <> · chart {s.delivery.progress.photo_required ? s.delivery.progress.photo_sent ? "accepted" : "pending" : "not required (legacy)"} · text {s.delivery.progress.text_sent ? "accepted" : "pending"}</>}
             </p>
-            {s.delivery?.error && <p className="mt-1 text-[10.5px]" style={{ color: "#d9605e" }}>delivery: {s.delivery.error}</p>}
+            {s.delivery?.error && <p className="mt-1 text-[10.5px]" style={{ color: "var(--color-down)" }}>delivery: {s.delivery.error}</p>}
             <p className="mt-1.5 text-[9.5px] text-dim">Advisory only — AsA has no execution path. Delivery failure does not change the decision. The human decides on their venue.</p>
           </Panel>
+          </div>
         ))}
       </div>
       <div className="flex flex-col gap-2">
@@ -98,19 +111,19 @@ export default function SignalsPage() {
           </div>
           <textarea className="input mt-1.5 min-h-[70px]" placeholder="notes (what was the plan? what did the market do?)" value={notes} onChange={(e) => setNotes(e.target.value)} />
           <div className="mt-1.5 flex items-center gap-2">
-            <button className="btn-gold btn" onClick={() => void save()}>add entry</button>
-            {saved && <span role="status" className="text-[10.5px]" style={{ color: saved === "saved" ? "#3fb68b" : "#d9605e" }}>{saved}</span>}
+            <button className="btn-gold btn" disabled={saving} onClick={() => void save()}>{saving ? "sending…" : "add entry"}</button>
+            {saved && <span role="status" className="text-[10.5px]" style={{ color: saved === "saved" ? "var(--color-up)" : "var(--color-down)" }}>{saved}</span>}
           </div>
-          <p className="mt-1.5 text-[9.5px] text-dim">R multiple is self-reported. AsA never reads your venue account.</p>
+          <p className="mt-1.5 text-[9.5px] text-dim">R multiple is self-reported. AsA never reads your venue account. In production, mutations require the operator token (Settings).</p>
         </Panel>
         <Panel title={`journal (${journal.data?.items.length ?? 0})`}>
           <ul className="max-h-[420px] space-y-1.5 overflow-y-auto">
             {journal.data?.items.map((j) => (
               <li key={j.id} className="panel-2 px-2 py-1.5 text-[11px]">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold">{j.symbol} <span style={{ color: j.direction === "long" ? "#3fb68b" : "#d9605e" }}>{j.direction}</span></span>
+                  <span className="font-semibold">{j.symbol} <span style={{ color: j.direction === "long" ? "var(--color-up)" : "var(--color-down)" }}>{j.direction}</span></span>
                   <span className="flex items-center gap-1.5">
-                    {j.r_multiple !== null && <Badge color={(j.r_multiple ?? 0) >= 0 ? "#3fb68b" : "#d9605e"}>R {j.r_multiple}</Badge>}
+                    {j.r_multiple !== null && <Badge color={(j.r_multiple ?? 0) >= 0 ? "var(--color-up)" : "var(--color-down)"}>R {j.r_multiple}</Badge>}
                     <button className="focus-ring rounded px-1 text-[10px] text-dim hover:text-down" onClick={() => void del(j.id)} aria-label="delete">✕</button>
                   </span>
                 </div>
@@ -118,7 +131,8 @@ export default function SignalsPage() {
                 <p className="mt-0.5 text-[9px] text-dim">{new Date(j.created_ms).toLocaleString()}</p>
               </li>
             ))}
-            {journal.data?.items.length === 0 && <li className="text-muted">empty journal</li>}
+            {journal.status === "OK" && journal.data?.items.length === 0 && <li className="text-muted">EMPTY — the backend answered: journal holds no entries</li>}
+            {journal.status !== "OK" && <li className="text-muted">{journal.status === "LOADING" ? "loading journal…" : journal.failure?.message ?? "journal unavailable"}</li>}
           </ul>
         </Panel>
       </div>

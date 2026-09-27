@@ -1,5 +1,5 @@
 /** Canonical advisory lifecycle. Unknown states are quarantined, not activated. */
-export const SIGNAL_STATES = ["candidate", "qualified", "blocked_by_risk", "published", "expired", "invalidated", "closed", "archived"] as const;
+export { SIGNAL_STATES } from "../domain/signal-states";
 const transitions: Record<string, readonly string[]> = {
   candidate: ["qualified", "blocked_by_risk", "published", "expired", "invalidated"],
   qualified: ["blocked_by_risk", "published", "expired", "invalidated"],

@@ -12,11 +12,23 @@
  * they are never presented as instructor rules.
  */
 import type { Candle } from "../domain/types";
-import { findSwings, type SwingPoint } from "../analysis/structure";
+import {
+  clusterSwingLevels, fibOfLastLeg, findSwings, structureEvents, swingBias, type SwingPoint,
+} from "../analysis/structure";
 import { atr, ema, rsi } from "../analysis/indicators";
 import { invalidFeature, okFeature, type FeatureValue } from "./types";
 
-export const DETECTOR_VERSION = "1.0.0";
+/**
+ * 1.1.0 (Team 02 recovery): FTR-BOS / FTR-CHOCH / FTR-FIB now delegate to the
+ * canonical causal structure engine (analysis/structure.ts) instead of a
+ * competing local definition. Detectors consumed by compiled strategies
+ * (swings, structure bias, levels, ATR, ABCD, double, pinbar, rejection,
+ * momentum candle, volatility regime) are numerically unchanged — they share
+ * code with the engine but keep identical outputs (tests/strategy-engine).
+ * The version bump is still required by the FeatureValue contract because
+ * detector semantics changed.
+ */
+export const DETECTOR_VERSION = "1.1.0";
 
 /**
  * ENGINEERING PARAMETERS (not from the corpus).
@@ -36,12 +48,24 @@ export const ENGINEERING_PARAMS = {
   double_peak_tol_atr: 0.50,
   /** double top/bottom: minimum bars between the two peaks */
   double_peak_min_gap: 3,
-  /** momentum candle: body must exceed this multiple of recent average body */
+  /**
+   * momentum candle: body must exceed this multiple of recent average body.
+   * NOT the source Marubozu (RAW_1:1103; RAW_2:1212's "2x ATR" is an example)
+   * and NOT swing-leg momentum (analysis/momentum.ts, RAW_4:1196).
+   */
   momentum_body_mult: 1.5,
+  /** pin bar: range must exceed this multiple of the 5-bar average range (corpus says only "not equal-sized") */
+  pinbar_size_mult: 1.1,
+  /** rejection: wick must exceed this fraction of the candle range */
+  rejection_wick_min_ratio: 0.3,
   /** AB=CD leg-equality tolerance as a fraction of AB */
   abcd_equality_tol: 0.15,
   /** AB=CD slope comparison tolerance */
   abcd_slope_tol: 0.25,
+  /** volatility regime: current ATR above this multiple of its 30-value mean = EXPANSION */
+  vol_expansion_mult: 1.2,
+  /** volatility regime: current ATR below this multiple of its 30-value mean = COMPRESSION */
+  vol_compression_mult: 0.8,
 } as const;
 
 /** Corpus-stated constants, with the source line that states them. */
@@ -60,6 +84,18 @@ export const SOURCE_PARAMS = {
 
 const last = <T>(a: T[]): T | undefined => a[a.length - 1];
 
+/**
+ * Value of an indicator series AT THE DECISION BAR (last index), or undefined.
+ * Task 09 (DET-1): the previous `last(arr.filter(nonNull))` would silently
+ * fall back to an OLDER bar's value if the newest one were null. Canonical
+ * indicators never produce that shape today (all-null on non-finite input,
+ * contiguous once warm), so outputs are unchanged — but a feature stamped
+ * with the last bar's timestamp must describe the last bar, never a previous one.
+ */
+const atLast = (a: (number | null)[]): number | undefined => {
+  const v = a[a.length - 1];
+  return v === null || v === undefined || !Number.isFinite(v) ? undefined : v;
+};
 function guard(
   id: string,
   tf: string,
@@ -71,6 +107,18 @@ function guard(
       id, tf, "INSUFFICIENT_BARS",
       `needs ${minBars} closed bars, got ${candles.length}`, DETECTOR_VERSION, ["candles"],
     );
+  }
+  // Task 09 (DET-3): a non-finite price/time anywhere in the window is corrupt
+  // input, not "no pattern" and not "insufficient bars". Volume is not read by
+  // any detector and is therefore not guarded here.
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    if (!Number.isFinite(c.t) || !Number.isFinite(c.o) || !Number.isFinite(c.h) || !Number.isFinite(c.l) || !Number.isFinite(c.c)) {
+      return invalidFeature(
+        id, tf, "UNAVAILABLE",
+        `non-finite candle field at window index ${i} — no feature computed`, DETECTOR_VERSION, ["candles"],
+      );
+    }
   }
   return null;
 }
@@ -112,59 +160,65 @@ export function detectStructureBias(candles: Candle[], tf: string): FeatureValue
     return invalidFeature("FTR-STRUCT-BIAS", tf, sw.data_quality, sw.reason, DETECTOR_VERSION, ["FTR-SWINGS"]);
   }
   const { highs, lows } = sw.value;
-  if (highs.length < 2 || lows.length < 2) {
+  const b = swingBias(sw.value.swings);
+  if (!b) {
     return invalidFeature("FTR-STRUCT-BIAS", tf, "INSUFFICIENT_BARS",
       `needs 2 highs and 2 lows, got ${highs.length}/${lows.length}`, DETECTOR_VERSION, ["FTR-SWINGS"]);
   }
-  const h1 = highs[highs.length - 2].price, h2 = highs[highs.length - 1].price;
-  const l1 = lows[lows.length - 2].price, l2 = lows[lows.length - 1].price;
-  const hh = h2 > h1, lh = h2 < h1, hl = l2 > l1, ll = l2 < l1;
-  const bias: StructureBias = hh && hl ? "HH_HL" : lh && ll ? "LH_LL" : "MIXED";
+  const { prev_high: h1, last_high: h2, prev_low: l1, last_low: l2 } = b;
   return okFeature("FTR-STRUCT-BIAS", tf,
-    { bias, hh, hl, lh, ll, last_swing_high: h2, last_swing_low: l2 },
+    { bias: b.bias, hh: b.hh, hl: b.hl, lh: b.lh, ll: b.ll, last_swing_high: h2, last_swing_low: l2 },
     last(candles)!.t, candles.length, DETECTOR_VERSION, ["FTR-SWINGS"],
     `H ${h1.toFixed(4)}->${h2.toFixed(4)}, L ${l1.toFixed(4)}->${l2.toFixed(4)}`);
 }
 
-export interface BreakEvent { direction: "up" | "down"; price: number; t: number; index: number }
+export interface BreakEvent { direction: "up" | "down"; price: number; t: number; index: number; kind: "BOS" | "CHOCH" }
 
-/** BOS: close beyond the most recent opposing swing extreme. */
-export function detectBOS(candles: Candle[], tf: string): FeatureValue<BreakEvent | null> {
+/**
+ * Structural break produced AT THE LAST CLOSED BAR by the canonical causal
+ * engine (analysis/structure:structureEvents). Only confirmed swings are ever
+ * broken; the event belongs to the bar whose close broke the level.
+ */
+function breakAtLastBar(candles: Candle[], tf: string, id: string): FeatureValue<BreakEvent | null> {
   const sw = detectSwings(candles, tf);
   if (!sw.valid || !sw.value) {
-    return invalidFeature("FTR-BOS", tf, sw.data_quality, sw.reason, DETECTOR_VERSION, ["FTR-SWINGS"]);
+    return invalidFeature(id, tf, sw.data_quality, sw.reason, DETECTOR_VERSION, ["FTR-SWINGS"]);
   }
   const n = candles.length;
-  const close = candles[n - 1].c;
-  const { highs, lows } = sw.value;
-  const lastH = last(highs), lastL = last(lows);
-  let ev: BreakEvent | null = null;
-  if (lastH && close > lastH.price) ev = { direction: "up", price: lastH.price, t: candles[n - 1].t, index: n - 1 };
-  else if (lastL && close < lastL.price) ev = { direction: "down", price: lastL.price, t: candles[n - 1].t, index: n - 1 };
-  return okFeature("FTR-BOS", tf, ev, candles[n - 1].t, n, DETECTOR_VERSION, ["FTR-SWINGS"],
-    ev ? `close ${close} broke ${ev.direction} swing ${ev.price}` : "no structural break at last close");
+  const events = structureEvents(candles, sw.value.swings);
+  const e = events.length && events[events.length - 1].index === n - 1 ? events[events.length - 1] : null;
+  const ev: BreakEvent | null = e ? { direction: e.direction, price: e.price, t: e.t, index: e.index, kind: e.kind } : null;
+  return okFeature(id, tf, ev, candles[n - 1].t, n, DETECTOR_VERSION, ["FTR-SWINGS"],
+    ev ? `close ${candles[n - 1].c} ${ev.kind} ${ev.direction} through swing ${ev.price}` : "no structural break at last close");
 }
 
-/** CHOCH: first break AGAINST the prevailing structural bias. */
+/** BOS (any structural break at the last close — BOS or CHoCH both break a swing). */
+export function detectBOS(candles: Candle[], tf: string): FeatureValue<BreakEvent | null> {
+  return breakAtLastBar(candles, tf, "FTR-BOS");
+}
+
+/** CHoCH: the break at the last close is the FIRST against the prevailing structure (RAW_5:674). */
 export function detectCHOCH(candles: Candle[], tf: string): FeatureValue<BreakEvent | null> {
-  const bias = detectStructureBias(candles, tf);
-  const bos = detectBOS(candles, tf);
-  if (!bias.valid || !bias.value || !bos.valid) {
-    return invalidFeature("FTR-CHOCH", tf, bias.valid ? bos.data_quality : bias.data_quality,
-      bias.valid ? bos.reason : bias.reason, DETECTOR_VERSION, ["FTR-STRUCT-BIAS", "FTR-BOS"]);
-  }
-  const ev = bos.value;
-  let choch: BreakEvent | null = null;
-  if (ev) {
-    if (bias.value.bias === "HH_HL" && ev.direction === "down") choch = ev;
-    if (bias.value.bias === "LH_LL" && ev.direction === "up") choch = ev;
-  }
-  return okFeature("FTR-CHOCH", tf, choch, last(candles)!.t, candles.length, DETECTOR_VERSION,
-    ["FTR-STRUCT-BIAS", "FTR-BOS"],
-    choch ? `counter-trend break vs ${bias.value.bias}` : "no change of character");
+  const b = breakAtLastBar(candles, tf, "FTR-CHOCH");
+  if (!b.valid) return b;
+  const choch = b.value && b.value.kind === "CHOCH" ? b.value : null;
+  return { ...b, value: choch, reason: choch ? `counter-trend break ${choch.direction} at ${choch.price}` : "no change of character" };
 }
 
 export type RangeState = "EXPANSION" | "COMPRESSION" | "NEUTRAL";
+
+/**
+ * ATR gate for tolerance-based detectors. Warmup (ATR null) is
+ * INSUFFICIENT_BARS; ATR = 0 (zero true range across the ATR window, i.e. a
+ * flat series) is NOT a history shortage — it is UNAVAILABLE because an
+ * ATR-scaled tolerance is undefined. No substitute tolerance is invented.
+ */
+function atrGateFailure<T>(id: string, tf: string, curAtr: number | null | undefined, deps: string[]): FeatureValue<T> {
+  if (curAtr === null || curAtr === undefined) {
+    return invalidFeature<T>(id, tf, "INSUFFICIENT_BARS", "ATR14 warmup not complete: ATR-scaled tolerance unavailable", DETECTOR_VERSION, deps);
+  }
+  return invalidFeature<T>(id, tf, "UNAVAILABLE", "ATR14 = 0 (zero true range, flat series): ATR-scaled tolerance undefined", DETECTOR_VERSION, deps);
+}
 
 /** Expansion/compression from current ATR vs its own longer average. */
 export function detectVolatilityRegime(candles: Candle[], tf: string): FeatureValue<{ state: RangeState; atr: number; atr_avg: number }> {
@@ -177,7 +231,8 @@ export function detectVolatilityRegime(candles: Candle[], tf: string): FeatureVa
   }
   const cur = vals[vals.length - 1];
   const avg = vals.slice(-30).reduce((x, y) => x + y, 0) / Math.min(30, vals.length);
-  const state: RangeState = cur > avg * 1.2 ? "EXPANSION" : cur < avg * 0.8 ? "COMPRESSION" : "NEUTRAL";
+  const state: RangeState = cur > avg * ENGINEERING_PARAMS.vol_expansion_mult ? "EXPANSION"
+    : cur < avg * ENGINEERING_PARAMS.vol_compression_mult ? "COMPRESSION" : "NEUTRAL";
   return okFeature("FTR-VOL-REGIME", tf, { state, atr: cur, atr_avg: avg }, last(candles)!.t, candles.length,
     DETECTOR_VERSION, ["candles"], `ATR ${cur.toFixed(6)} vs avg ${avg.toFixed(6)}`);
 }
@@ -229,7 +284,7 @@ export function detectPinbar(candles: Candle[], tf: string): FeatureValue<{ dire
   const prior = candles.slice(-6, -1);
   const avgRange = prior.reduce((s, x) => s + (x.h - x.l), 0) / prior.length;
   // corpus: an equal-sized pinbar is invalid — require a genuinely larger candle
-  const sizeOk = avgRange > 0 && a.range > avgRange * 1.1;
+  const sizeOk = avgRange > 0 && a.range > avgRange * ENGINEERING_PARAMS.pinbar_size_mult;
 
   const bodyOk = a.body_ratio <= SOURCE_PARAMS.pinbar_body_max_range_frac;
   const upperOk = a.body > 0 && a.upper_wick >= a.body * SOURCE_PARAMS.pinbar_wick_body_ratio;
@@ -259,10 +314,10 @@ export function detectRejectionAt(
   let ratio = 0;
   if (direction === "resistance") {
     // wick pierced the level, body closed back below it
-    rejected = c.h >= level && c.c < level && a.upper_ratio > 0.3;
+    rejected = c.h >= level && c.c < level && a.upper_ratio > ENGINEERING_PARAMS.rejection_wick_min_ratio;
     ratio = a.upper_ratio;
   } else {
-    rejected = c.l <= level && c.c > level && a.lower_ratio > 0.3;
+    rejected = c.l <= level && c.c > level && a.lower_ratio > ENGINEERING_PARAMS.rejection_wick_min_ratio;
     ratio = a.lower_ratio;
   }
   return okFeature("FTR-REJECTION", tf, { rejected, wick_ratio: ratio }, c.t, candles.length,
@@ -306,26 +361,14 @@ export function detectLevels(candles: Candle[], tf: string): FeatureValue<PriceL
   const g = guard("FTR-LEVELS", tf, candles, 40);
   if (g) return g as unknown as FeatureValue<PriceLevel[]>;
   const a = atr(candles, 14);
-  const curAtr = last(a.filter((x): x is number => x !== null));
-  if (!curAtr || curAtr <= 0) {
-    return invalidFeature("FTR-LEVELS", tf, "INSUFFICIENT_BARS", "ATR unavailable for clustering tolerance", DETECTOR_VERSION, ["candles"]);
+  const curAtr = atLast(a);
+  if (curAtr === null || curAtr === undefined || curAtr <= 0) {
+    return atrGateFailure("FTR-LEVELS", tf, curAtr, ["candles"]);
   }
   const sw = findSwings(candles, ENGINEERING_PARAMS.swing_left, ENGINEERING_PARAMS.swing_right);
   const tol = curAtr * ENGINEERING_PARAMS.level_cluster_atr;
-
-  const clusters: { prices: number[]; kind: "support" | "resistance"; lastT: number }[] = [];
-  for (const s of sw) {
-    const kind = s.kind === "high" ? "resistance" : "support";
-    const hit = clusters.find((c) => c.kind === kind && Math.abs(c.prices[0] - s.price) <= tol);
-    if (hit) { hit.prices.push(s.price); hit.lastT = Math.max(hit.lastT, s.t); }
-    else clusters.push({ prices: [s.price], kind, lastT: s.t });
-  }
-
-  const levels: PriceLevel[] = clusters.map((c) => {
-    const price = c.prices.reduce((x, y) => x + y, 0) / c.prices.length;
-    const density = candles.filter((k) => Math.abs(k.c - price) <= tol).length;
-    return { price, touches: c.prices.length, kind: c.kind, last_touch_t: c.lastT, close_density: density };
-  }).sort((x, y) => y.touches - x.touches);
+  // ONE clustering algorithm shared with the bundle's sr_levels (analysis/structure)
+  const levels: PriceLevel[] = clusterSwingLevels(candles, sw, tol);
 
   return okFeature("FTR-LEVELS", tf, levels, last(candles)!.t, candles.length, DETECTOR_VERSION,
     ["candles", "FTR-ATR14"], `${levels.length} clustered levels (tol ${tol.toFixed(6)})`);
@@ -338,9 +381,9 @@ export function detectLevelTouch(
   const g = guard("FTR-LEVEL-TOUCH", tf, candles, 20);
   if (g) return g as unknown as FeatureValue<{ level: PriceLevel; distance_atr: number } | null>;
   const a = atr(candles, 14);
-  const curAtr = last(a.filter((x): x is number => x !== null));
-  if (!curAtr || curAtr <= 0) {
-    return invalidFeature("FTR-LEVEL-TOUCH", tf, "INSUFFICIENT_BARS", "ATR unavailable", DETECTOR_VERSION, ["FTR-LEVELS"]);
+  const curAtr = atLast(a);
+  if (curAtr === null || curAtr === undefined || curAtr <= 0) {
+    return atrGateFailure("FTR-LEVEL-TOUCH", tf, curAtr, ["FTR-LEVELS"]);
   }
   const c = last(candles)!;
   const qualified = levels.filter((l) => l.touches >= minTouches);
@@ -365,7 +408,22 @@ export function detectLevelTouch(
 
 export interface DoublePattern {
   kind: "double_top" | "double_bottom";
-  p1: number; p2: number; t1: number; t2: number; neckline: number;
+  p1: number; p2: number; t1: number; t2: number;
+  /**
+   * Most extreme CONFIRMED opposite swing between the peaks (ENGINEERING_DEFINED
+   * reading of the source's M/W shape, RAW_1:1217-1218; the corpus defines a
+   * "neckline" computation only for Head & Shoulders, RAW_4:2314). null when
+   * no opposite swing was confirmed between the peaks — UNKNOWN, never a
+   * substitute value.
+   */
+  neckline: number | null;
+  /**
+   * SWING = the canonical reading above. UNKNOWN = no confirmed opposite swing
+   * between the peaks. Absolute-final: the Task 10 BAR_EXTREME fallback (raw
+   * bar extreme) was a NON-canonical second computation and is removed; pre-
+   * Task-10 the fallback was the lower PEAK price (a neckline at the peak).
+   */
+  neckline_source: "SWING" | "UNKNOWN";
 }
 
 /**
@@ -376,9 +434,9 @@ export function detectDoublePattern(candles: Candle[], tf: string): FeatureValue
   const g = guard("FTR-DOUBLE", tf, candles, 30);
   if (g) return g as unknown as FeatureValue<DoublePattern | null>;
   const a = atr(candles, 14);
-  const curAtr = last(a.filter((x): x is number => x !== null));
-  if (!curAtr || curAtr <= 0) {
-    return invalidFeature("FTR-DOUBLE", tf, "INSUFFICIENT_BARS", "ATR unavailable", DETECTOR_VERSION, ["candles"]);
+  const curAtr = atLast(a);
+  if (curAtr === null || curAtr === undefined || curAtr <= 0) {
+    return atrGateFailure("FTR-DOUBLE", tf, curAtr, ["candles"]);
   }
   const sw = findSwings(candles, ENGINEERING_PARAMS.swing_left, ENGINEERING_PARAMS.swing_right);
   const highs = sw.filter((s) => s.kind === "high");
@@ -393,20 +451,25 @@ export function detectDoublePattern(candles: Candle[], tf: string): FeatureValue
     return [a2, b];
   };
 
-  const hp = pair(highs);
+  // fail-closed if a parameter change ever allows adjacent peaks (no bar between)
+  const pairOk = (pr: [SwingPoint, SwingPoint] | null) => pr !== null && pr[1].index - pr[0].index >= 2;
+  const hp0 = pair(highs);
+  const hp = pairOk(hp0) ? hp0 : null;
   if (hp) {
     const between = lows.filter((l) => l.index > hp[0].index && l.index < hp[1].index);
-    const neck = between.length ? Math.min(...between.map((l) => l.price)) : Math.min(hp[0].price, hp[1].price);
+    // no confirmed trough between the peaks → neckline UNKNOWN (no fallback)
+    const neck = between.length ? Math.min(...between.map((l) => l.price)) : null;
     return okFeature("FTR-DOUBLE", tf,
-      { kind: "double_top", p1: hp[0].price, p2: hp[1].price, t1: hp[0].t, t2: hp[1].t, neckline: neck },
+      { kind: "double_top", p1: hp[0].price, p2: hp[1].price, t1: hp[0].t, t2: hp[1].t, neckline: neck, neckline_source: neck === null ? "UNKNOWN" : "SWING" },
       last(candles)!.t, candles.length, DETECTOR_VERSION, ["FTR-SWINGS"], "double top detected");
   }
-  const lp = pair(lows);
+  const lp0 = pair(lows);
+  const lp = pairOk(lp0) ? lp0 : null;
   if (lp) {
     const between = highs.filter((h) => h.index > lp[0].index && h.index < lp[1].index);
-    const neck = between.length ? Math.max(...between.map((h) => h.price)) : Math.max(lp[0].price, lp[1].price);
+    const neck = between.length ? Math.max(...between.map((h) => h.price)) : null;
     return okFeature("FTR-DOUBLE", tf,
-      { kind: "double_bottom", p1: lp[0].price, p2: lp[1].price, t1: lp[0].t, t2: lp[1].t, neckline: neck },
+      { kind: "double_bottom", p1: lp[0].price, p2: lp[1].price, t1: lp[0].t, t2: lp[1].t, neckline: neck, neckline_source: neck === null ? "UNKNOWN" : "SWING" },
       last(candles)!.t, candles.length, DETECTOR_VERSION, ["FTR-SWINGS"], "double bottom detected");
   }
   return okFeature("FTR-DOUBLE", tf, null, last(candles)!.t, candles.length, DETECTOR_VERSION, ["FTR-SWINGS"],
@@ -416,8 +479,19 @@ export function detectDoublePattern(candles: Candle[], tf: string): FeatureValue
 export interface AbcdPattern {
   direction: "bullish" | "bearish";
   a: number; b: number; c: number; d_projected: number;
+  /**
+   * ab = measured |B−A|. `cd` is the PROJECTED CD length (= ab by the AB=CD
+   * construction), not a measurement — D has not formed at C.
+   */
   ab: number; cd: number; correction_frac: number;
-  slope_ab: number; slope_cd: number;
+  /** measured slopes (price per bar) of the AB and BC legs */
+  slope_ab: number; slope_bc: number;
+  /**
+   * Task 10: the CD leg does not exist when the pattern is detected at C, so
+   * its slope is not measurable — null, never a stand-in. (Pre-fix this field
+   * held the BC slope under the CD name.)
+   */
+  slope_cd: null;
   deep_correction: boolean;
 }
 
@@ -452,7 +526,7 @@ export function detectABCD(candles: Candle[], tf: string): FeatureValue<AbcdPatt
   const barsAB = Math.max(1, B.index - A.index);
   const barsBC = Math.max(1, C.index - B.index);
   const slopeAB = ab / barsAB;
-  const slopeCD = bc / barsBC;
+  const slopeBC = bc / barsBC;
   // D projects CD == AB from C, continuing in the AB direction
   const dir: "bullish" | "bearish" = B.price > A.price ? "bullish" : "bearish";
   const dProjected = dir === "bullish" ? C.price + ab : C.price - ab;
@@ -460,7 +534,7 @@ export function detectABCD(candles: Candle[], tf: string): FeatureValue<AbcdPatt
   const pattern: AbcdPattern = {
     direction: dir, a: A.price, b: B.price, c: C.price, d_projected: dProjected,
     ab, cd: ab, correction_frac: correction,
-    slope_ab: slopeAB, slope_cd: slopeCD,
+    slope_ab: slopeAB, slope_bc: slopeBC, slope_cd: null,
     deep_correction: correction > SOURCE_PARAMS.deep_correction_frac,
   };
   return okFeature("FTR-ABCD", tf, pattern, last(candles)!.t, candles.length, DETECTOR_VERSION, ["FTR-SWINGS"],
@@ -472,8 +546,8 @@ export function detectABCD(candles: Candle[], tf: string): FeatureValue<AbcdPatt
 export function detectRSI(candles: Candle[], tf: string, period = 14): FeatureValue<number> {
   const g = guard("FTR-RSI14", tf, candles, period + 1);
   if (g) return g as unknown as FeatureValue<number>;
-  const v = last(rsi(candles.map((c) => c.c), period).filter((x): x is number => x !== null));
-  if (v === undefined) return invalidFeature("FTR-RSI14", tf, "INSUFFICIENT_BARS", "RSI undefined (flat series)", DETECTOR_VERSION, ["close"]);
+  const v = atLast(rsi(candles.map((c) => c.c), period));
+  if (v === undefined) return invalidFeature("FTR-RSI14", tf, "INSUFFICIENT_BARS", "RSI unavailable (non-finite input or invalid period)", DETECTOR_VERSION, ["close"]);
   return okFeature("FTR-RSI14", tf, v, last(candles)!.t, candles.length, DETECTOR_VERSION, ["close"], `RSI=${v.toFixed(2)}`);
 }
 
@@ -481,7 +555,7 @@ export function detectEMA(candles: Candle[], tf: string, period: number): Featur
   const id = `FTR-EMA${period}`;
   const g = guard(id, tf, candles, period);
   if (g) return g as unknown as FeatureValue<number>;
-  const v = last(ema(candles.map((c) => c.c), period).filter((x): x is number => x !== null));
+  const v = atLast(ema(candles.map((c) => c.c), period));
   if (v === undefined) return invalidFeature(id, tf, "INSUFFICIENT_BARS", "EMA undefined", DETECTOR_VERSION, ["close"]);
   return okFeature(id, tf, v, last(candles)!.t, candles.length, DETECTOR_VERSION, ["close"], `EMA${period}=${v.toFixed(6)}`);
 }
@@ -489,26 +563,25 @@ export function detectEMA(candles: Candle[], tf: string, period: number): Featur
 export function detectATR(candles: Candle[], tf: string, period = 14): FeatureValue<number> {
   const g = guard("FTR-ATR14", tf, candles, period + 1);
   if (g) return g as unknown as FeatureValue<number>;
-  const v = last(atr(candles, period).filter((x): x is number => x !== null));
+  const v = atLast(atr(candles, period));
   if (v === undefined) return invalidFeature("FTR-ATR14", tf, "INSUFFICIENT_BARS", "ATR undefined", DETECTOR_VERSION, ["candles"]);
   return okFeature("FTR-ATR14", tf, v, last(candles)!.t, candles.length, DETECTOR_VERSION, ["candles"], `ATR=${v.toFixed(6)}`);
 }
 
-/** Fibonacci retracement of the most recent impulse leg. */
+/**
+ * Fibonacci retracement of the last confirmed alternating leg — delegated to
+ * the canonical engine (analysis/structure:fibOfLastLeg). Levels are measured
+ * from the leg end (0 = leg end, 1 = leg origin) for both directions.
+ */
 export function detectFib(candles: Candle[], tf: string): FeatureValue<{ levels: { level: number; price: number }[]; from: number; to: number }> {
   const sw = detectSwings(candles, tf);
   if (!sw.valid || !sw.value) {
     return invalidFeature("FTR-FIB", tf, sw.data_quality, sw.reason, DETECTOR_VERSION, ["FTR-SWINGS"]);
   }
-  const ordered = sw.value.swings.slice().sort((a, b) => a.index - b.index);
-  if (ordered.length < 2) {
-    return invalidFeature("FTR-FIB", tf, "INSUFFICIENT_BARS", "need 2 swings for a leg", DETECTOR_VERSION, ["FTR-SWINGS"]);
+  const { leg, levels } = fibOfLastLeg(sw.value.swings);
+  if (!leg) {
+    return invalidFeature("FTR-FIB", tf, "INSUFFICIENT_BARS", "need 2 alternating confirmed swings for a leg", DETECTOR_VERSION, ["FTR-SWINGS"]);
   }
-  const to = ordered[ordered.length - 1];
-  const from = ordered[ordered.length - 2];
-  const diff = to.price - from.price;
-  if (diff === 0) return invalidFeature("FTR-FIB", tf, "OK", "degenerate leg", DETECTOR_VERSION, ["FTR-SWINGS"]);
-  const levels = [0.236, 0.382, 0.5, 0.618, 0.786, 1].map((l) => ({ level: l, price: to.price - diff * l }));
-  return okFeature("FTR-FIB", tf, { levels, from: from.price, to: to.price }, last(candles)!.t, candles.length,
-    DETECTOR_VERSION, ["FTR-SWINGS"], `fib from ${from.price.toFixed(6)} to ${to.price.toFixed(6)}`);
+  return okFeature("FTR-FIB", tf, { levels, from: leg.from.price, to: leg.to.price }, last(candles)!.t, candles.length,
+    DETECTOR_VERSION, ["FTR-SWINGS"], `fib ${leg.direction} leg from ${leg.from.price.toFixed(6)} to ${leg.to.price.toFixed(6)}`);
 }

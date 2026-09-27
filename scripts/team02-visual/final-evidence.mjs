@@ -1,0 +1,172 @@
+/**
+ * Team 02 — final chart evidence assembler (no dependencies).
+ *
+ * Builds FINAL_ARTIFACTS/team02-final-chart-evidence.json from real run outputs,
+ * not by hand:
+ *   - the fixture analysis the browser actually rendered (server code output),
+ *   - FINAL_ARTIFACTS/visual/browser-run.json (capture.mjs),
+ *   - FINAL_ARTIFACTS/team02-evidence-render.json (render-evidence.ts),
+ *   - docs/team02/spec-ledger.json (UNKNOWN items),
+ *   - live probes of the running production server (runtime_summary).
+ *
+ * source_type stays FIXTURE for the chart: the candles are synthetic. Live
+ * market data is reported separately (LIVE_MARKET_DATA), never merged.
+ *
+ * Usage (server on :3000):  node scripts/team02-visual/final-evidence.mjs
+ */
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import path from "node:path";
+
+const ROOT = path.resolve(new URL(".", import.meta.url).pathname, "../..");
+const BASE = process.env.APP_URL ?? "http://127.0.0.1:3000";
+const rd = (p) => JSON.parse(readFileSync(path.join(ROOT, p), "utf8"));
+
+const run = rd("FINAL_ARTIFACTS/visual/browser-run.json");
+const render = rd("FINAL_ARTIFACTS/team02-evidence-render.json");
+const ledger = rd("docs/team02/spec-ledger.json");
+const manifest = rd("FINAL_ARTIFACTS/visual/fixtures/manifest.json");
+if (!run.final) throw new Error("browser-run.json has no final record — run capture.mjs first");
+const { symbol, tf } = run.final;
+const analysis = rd(`FINAL_ARTIFACTS/visual/fixtures/${symbol}_${tf}_analysis.json`);
+const { bundle, overlay, input } = analysis;
+
+const count = (xs, key = "kind") => xs.reduce((a, x) => ((a[x[key]] = (a[x[key]] ?? 0) + 1), a), {});
+
+// ---- runtime probes against the real production server -------------------
+async function probe(p) {
+  const t0 = performance.now();
+  try {
+    const r = await fetch(BASE + p, { signal: AbortSignal.timeout(20000) });
+    const ct = r.headers.get("content-type") ?? "";
+    let body = null;
+    if (ct.includes("json")) { try { body = await r.json(); } catch { body = null; } } else await r.arrayBuffer();
+    return {
+      path: p, http: r.status, ms: Math.round(performance.now() - t0),
+      error_class: body?.error_class ?? null,
+      ok_field: body && "ok" in body ? body.ok : null,
+      note: body?.error ? String(body.error).slice(0, 160) : body?.universe?.state ?? null,
+    };
+  } catch (e) {
+    return { path: p, http: null, ms: Math.round(performance.now() - t0), error_class: "PROBE_FAILED", note: String(e).slice(0, 160) };
+  }
+}
+const probes = [];
+for (const p of ["/chart", "/", "/api/system/health", "/api/market/symbols", "/api/analysis/BTCUSDT/1h", "/api/analysis/mtf/BTCUSDT"]) probes.push(await probe(p));
+const liveAnalysis = probes.find((p) => p.path === "/api/analysis/BTCUSDT/1h");
+const liveVerified = liveAnalysis?.http === 200 && liveAnalysis.ok_field === true;
+const buildId = existsSync(path.join(ROOT, ".next/BUILD_ID")) ? readFileSync(path.join(ROOT, ".next/BUILD_ID"), "utf8").trim() : null;
+
+// ---- browser summary -------------------------------------------------------
+const scen = run.scenarios.map((s) => {
+  const checks = Object.values(s.checks);
+  return {
+    name: s.name,
+    checks_passed: checks.filter((c) => c.pass).length,
+    checks_total: checks.length,
+    console_errors: s.errors.length,
+    console_error_classes: (s.console_error_classification ?? []).reduce((a, c) => ((a[c.class] = (a[c.class] ?? 0) + 1), a), {}),
+    console_errors_understood: s.console_errors_understood,
+    failure: s.failure ? s.failure.split("\n")[0] : null,
+    screenshots: [s.screenshot, s.screenshot_b].filter(Boolean),
+  };
+});
+const allPass = scen.every((s) => s.checks_passed === s.checks_total && !s.failure);
+const allUnderstood = scen.every((s) => s.console_errors_understood);
+const realBugs = run.scenarios.flatMap((s) => (s.console_error_classification ?? []).filter((c) => c.class === "REAL_BUG"));
+
+// ---- layers ----------------------------------------------------------------
+const unavailable = overlay.unavailable_layers;
+const unknownLedger = ledger.items.filter((i) => i.classification === "UNKNOWN" || i.status === "UNKNOWN").map((i) => i.item);
+const unknownLayers = unavailable.filter((u) => /UNKNOWN|UNSPECIFIED/.test(u.state));
+
+const blockers = [];
+if (!liveVerified) blockers.push({
+  id: "LIVE_DATA_VERIFICATION_BLOCKED",
+  evidence: `GET /api/analysis/BTCUSDT/1h → HTTP ${liveAnalysis?.http} ${liveAnalysis?.error_class ?? ""} (${liveAnalysis?.note ?? ""})`.trim(),
+  dependency: "network reachability of the TTT market-data endpoints from the runtime host",
+  safety: "typed 503 MARKET_SOURCE_UNAVAILABLE; nothing drawn; no fixture presented as live",
+});
+
+const evidence = {
+  generated_at: new Date().toISOString(),
+  generated_by: "scripts/team02-visual/final-evidence.mjs",
+  source_type: "FIXTURE",
+  source_type_note: `${manifest.kind}: deterministic synthetic candles (not market data, generated by ${manifest.generated_by} through the real server analysis code), served to the real production app only via Playwright interception. Fixture clock ${manifest.clock_utc}.`,
+  claims: {
+    BROWSER_RENDERING: allPass ? "VERIFIED" : "NOT_VERIFIED",
+    LIVE_MARKET_DATA: liveVerified ? "VERIFIED" : "BLOCKED",
+    SOURCE_TYPE: "FIXTURE",
+  },
+  screenshot: "FINAL_ARTIFACTS/team02-final-chart.png",
+  symbol,
+  timeframe: tf,
+  fingerprint: bundle.provenance.input_fingerprint,
+  overlay_fingerprint: overlay.bundle_fingerprint,
+  browser_shown_fingerprint: run.final.fp,
+  fingerprint_consistent: bundle.provenance.input_fingerprint === overlay.bundle_fingerprint && overlay.bundle_fingerprint === run.final.fp,
+  evaluated_bar: {
+    as_of_t: bundle.as_of_t,
+    as_of_open_utc: new Date(bundle.as_of_t * 1000).toISOString(),
+    closed_bars: input.closed_bars,
+    forming_bar_excluded: input.forming_bar_excluded,
+  },
+  source_ts_ms: bundle.provenance.source_ts_ms,
+  knowable_at_ms: bundle.provenance.source_ts_ms,
+  knowable_at_utc: new Date(bundle.provenance.source_ts_ms).toISOString(),
+  freshness: input.freshness,
+  engines: Object.keys(overlay.engines).map((e) => `analysis.${e}`).concat(["analysis.indicators", "chart.overlay", "chart.adapter"]),
+  engine_versions: {
+    ...overlay.engines,
+    bundle_schema: bundle.schema,
+    overlay_schema: overlay.schema,
+    strategy_render: render.snapshot?.engines ?? null,
+  },
+  visible_layers: {
+    lines: count(overlay.lines),
+    zones: count(overlay.zones),
+    zone_status: count(overlay.zones, "status"),
+    markers: count(overlay.markers),
+    series: overlay.series.map((s) => s.id),
+    volume_pane: true,
+    forming_bar: "drawn translucent; excluded from all analysis",
+    panel_drawn_text: run.final.drawn,
+  },
+  omitted_layers: overlay.omitted,
+  unavailable_layers: unavailable,
+  unknown_layers: { overlay_layers: unknownLayers.map((u) => `${u.layer}:${u.state}`), specification_items: unknownLedger },
+  browser_summary: {
+    browser: run.browser,
+    environment: run.environment ?? null,
+    started_utc: run.started_utc,
+    finished_utc: run.finished_utc,
+    scenarios: scen,
+    all_checks_pass: allPass,
+    all_console_errors_understood: allUnderstood,
+    real_bugs: realBugs.length,
+    console_summary: "FINAL_ARTIFACTS/visual/console-summary.json",
+    network_summary: "FINAL_ARTIFACTS/visual/network-summary.json",
+  },
+  runtime_summary: { app: BASE, server: "next start (production build)", next_build_id: buildId, probes },
+  server_rendered_evidence: {
+    files: render.files,
+    source_type: render.source_type,
+    strategy_id: render.strategy_id,
+    setup_outcome: render.setup_outcome,
+    snapshot_fingerprint: render.snapshot?.input_fingerprint ?? null,
+    snapshot_check: render.snapshot_check?.state ?? null,
+    negative_controls: Object.fromEntries(Object.entries(render.negative_controls ?? {}).map(([k, v]) => [k, v.state])),
+  },
+  blocker_summary: blockers,
+  evidence_status: {
+    chart_render: allPass && allUnderstood && realBugs.length === 0 ? "VERIFIED" : "NOT_VERIFIED",
+    chart_data: "FIXTURE",
+    snapshot_identity: bundle.provenance.input_fingerprint === run.final.fp ? "VERIFIED" : "NOT_VERIFIED",
+    server_render_snapshot: render.snapshot_check?.state === "VERIFIED" ? "VERIFIED" : "NOT_VERIFIED",
+    live_market_data: liveVerified ? "LIVE" : "BLOCKED",
+    trendlines: "UNKNOWN", // spec absent (TRENDLINES_SPEC_LOCKED) — not a postponed build
+    web_strategy_markers: "DEFERRED",
+    unknown_specifications: "UNKNOWN",
+  },
+};
+writeFileSync(path.join(ROOT, "FINAL_ARTIFACTS/team02-final-chart-evidence.json"), JSON.stringify(evidence, null, 2) + "\n");
+console.log(JSON.stringify({ symbol, tf, fp: evidence.fingerprint, consistent: evidence.fingerprint_consistent, claims: evidence.claims, status: evidence.evidence_status, probes: probes.map((p) => `${p.http} ${p.path} ${p.error_class ?? ""}`) }, null, 1));

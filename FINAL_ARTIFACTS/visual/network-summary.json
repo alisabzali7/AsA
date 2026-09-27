@@ -1,0 +1,286 @@
+{
+  "per_scenario": [
+    {
+      "scenario": "0-live-unavailable",
+      "total_responses": 81,
+      "by_status": {
+        "200": 78,
+        "503": 3
+      },
+      "api_paths": [
+        "200 /api/market/focus",
+        "200 /api/market/symbols",
+        "200 /api/system/health",
+        "503 /api/analysis/BTCUSDT/15m",
+        "503 /api/analysis/mtf/BTCUSDT",
+        "503 /api/market/candles"
+      ],
+      "third_party_responses": 0,
+      "failed": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ]
+    },
+    {
+      "scenario": "1-normal",
+      "total_responses": 84,
+      "by_status": {
+        "200": 81,
+        "503": 3
+      },
+      "api_paths": [
+        "200 /api/analysis/FIXTUREA/15m",
+        "200 /api/analysis/mtf/FIXTUREA",
+        "200 /api/market/candles",
+        "200 /api/market/focus",
+        "200 /api/market/history",
+        "200 /api/market/symbols",
+        "200 /api/system/health",
+        "503 /api/analysis/BTCUSDT/15m",
+        "503 /api/analysis/mtf/BTCUSDT",
+        "503 /api/market/candles"
+      ],
+      "third_party_responses": 0,
+      "failed": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ]
+    },
+    {
+      "scenario": "2-structure-rich",
+      "total_responses": 83,
+      "by_status": {
+        "200": 83
+      },
+      "api_paths": [
+        "200 /api/analysis/FIXTUREB/15m",
+        "200 /api/analysis/FIXTUREB/1h",
+        "200 /api/analysis/mtf/FIXTUREB",
+        "200 /api/market/candles",
+        "200 /api/market/focus",
+        "200 /api/market/history",
+        "200 /api/market/symbols",
+        "200 /api/system/health"
+      ],
+      "third_party_responses": 0,
+      "failed": []
+    },
+    {
+      "scenario": "3-insufficient-history",
+      "total_responses": 81,
+      "by_status": {
+        "200": 81
+      },
+      "api_paths": [
+        "200 /api/analysis/FIXTUREC/15m",
+        "200 /api/analysis/mtf/FIXTUREC",
+        "200 /api/market/candles",
+        "200 /api/market/focus",
+        "200 /api/market/history",
+        "200 /api/market/symbols",
+        "200 /api/system/health"
+      ],
+      "third_party_responses": 0,
+      "failed": []
+    },
+    {
+      "scenario": "4-tf-change-late-response",
+      "total_responses": 86,
+      "by_status": {
+        "200": 83,
+        "503": 3
+      },
+      "api_paths": [
+        "200 /api/analysis/FIXTUREA/15m",
+        "200 /api/analysis/FIXTUREA/1h",
+        "200 /api/analysis/mtf/FIXTUREA",
+        "200 /api/market/candles",
+        "200 /api/market/focus",
+        "200 /api/market/history",
+        "200 /api/market/symbols",
+        "200 /api/system/health",
+        "503 /api/analysis/BTCUSDT/15m",
+        "503 /api/analysis/mtf/BTCUSDT",
+        "503 /api/market/candles"
+      ],
+      "third_party_responses": 0,
+      "failed": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ]
+    },
+    {
+      "scenario": "5-symbol-change-subcent",
+      "total_responses": 89,
+      "by_status": {
+        "200": 86,
+        "503": 3
+      },
+      "api_paths": [
+        "200 /api/analysis/FIXTUREA/15m",
+        "200 /api/analysis/FIXTURESUB/15m",
+        "200 /api/analysis/mtf/FIXTUREA",
+        "200 /api/analysis/mtf/FIXTURESUB",
+        "200 /api/market/candles",
+        "200 /api/market/focus",
+        "200 /api/market/history",
+        "200 /api/market/symbols",
+        "200 /api/system/health",
+        "503 /api/analysis/BTCUSDT/15m",
+        "503 /api/analysis/mtf/BTCUSDT",
+        "503 /api/market/candles"
+      ],
+      "third_party_responses": 0,
+      "failed": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ]
+    },
+    {
+      "scenario": "6-upstream-failure",
+      "total_responses": 174,
+      "by_status": {
+        "200": 165,
+        "502": 5,
+        "503": 4
+      },
+      "api_paths": [
+        "200 /api/analysis/FIXTUREA/15m",
+        "200 /api/analysis/mtf/FIXTUREA",
+        "200 /api/market/candles",
+        "200 /api/market/focus",
+        "200 /api/market/history",
+        "200 /api/market/symbols",
+        "200 /api/system/health",
+        "502 /api/analysis/BTCUSDT/15m",
+        "502 /api/analysis/FIXTUREA/15m",
+        "502 /api/analysis/mtf/BTCUSDT",
+        "502 /api/analysis/mtf/FIXTUREA",
+        "503 /api/analysis/BTCUSDT/15m",
+        "503 /api/analysis/mtf/BTCUSDT",
+        "503 /api/market/candles"
+      ],
+      "third_party_responses": 0,
+      "failed": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "TEST_ONLY",
+          "why": "502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "TEST_ONLY",
+          "why": "502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/FIXTUREA/15m",
+          "class": "TEST_ONLY",
+          "why": "502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/mtf/FIXTUREA",
+          "class": "TEST_ONLY",
+          "why": "502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/FIXTUREA/15m",
+          "class": "TEST_ONLY",
+          "why": "502 injected by the driver to simulate an upstream failure (scenario 6)"
+        }
+      ]
+    }
+  ]
+}

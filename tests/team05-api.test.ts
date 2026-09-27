@@ -78,3 +78,19 @@ it("a terminal linked signal cannot leave its historical READY opportunity actio
   const body=await (await GET(new Request("http://asa.local/api/opportunities"))).json();
   expect(body.items.find((o:{id:string})=>o.id===id)).toMatchObject({state:"READY",fresh:"READY",signal_state:"expired",actionable:false});
 });
+
+
+it("partial risk edits preserve untouched preferences and blank edits remain atomic refusals", async () => {
+  const { POST } = await import("../src/app/api/system/config/route");
+  repo.configSet("pref.risk.perTradePct", "2");
+  repo.configSet("pref.risk.maxLeverage", "5");
+  const edit = (body: object) => POST(new Request("http://asa.local/api/system/config", {
+    method: "POST", body: JSON.stringify({section: "risk", ...body}),
+  }));
+  expect((await edit({equity: "12000"})).status).toBe(200);
+  expect(repo.configGet("pref.risk.equity")).toBe("12000");
+  expect(repo.configGet("pref.risk.perTradePct")).toBe("2");
+  expect(repo.configGet("pref.risk.maxLeverage")).toBe("5");
+  expect((await edit({equity: "13000", maxLeverage: ""})).status).toBe(400);
+  expect(repo.configGet("pref.risk.equity")).toBe("12000");
+});

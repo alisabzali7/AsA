@@ -64,8 +64,8 @@ describe("Task A & B: Bundle Contract & last_close Semantics", () => {
     expect(bundle.indicators.ema20).toBeNull();
     expect(bundle.indicators.rsi14).toBeNull();
     expect(bundle.indicators.atr14).toBeNull();
-    expect(bundle.structure.trend).toBe("range");
-    expect(bundle.structure.reason).toBe("insufficient bars");
+    expect(bundle.structure.trend).toBe("undetermined");
+    expect(bundle.structure.reason).toMatch(/insufficient bars/);
   });
 
   it("candles with valid close produce exact finite last_close", () => {
@@ -244,36 +244,47 @@ describe("Task J: Higher-Timeframe Aggregation (aggregateClosed)", () => {
 });
 
 describe("Task K: MTF Alignment Contract (buildMtf)", () => {
-  it("returns INSUFFICIENT when any core timeframe has fewer than 50 bars", () => {
-    const shortBundle = buildBundle({
-      symbol: "BTCUSDT",
-      timeframe: "15m",
-      candles: makeSeries(Array.from({ length: 40 }, (_, i) => 100 + i)),
+  // Midpoint opens: open = previous close ties the highs of consecutive bars,
+  // which makes strict fractal pivots impossible (no swing structure at all).
+  const zig = (len: number, drift: number, step: number) => {
+    const closes = Array.from({ length: len }, (_, i) => 200 + i * drift + 6 * Math.sin((2 * Math.PI * i) / 10));
+    return closes.map((c, i) => {
+      const o = i > 0 ? (closes[i - 1] + c) / 2 : c;
+      return makeCandle(1_700_000_000 + i * step, o, Math.max(o, c) + 1, Math.min(o, c) - 1, c);
     });
-    const longBundle = buildBundle({
-      symbol: "BTCUSDT",
-      timeframe: "1h",
-      candles: makeSeries(Array.from({ length: 60 }, (_, i) => 100 + i)),
-    });
+  };
+  const b = (tf: string, len: number, drift: number, step: number) => buildBundle({ symbol: "BTCUSDT", timeframe: tf, candles: zig(len, drift, step) });
 
-    const mtf = buildMtf(longBundle, longBundle, shortBundle);
+  it("returns INSUFFICIENT when any core timeframe has fewer than 50 bars", () => {
+    const mtf = buildMtf(b("4h", 80, 0.8, 14400), b("1h", 80, 0.8, 3600), b("15m", 40, 0.8, 900));
     expect(mtf.verdict).toBe("INSUFFICIENT");
     expect(mtf.trigger_bias).toBeNull();
     expect(mtf.reason).toContain("≥50 bars");
   });
 
   it("returns ALIGNED when 4H, 1H, and 15M all share the same directional bias", () => {
-    const bullBundle = buildBundle({
-      symbol: "BTCUSDT",
-      timeframe: "1h",
-      candles: makeSeries(Array.from({ length: 60 }, (_, i) => 100 + i * 2)),
-    });
-
-    const mtf = buildMtf(bullBundle, bullBundle, bullBundle);
+    const mtf = buildMtf(b("4h", 80, 0.8, 14400), b("1h", 80, 0.8, 3600), b("15m", 80, 0.8, 900));
     expect(mtf.verdict).toBe("ALIGNED");
     expect(mtf.macro_bias).toBe("long");
     expect(mtf.context_bias).toBe("long");
     expect(mtf.trigger_bias).toBe("long");
+  });
+
+  it("refuses a bundle placed in the wrong role (pre-recovery a 1h bundle was accepted as 4H macro)", () => {
+    const h1 = b("1h", 80, 0.8, 3600);
+    const mtf = buildMtf(h1, h1, b("15m", 80, 0.8, 900));
+    expect(mtf.verdict).toBe("UNAVAILABLE");
+    expect(mtf.components[0].state).toBe("MISMATCH");
+    expect(mtf.reason).toMatch(/role\/timeframe mismatch/);
+  });
+
+  it("an UNDETERMINED component trend blocks alignment instead of reading as neutral", () => {
+    const flat = buildBundle({ symbol: "BTCUSDT", timeframe: "15m", candles: makeSeries(Array.from({ length: 60 }, (_, i) => 100 + i)) });
+    expect(flat.structure.trend).toBe("undetermined");
+    const mtf = buildMtf(b("4h", 80, 0.8, 14400), b("1h", 80, 0.8, 3600), flat);
+    expect(mtf.verdict).toBe("INSUFFICIENT");
+    expect(mtf.trigger_bias).toBeNull();
+    expect(mtf.reason).toMatch(/undetermined/);
   });
 
   it("handles null bundle inputs safely without exception", () => {
@@ -296,8 +307,8 @@ describe("Task L: Insufficient History Progression Matrix", () => {
     expect(b0.last_close).toBeNull();
     expect(b0.indicators.rsi14).toBeNull();
     expect(b0.indicators.ema20).toBeNull();
-    expect(b0.structure.trend).toBe("range");
-    expect(b0.structure.reason).toBe("insufficient bars");
+    expect(b0.structure.trend).toBe("undetermined");
+    expect(b0.structure.reason).toMatch(/insufficient bars/);
 
     // 1 bar
     const b1 = makeWithLen(1);
@@ -316,13 +327,13 @@ describe("Task L: Insufficient History Progression Matrix", () => {
     // 19 bars: EMA20 and structure (< 20) still unavailable
     const b19 = makeWithLen(19);
     expect(b19.indicators.ema20).toBeNull();
-    expect(b19.structure.reason).toBe("insufficient bars");
+    expect(b19.structure.reason).toMatch(/insufficient bars/);
 
     // 20 bars: EMA20 and structure analysis active
     const b20 = makeWithLen(20);
     expect(b20.indicators.ema20).not.toBeNull();
     expect(b20.indicators.ema50).toBeNull();
-    expect(b20.structure.reason).not.toBe("insufficient bars");
+    expect(b20.structure.reason).not.toMatch(/insufficient bars/);
 
     // 50 bars: EMA50 active, MTF bias evaluates
     const b50 = makeWithLen(50);
@@ -340,8 +351,9 @@ describe("Task N: Deep Numerical Integrity", () => {
 
     const bundle = buildBundle({ symbol: "SHIBUSDT", timeframe: "1h", candles: extremeCandles });
     expect(bundle.last_close).toBe(3.5e-8);
-    expect(Number.isFinite(bundle.candle_window.price_min)).toBe(true);
-    expect(Number.isFinite(bundle.candle_window.price_max)).toBe(true);
+    expect(bundle.candle_window).not.toBeNull();
+    expect(Number.isFinite(bundle.candle_window!.price_min)).toBe(true);
+    expect(Number.isFinite(bundle.candle_window!.price_max)).toBe(true);
   });
 });
 

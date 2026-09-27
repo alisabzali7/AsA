@@ -6,7 +6,7 @@
  */
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_CONFIGURED, TELEGRAM_DRY_RUN } from "../env";
 import { getRepo } from "../../db/sqlite";
-import { chartEvidenceMatches, type ChartEvidence } from "../chart/evidence";
+import { chartEvidenceMatches, type ChartEvidence, type SnapshotCheckState } from "../chart/evidence";
 import type { OutboxRow, OutboxClaim, Repo } from "../../db/repo";
 import { OUTBOX_CLAIM_LEASE_MS, OUTBOX_MAX_ATTEMPTS } from "../../db/repo";
 import { verifiedChartCandles, type ChartSource } from "../chart/source";
@@ -226,13 +226,19 @@ export function formatSignalText(p: TelegramSignalPayload): string {
   return lines.filter(Boolean).join("\n");
 }
 
+/** The PNG has no text rasteriser: an unverified chart window is disclosed in the caption. */
+export function photoCaption(caption: string, state: SnapshotCheckState): string {
+  if (state === "VERIFIED") return caption;
+  return `[chart window ${state}: record has no decision snapshot, the image cannot be proven to be the decision window]\n${caption}`;
+}
+
 /**
  * Render the annotated advisory chart for an outbox payload.
  * Uses the SAME ChartEvidence + renderer as the web chart route, so the image
  * a user receives is exactly what the decision was based on. Returns null when
  * the opportunity has no stored evidence — we never invent a picture.
  */
-async function renderAdvisoryPng(payload: TelegramSignalPayload, repo: Repo): Promise<Uint8Array | null> {
+async function renderAdvisoryPng(payload: TelegramSignalPayload, repo: Repo): Promise<{ png: Uint8Array; state: SnapshotCheckState } | null> {
   const oppId = payload.opportunity_id;
   if (!oppId) return null;
   try {
@@ -269,7 +275,10 @@ async function renderAdvisoryPng(payload: TelegramSignalPayload, repo: Repo): Pr
     }
     if (!candles.length) return null;
     const { renderEvidencePng } = await import("../chart/render");
-    return renderEvidencePng(evidence, candles);
+    const { verifyDecisionSnapshot } = await import("../chart/evidence");
+    const check = verifyDecisionSnapshot(evidence, candles);
+    if (check.state === "MISMATCH" || check.state === "UNVERIFIABLE") return null;
+    return { png: renderEvidencePng(evidence, candles, { snapshotState: check.state }), state: check.state };
   } catch {
     return null; // never block the advisory text on a rendering failure
   }
@@ -424,12 +433,12 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
     // Legacy rows retain their historical optional-photo contract. Failure
     // to load historical candles never turns a required photo into optional.
     if (!progress.photo_sent) {
-      const png = await renderAdvisoryPng(payload, repo);
-      if (png) {
+      const rendered = await renderAdvisoryPng(payload, repo);
+      if (rendered) {
         progress.photo_required = true;
         persistProgress(); // persist requirement BEFORE provider activity
         recordAttempt(); // entering transport: the provider request follows
-        const photo = await sendTelegramPhoto(png, caption);
+        const photo = await sendTelegramPhoto(rendered.png, photoCaption(caption, rendered.state));
         if (photo.ok) {
           progress.photo_sent = true;
           progress.photo_message_id = photo.message_id;

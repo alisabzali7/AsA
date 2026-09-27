@@ -14,6 +14,7 @@
  * Exits record absolute TIMESTAMPS, never slice-relative indexes.
  */
 import type { Candle } from "../domain/types";
+import { tfSeconds } from "../analysis/input";
 import { evaluateCompiled, type CompiledStrategy } from "../strategy/compiled";
 import { evaluateRisk } from "../risk/engine";
 import { evaluatePsychologyGate, defaultPsychologyState } from "../psychology/gate";
@@ -214,10 +215,16 @@ export function runStrategyBacktest(
   const start = Math.max(strat.min_bars, opts.start_index ?? strat.min_bars);
   const end = Math.min(candles.length - 2, opts.end_index ?? candles.length - 2);
 
+  const stepSec = tfSeconds(strat.timeframe);
+  if (stepSec === null) throw new Error(`strategy ${strat.strategy_id}: unknown timeframe '${strat.timeframe}'`);
   let i = start;
   while (i <= end) {
     const window = candles.slice(0, i + 1); // ONLY closed bars up to the signal
-    const ev = evaluateCompiled(strat, symbol, window, window[window.length - 1].t * 1000);
+    // evaluation stamp = CLOSE instant of the decision bar (when the rules
+    // could first be evaluated), not its open (Task 09). Metadata only: the
+    // stamp feeds no calculation (rules/engine: evaluated_at_ms).
+    const decisionT = window[window.length - 1].t;
+    const ev = evaluateCompiled(strat, symbol, window, (decisionT + stepSec) * 1000);
 
     if (ev.setup.outcome !== "PASS") { bump(`setup:${ev.setup.outcome}`); i++; continue; }
 
