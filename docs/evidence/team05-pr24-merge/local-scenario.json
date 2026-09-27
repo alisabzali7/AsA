@@ -1,0 +1,50 @@
+{
+  "label": "LOCAL TEST / SYNTHETIC — never live provider/promotion proof",
+  "partial_signal": "sig-3e0b6de740fcddb5",
+  "sent_signal": "sig-64276cb4771a52ab",
+  "terminal_signal": "sig-8832cae429b86152",
+  "blocked_opportunity": "6f4d8a91b5bf1462",
+  "unknown_opportunity": "b107478a424b2baf",
+  "calls": [
+    {
+      "method": "sendPhoto",
+      "accepted": true,
+      "message_id": 1790490393
+    },
+    {
+      "method": "sendMessage",
+      "accepted": false,
+      "message_id": null
+    },
+    {
+      "method": "sendPhoto",
+      "accepted": true,
+      "message_id": 1790490395
+    },
+    {
+      "method": "sendMessage",
+      "accepted": true,
+      "message_id": 1790490396
+    }
+  ],
+  "delivery": {
+    "outbox_id": 1,
+    "link": "outbox_id",
+    "delivery_state": "FAILED",
+    "outbox_state": "FAILED",
+    "attempts": 1,
+    "error": "text not delivered (text not accepted)",
+    "progress": {
+      "photo_message_id": 1790490393,
+      "photo_accepted_ms": 1790490393640,
+      "photo_required": true,
+      "photo_sent": true,
+      "text_sent": false
+    },
+    "queued_ms": 1790490393358,
+    "sent_ms": null,
+    "sending": null
+  },
+  "signal_count": 3,
+  "outbox_count": 3
+}

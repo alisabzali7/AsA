@@ -1,0 +1,669 @@
+PR #24 merge validation — 2026-09-27
+
+Final dependency set includes main 5f7154c (Next 16.3.3, Vitest 3.2.6, PostCSS 8.5.28).
+Initial integration tests: 1419 pass, 2 fail, 3 skip; corrected frontend import topology and retained the existing sweep-age gate while adding stronger health/row checks.
+First built-app mobile check exposed topbar overflow; fixed, rebuilt and rerun.
+Final run below includes the live runtime DOM tests (none skipped). React act() warnings remain in those tests; these are not browser page errors.
+
+
+===== npm test =====
+
+> asa@6.0.1 test
+> vitest run
+
+
+ RUN  v3.2.6 /home/user/AsA
+
+ ✓ tests/ttt-admission.test.ts (30 tests) 1717ms
+   ✓ transport is the single admission point > B1. a retried attempt pays again (network failure, then success)  511ms
+   ✓ transport is the single admission point > K2a. a timeout is retried and every retry pays: 2 attempts = 2 admissions  762ms
+ ✓ tests/audit-regressions.test.ts (33 tests) 8144ms
+   ✓ P0-7 backtest data-freshness contract > runBacktest surfaces the freshness contract in warnings AND lineage  685ms
+   ✓ P1-6 expireStaleSignals expires every stale signal despite pagination > two-phase walk: updates during pagination cannot skip rows  1485ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > every compiled strategy binds to a Brain StrategyRecord (id + family + source overlap)  889ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > a compiled strategy with NO brain record is flagged MISSING_BRAIN_RECORD  905ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > a family drift between compiled strategy and brain record is flagged  777ms
+   ✓ audit B8: compiled strategies are governed by Brain lineage > a compiled strategy citing disjoint corpus lines is flagged NO_SOURCE_OVERLAP  426ms
+   ✓ audit B3/B4: discovery drives the operational universe honestly > a discovery FAILURE preserves the previous snapshot as STALE — not VALID_EMPTY, not legacy  2016ms
+ ✓ tests/strategy-promotion.test.ts (40 tests) 949ms
+   ✓ the CURRENT repository state cannot promote anything > with an ingested brain but historical evidence, every compiled strategy is NOT_ELIGIBLE  424ms
+ ✓ tests/conflict-resolution.test.ts (38 tests) 8951ms
+   ✓ live registry integration — resolution is read, not assumed > reads the linked group's live resolution from the Brain store  907ms
+   ✓ live registry integration — resolution is read, not assumed > honors a live OPERATOR_CHOSEN adjudication recorded in the store  856ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > an OPERATOR_CHOSEN adjudication survives a full re-ingest  1482ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > an EMPIRICALLY_RESOLVED adjudication survives a full re-ingest  1664ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > adjudicated state is deterministic across repeated re-ingests  2266ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > promotion reads RESOLVED (not UNRESOLVED) for a linked record after re-ingest  793ms
+   ✓ re-ingest / refresh must not silently erase prior adjudication (Case F) > a pristine store still rebuilds every group UNRESOLVED — preservation invents nothing  638ms
+ ✓ tests/live-signal-runtime.test.ts (21 tests) 773ms
+ ✓ tests/team09-decision-consumer.test.ts (42 tests) 76ms
+ ✓ tests/history-boundary.test.ts (34 tests) 7032ms
+   ✓ sync-level semantics: fresh proof vs retained historical completeness > F. prior COMPLETE + current network failure: data preserved, no fresh success, no fresh proof  3408ms
+   ✓ adversarial sequences > valid bars → ok-empty → network failure never becomes COMPLETE  3514ms
+ ✓ tests/ttt-closure.test.ts (29 tests) 3719ms
+   ✓ history route does not paint an empty store as a venue boundary > restart during a discovery outage: persisted cells stay readable WITH a degraded marker; unproven symbols stay 503  3490ms
+ ✓ tests/analysis-layer.test.ts (32 tests) 40ms
+ ✓ tests/remediation.test.ts (50 tests) 1278ms
+   ✓ P1 Brain rules are honestly classified, never overclaimed > no stored source-text rule is a runtime candidate  312ms
+   ✓ P1 Brain rules are honestly classified, never overclaimed > every rule with empty predicates carries a non_executable_reason  332ms
+ ✓ tests/team10-chart-e2e.test.ts (33 tests) 60ms
+ ✓ tests/live-timeframe-coverage.test.ts (9 tests) 992ms
+   ✓ T05 T5 — production timeframe close-event coverage > every production timeframe has a correct close boundary and (when a series is watched) yields ONE candle.closed per new bar — 1d explicitly  477ms
+ ✓ tests/rule-closure.test.ts (26 tests) 3009ms
+   ✓ ingest registers the machine rule graph into the Brain registry > registry holds BOTH populations: source text (DISABLED) + machine rules (registered)  373ms
+   ✓ closure verifier detects registry corruption > a source-text rule promoted out of DISABLED is a violation  363ms
+ ✓ tests/signal-publish.test.ts (24 tests) 177ms
+ ✓ tests/decision-truth-recovery.test.ts (23 tests) 152ms
+ ✓ tests/strategy-engine.test.ts (35 tests) 6206ms
+   ✓ backtest — no lookahead > never enters before the bar after the signal  777ms
+   ✓ backtest — no lookahead > resolves a same-bar stop+target tie to the STOP (conservative)  704ms
+   ✓ backtest — no lookahead > applies fees and slippage so gross R exceeds net R  679ms
+   ✓ backtest — no lookahead > never overlaps positions for one strategy/symbol  644ms
+   ✓ backtest — no lookahead > is deterministic across runs  1355ms
+   ✓ backtest — no lookahead > uses the same risk engine as advisory, compounding on live equity  649ms
+   ✓ OOS and walk-forward mechanics > splits chronologically and never tests on training decisions  658ms
+   ✓ OOS and walk-forward mechanics > produces the requested number of walk-forward windows  650ms
+ ✓ tests/freeze.test.ts (37 tests) 6524ms
+   ✓ §H OOS is leakage-safe > the OOS split is chronological — no test signal predates the split  804ms
+   ✓ §H OOS is leakage-safe > in-sample and out-of-sample position sets do not overlap  744ms
+   ✓ §H OOS is leakage-safe > walk-forward windows advance chronologically and are all persistedable  785ms
+   ✓ §H OOS is leakage-safe > promotion never reaches ROBUST on a losing strategy regardless of window count  1377ms
+   ✓ §I4 reproducibility: same data + same config = same result > two identical backtests produce byte-identical positions and metrics  1321ms
+   ✓ §I4 reproducibility: same data + same config = same result > a different dataset yields a different fingerprint and may differ in result  1374ms
+ ✓ tests/ai-clone.test.ts (20 tests) 4685ms
+   ✓ AI Clone route: deterministic context + LLM conversation (real POST, mock provider) > context propagation: deterministic facts reach the response unchanged and the LLM is actually in the loop  3852ms
+ ✓ tests/indicators-robustness.test.ts (30 tests) 23ms
+ ✓ tests/market-truth-pipeline.test.ts (29 tests) 104ms
+ ✓ tests/telegram-partial-send.test.ts (15 tests) 651ms
+ ✓ tests/bundle-contract.test.ts (19 tests) 35ms
+ ✓ tests/telegram-claim-lease.test.ts (11 tests) 422ms
+ ✓ tests/closure.test.ts (40 tests) 5860ms
+   ✓ §M position vs fill accounting > a laddered exit is ONE position, not several trades  748ms
+   ✓ §M position vs fill accounting > exit quantities never exceed the entry quantity (no double counting)  685ms
+   ✓ §M position vs fill accounting > fees are charged per fill on the actual filled notional  746ms
+   ✓ §M position vs fill accounting > all fill timestamps are absolute and inside the series range  663ms
+   ✓ §M position vs fill accounting > same-bar policy is explicit and recorded  1309ms
+   ✓ §M position vs fill accounting > reports gross and net R separately plus fee/slippage impact  831ms
+   ✓ §M position vs fill accounting > builds a true equity curve  838ms
+ ✓ tests/validation-pipeline.test.ts (16 tests) 1997ms
+   ✓ Scenarios A through H (Promotion & Lifecycle Invariants) > Scenario H: Validation Pipeline execution over TTT replay fixture generates typed outputs  1834ms
+ ✓ tests/market-data.test.ts (37 tests) 157ms
+ ✓ tests/team02-structure.test.ts (24 tests) 141ms
+ ✓ tests/sync-lease.test.ts (7 tests) 3796ms
+   ✓ cross-process cell lease > 1. a foreign unexpired lease blocks the cell: no venue walk, no writes, no theft, explicit timeout  454ms
+   ✓ cross-process cell lease > 5. a REAL second OS process holding the lease blocks the sync until its TTL expires  2695ms
+   ✓ cross-process cell lease > 6. real SQLite store: a lease held by a SEPARATE CONNECTION (cross-process stand-in) excludes the sync  415ms
+ ✓ tests/team02-property-invariants.test.ts (110 tests) 266ms
+ ✓ tests/brain-governance.test.ts (32 tests) 507ms
+ ✓ tests/audit-consistency.test.ts (15 tests) 27ms
+ ✓ tests/mining-project.test.ts (33 tests) 45ms
+ ✓ tests/brain-safety.test.ts (26 tests) 99ms
+ ✓ tests/team02-input-integrity.test.ts (44 tests) 80ms
+ ✓ tests/pwa-state.test.ts (25 tests) 23ms
+ ✓ tests/setup-admission-gate.test.ts (18 tests) 278ms
+ ✓ tests/team05-workers.test.ts (5 tests) 5499ms
+   ✓ T05 SQLite failure injection > SQLITE_BUSY does not leave a partial enqueue and recovery succeeds after lock release  5022ms
+ ✓ tests/team02-release-gate.test.ts (13 tests) 66ms
+ ✓ tests/scanner-safety.test.ts (12 tests) 220ms
+ ✓ tests/chart-telegram.test.ts (19 tests) 7061ms
+   ✓ PNG identity is readable/deterministic and not merely a direction colour bar  6984ms
+ ✓ tests/team02-mtf-causality.test.ts (12 tests) 54ms
+ ✓ tests/sync-concurrency.test.ts (4 tests) 154ms
+ ✓ tests/team02-chart-overlay.test.ts (14 tests) 42ms
+ ✓ tests/market-runtime-recovery.test.ts (4 tests) 3935ms
+   ✓ market runtime boot and recovery > boots loops during TTT outage, then discovers the universe and publishes stats without restart  3832ms
+ ✓ tests/i18n-scan.test.ts (9 tests) 376ms
+ ✓ tests/market-store.test.ts (7 tests) 25ms
+ ✓ tests/resource-state.test.ts (13 tests) 9ms
+ ✓ tests/setup-guard-unknown.test.ts (5 tests) 6ms
+ ✓ tests/backtest.test.ts (10 tests) 1141ms
+   ✓ runBacktest determinism & lineage (Brain-backed engine) > is deterministic: identical input -> identical positions  373ms
+ ✓ tests/team05-persistence-recovery.test.ts (10 tests) 31ms
+ ✓ tests/cinematic-governance.test.ts (14 tests) 21ms
+ ✓ tests/team05-api.test.ts (8 tests) 172ms
+ ✓ tests/team02-import-topology.test.ts (5 tests) 232ms
+ ✓ tests/retention-news.test.ts (5 tests) 19ms
+ ✓ tests/scheduler-guard.test.ts (10 tests) 30295ms
+   ✓ TTT HTTP transport > backs off with bounded retries on 429 and eventually surfaces rate_limited  15388ms
+   ✓ TTT HTTP transport > returns validated JSON with provenance on success  14859ms
+ ✓ tests/team02-causality-boundary.test.ts (19 tests) 48ms
+ ✓ tests/engine-health-truth.test.ts (6 tests) 389ms
+ ✓ tests/team02-abcd-correctness.test.ts (8 tests) 8ms
+ ✓ tests/board-selectors.test.ts (14 tests) 9ms
+ ✓ tests/opportunity-freshness.test.ts (8 tests) 99ms
+ ✓ tests/udf-normalize.test.ts (10 tests) 82ms
+ ✓ tests/team05-closure-gates.test.ts (6 tests) 43ms
+ ✓ tests/telegram-attempts-accounting.test.ts (2 tests) 68ms
+ ✓ tests/provider-state-contract.test.ts (18 tests) 17ms
+ ✓ tests/ttt-signer.test.ts (9 tests) 20ms
+ ✓ tests/team02-canonical-validity.test.ts (24 tests) 9ms
+ ✓ tests/risk-engine.test.ts (16 tests) 7ms
+ ✓ tests/universe-tf.test.ts (7 tests) 7ms
+ ✓ tests/team02-backtest-knowable.test.ts (1 test) 225ms
+ ✓ tests/user-psychology-source.test.ts (3 tests) 15ms
+ ✓ tests/team09-strategy-regression.test.ts (3 tests) 5ms
+ ✓ tests/team02-primitive-detectors.test.ts (2 tests) 41ms
+ ✓ tests/runtime-palette.test.ts (1 test) 257ms
+stderr | tests/runtime-dom.test.ts > live server reachable > renders the UNAVAILABLE truth in the DOM — no fake rows, no fake zeros
+An update to MarketBoard inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+ ✓ tests/runtime-dom.test.ts (2 tests) 257ms
+
+ Test Files  74 passed (74)
+      Tests  1425 passed (1425)
+   Start at  06:27:29
+   Duration  145.13s (transform 3.36s, setup 0ms, collect 5.63s, tests 119.96s, environment 1.31s, prepare 6.20s)
+
+
+===== npm run typecheck =====
+
+> asa@6.0.1 typecheck
+> tsc --noEmit
+
+
+===== npm run lint =====
+
+> asa@6.0.1 lint
+> eslint .
+
+
+===== npm run build =====
+
+> asa@6.0.1 build
+> next build
+
+▲ Next.js 16.3.3 (Turbopack)
+✓ Running next.config.ts took 72ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 24.5s
+  Running TypeScript ...
+  Finished TypeScript in 12.4s ...
+  Collecting page data using 1 worker ...
+  Generating static pages using 1 worker (0/23) ...
+  Generating static pages using 1 worker (5/23)
+  Generating static pages using 1 worker (11/23)
+  Generating static pages using 1 worker (17/23)
+✓ Generating static pages using 1 worker (23/23) in 608ms
+Turbopack build encountered 8 warnings:
+./src/lib/backtest/validation-pipeline.ts:236:14
+Warning: Dynamic filesystem access causes tracing of the whole project
+  234 |       for (const ser of wanted) {
+  235 |         const filePath = path.join(replayDir, ser.file);
+> 236 |         if (!fs.existsSync(filePath)) {
+      |              ^^^^^^^^^^^^^^^^^^^^^^^
+  237 |           skipped++;
+  238 |           continue;
+  239 |         }
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.existsSync(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import trace:
+  App Route:
+    ./src/lib/backtest/validation-pipeline.ts
+    ./src/app/api/brain/validation/route.ts
+
+
+./src/lib/backtest/validation-pipeline.ts:241:29
+Warning: Dynamic filesystem access causes tracing of the whole project
+  239 |         }
+  240 |
+> 241 |         const fileContent = fs.readFileSync(filePath, "utf8");
+      |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  242 |         const parsedRaw = JSON.parse(fileContent);
+  243 |         const { candles } = parseUdfHistory(parsedRaw, tfMin);
+  244 |
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.readFileSync(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import trace:
+  App Route:
+    ./src/lib/backtest/validation-pipeline.ts
+    ./src/app/api/brain/validation/route.ts
+
+
+./src/lib/backtest/validation-pipeline.ts:235:26
+Warning: Dynamic filesystem access causes tracing of the whole project
+  233 |
+  234 |       for (const ser of wanted) {
+> 235 |         const filePath = path.join(replayDir, ser.file);
+      |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  236 |         if (!fs.existsSync(filePath)) {
+  237 |           skipped++;
+  238 |           continue;
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import trace:
+  App Route:
+    ./src/lib/backtest/validation-pipeline.ts
+    ./src/app/api/brain/validation/route.ts
+
+
+./src/lib/psychology/user-source.ts:194:10
+Warning: Dynamic filesystem access causes tracing of the whole project
+  192 |   return USER_PSYCHOLOGY_SOURCES.map((descriptor) => {
+  193 |     const full = path.join(sourceDir, descriptor.filename);
+> 194 |     if (!fs.existsSync(full)) throw new Error(`Missing user psychology source: ${full}`);
+      |          ^^^^^^^^^^^^^^^^^^^
+  195 |     const buf = fs.readFileSync(full);
+  196 |     const text = buf.toString("utf8");
+  197 |     const sha256 = createHash("sha256").update(buf).digest("hex");
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.existsSync(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/psychology/user-source.ts
+    ./src/app/api/brain/policies/route.ts
+
+  #2 [App Route]:
+    ./src/lib/psychology/user-source.ts
+    ./src/lib/backtest/validation-pipeline.ts
+    ./src/app/api/brain/validation/route.ts
+
+
+./src/lib/psychology/user-source.ts:195:17
+Warning: Dynamic filesystem access causes tracing of the whole project
+  193 |     const full = path.join(sourceDir, descriptor.filename);
+  194 |     if (!fs.existsSync(full)) throw new Error(`Missing user psychology source: ${full}`);
+> 195 |     const buf = fs.readFileSync(full);
+      |                 ^^^^^^^^^^^^^^^^^^^^^
+  196 |     const text = buf.toString("utf8");
+  197 |     const sha256 = createHash("sha256").update(buf).digest("hex");
+  198 |     const totalLines = text.split("\n").length;
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.readFileSync(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/psychology/user-source.ts
+    ./src/app/api/brain/policies/route.ts
+
+  #2 [App Route]:
+    ./src/lib/psychology/user-source.ts
+    ./src/lib/backtest/validation-pipeline.ts
+    ./src/app/api/brain/validation/route.ts
+
+
+./src/lib/psychology/user-source.ts:219:18
+Warning: Dynamic filesystem access causes tracing of the whole project
+  217 |
+  218 |   for (const descriptor of verified) {
+> 219 |     const text = fs.readFileSync(path.join(sourceDir, descriptor.filename), "utf8");
+      |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  220 |     const lines = text.split("\n");
+  221 |     const doc: SourceDocument = {
+  222 |       file_id: descriptor.file_id,
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.readFileSync(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/psychology/user-source.ts
+    ./src/app/api/brain/policies/route.ts
+
+  #2 [App Route]:
+    ./src/lib/psychology/user-source.ts
+    ./src/lib/backtest/validation-pipeline.ts
+    ./src/app/api/brain/validation/route.ts
+
+
+./src/lib/psychology/user-source.ts:193:18
+Warning: Dynamic filesystem access causes tracing of the whole project
+  191 | export function verifyUserPsychologySources(sourceDir = path.join(process.cwd(), "knowled...
+  192 |   return USER_PSYCHOLOGY_SOURCES.map((descriptor) => {
+> 193 |     const full = path.join(sourceDir, descriptor.filename);
+      |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  194 |     if (!fs.existsSync(full)) throw new Error(`Missing user psychology source: ${full}`);
+  195 |     const buf = fs.readFileSync(full);
+  196 |     const text = buf.toString("utf8");
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/psychology/user-source.ts
+    ./src/app/api/brain/policies/route.ts
+
+  #2 [App Route]:
+    ./src/lib/psychology/user-source.ts
+    ./src/lib/backtest/validation-pipeline.ts
+    ./src/app/api/brain/validation/route.ts
+
+
+./src/lib/psychology/user-source.ts:219:34
+Warning: Dynamic filesystem access causes tracing of the whole project
+  217 |
+  218 |   for (const descriptor of verified) {
+> 219 |     const text = fs.readFileSync(path.join(sourceDir, descriptor.filename), "utf8");
+      |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  220 |     const lines = text.split("\n");
+  221 |     const doc: SourceDocument = {
+  222 |       file_id: descriptor.file_id,
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/psychology/user-source.ts
+    ./src/app/api/brain/policies/route.ts
+
+  #2 [App Route]:
+    ./src/lib/psychology/user-source.ts
+    ./src/lib/backtest/validation-pipeline.ts
+    ./src/app/api/brain/validation/route.ts
+
+
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /ai
+├ ○ /ai-clone
+├ ƒ /api/ai-clone
+├ ƒ /api/ai/analyze
+├ ƒ /api/ai/status
+├ ƒ /api/analysis/[symbol]/[tf]
+├ ƒ /api/analysis/mtf/[symbol]
+├ ƒ /api/brain
+├ ƒ /api/brain/explorer
+├ ƒ /api/brain/mining
+├ ƒ /api/brain/policies
+├ ƒ /api/brain/policy-origin
+├ ƒ /api/brain/rules
+├ ƒ /api/brain/strategies
+├ ƒ /api/brain/trace
+├ ƒ /api/brain/unknowns
+├ ƒ /api/brain/validation
+├ ƒ /api/charts/[id]
+├ ƒ /api/fundamental/news
+├ ƒ /api/market/board
+├ ƒ /api/market/candles
+├ ƒ /api/market/catalog
+├ ƒ /api/market/derivatives
+├ ƒ /api/market/focus
+├ ƒ /api/market/history
+├ ƒ /api/market/matrix
+├ ƒ /api/market/orderbook
+├ ƒ /api/market/prices
+├ ƒ /api/market/stats
+├ ƒ /api/market/symbols
+├ ƒ /api/market/sync-status
+├ ƒ /api/market/trades
+├ ƒ /api/opportunities
+├ ƒ /api/psychology/summary
+├ ƒ /api/research/ai-calls
+├ ƒ /api/research/backtest
+├ ƒ /api/research/backtest/[id]
+├ ƒ /api/research/strategies
+├ ƒ /api/signals
+├ ƒ /api/signals/[id]
+├ ƒ /api/signals/journal
+├ ƒ /api/signals/journal/[id]
+├ ƒ /api/system/config
+├ ƒ /api/system/events
+├ ƒ /api/system/health
+├ ƒ /api/system/logs
+├ ƒ /api/system/notify
+├ ƒ /api/system/status
+├ ○ /backtest
+├ ○ /brain
+├ ○ /brain/conflicts
+├ ○ /brain/psychology
+├ ○ /brain/risk
+├ ○ /brain/rules
+├ ○ /brain/search
+├ ○ /brain/strategies
+├ ○ /brain/unknowns
+├ ○ /chart
+├ ○ /fundamental
+├ ○ /market
+├ ○ /opportunities
+├ ○ /psychology
+├ ○ /research
+├ ○ /settings
+├ ○ /signals
+├ ƒ /signals/[id]
+└ ○ /system
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+===== LOCAL synthetic seed: 4 loopback requests, 0 external =====
+LOCAL TEST seed: PASS; real local HTTP requests=4; external HTTP=0
+
+===== LOCAL fresh-process text-only retry: 1 loopback request, 0 external =====
+LOCAL TEST retry: PASS; real local HTTP requests=1; external HTTP=0
+
+===== browser states: 8 checks =====
+{
+  "checks": 8,
+  "results": [
+    {
+      "name": "real API → empty/success UI",
+      "status": "PASS",
+      "evidence": {
+        "http": 200,
+        "real_signal_count": 0
+      }
+    },
+    {
+      "name": "390px mobile + Persian/RTL",
+      "status": "PASS",
+      "evidence": "no horizontal overflow; language button switches dir=rtl"
+    },
+    {
+      "name": "loading is not empty success",
+      "status": "PASS",
+      "evidence": "delayed API test interception"
+    },
+    {
+      "name": "HTTP 503 → visible error",
+      "status": "PASS",
+      "evidence": "test interception; not reported as empty"
+    },
+    {
+      "name": "partial delivery + provenance",
+      "status": "PASS",
+      "evidence": "test-only photo accepted/text pending; never SENT"
+    },
+    {
+      "name": "failed refresh discloses cached age and withholds current delivery cards",
+      "status": "PASS",
+      "evidence": "test clock and HTTP failure; cached delivery is not presented as current"
+    },
+    {
+      "name": "offline",
+      "status": "PASS",
+      "evidence": "browser offline mode produces explicit offline state"
+    },
+    {
+      "name": "browser runtime",
+      "status": "PASS",
+      "evidence": "zero uncaught page errors across real and injected scenarios"
+    }
+  ],
+  "errors": []
+}
+
+===== browser workflows: 15 checks =====
+{
+  "checks": 15,
+  "results": [
+    {
+      "name": "real dashboard",
+      "status": "PASS",
+      "evidence": "unmodified built application and actual runtime API"
+    },
+    {
+      "name": "real signals-empty",
+      "status": "PASS",
+      "evidence": "unmodified built application and actual runtime API"
+    },
+    {
+      "name": "real opportunities-empty",
+      "status": "PASS",
+      "evidence": "unmodified built application and actual runtime API"
+    },
+    {
+      "name": "real delivery-runtime",
+      "status": "PASS",
+      "evidence": "unmodified built application and actual runtime API"
+    },
+    {
+      "name": "real missing detail",
+      "status": "PASS",
+      "evidence": "HTTP 404 -> explicit unavailable, no fabricated lifecycle"
+    },
+    {
+      "name": "real mobile Persian RTL",
+      "status": "PASS",
+      "evidence": "390px, no horizontal overflow"
+    },
+    {
+      "name": "LOCAL signal-list",
+      "status": "PASS",
+      "evidence": "actual SQLite -> API -> UI, synthetic upstream/account + local HTTP provider ONLY"
+    },
+    {
+      "name": "LOCAL partial-delivery-detail",
+      "status": "PASS",
+      "evidence": "actual SQLite -> API -> UI, synthetic upstream/account + local HTTP provider ONLY"
+    },
+    {
+      "name": "LOCAL accepted-detail",
+      "status": "PASS",
+      "evidence": "actual SQLite -> API -> UI, synthetic upstream/account + local HTTP provider ONLY"
+    },
+    {
+      "name": "LOCAL terminal-lifecycle",
+      "status": "PASS",
+      "evidence": "actual SQLite -> API -> UI, synthetic upstream/account + local HTTP provider ONLY"
+    },
+    {
+      "name": "LOCAL risk-block",
+      "status": "PASS",
+      "evidence": "actual SQLite -> API -> UI, synthetic upstream/account + local HTTP provider ONLY"
+    },
+    {
+      "name": "LOCAL immutable chart",
+      "status": "PASS",
+      "evidence": "real chart API/renderer reads exact persisted synthetic OHLCV fingerprint during real discovery outage"
+    },
+    {
+      "name": "LOCAL mobile detail RTL",
+      "status": "PASS",
+      "evidence": "no horizontal overflow; decision, delivery and history remain distinct"
+    },
+    {
+      "name": "LOCAL UI -> API -> SQLite -> reloaded UI",
+      "status": "PASS",
+      "evidence": "actual guarded risk preference save, equity 12000, no intercepted response or source edit"
+    },
+    {
+      "name": "LOCAL offline mutation",
+      "status": "PASS",
+      "evidence": "truthful offline refusal; no unhandled promise rejection"
+    }
+  ],
+  "errors": []
+}
+
+===== browser restart: 2 checks =====
+{
+  "label": "LOCAL TEST ONLY",
+  "checks": 2,
+  "signals": 3,
+  "delivery": {
+    "outbox_id": 1,
+    "link": "outbox_id",
+    "delivery_state": "SENT",
+    "outbox_state": "SENT",
+    "attempts": 2,
+    "error": null,
+    "progress": {
+      "photo_message_id": 1790490393,
+      "photo_accepted_ms": 1790490393640,
+      "text_message_id": 1790490616,
+      "text_accepted_ms": 1790490616893,
+      "photo_required": true,
+      "photo_sent": true,
+      "text_sent": true
+    },
+    "queued_ms": 1790490393358,
+    "sent_ms": 1790490616893,
+    "sending": null
+  },
+  "errors": [],
+  "settings_equity": "12000",
+  "note": "process restarted; exactly one local HTTP text request, no repeated photo; no external Telegram acceptance"
+}

@@ -1,0 +1,70 @@
+{
+  "date": "2026-09-27",
+  "pr": 24,
+  "base": "5f7154c92c5307e48d07158798d9ff3a2fea0fd6",
+  "tests": {
+    "passed": 1425,
+    "files": 74,
+    "skipped": 0,
+    "elapsed_s": 145.13
+  },
+  "browser_checks": 25,
+  "note": "LOCAL artifacts use isolated synthetic data and a loopback HTTP provider, not live acceptance. Previous team05/team05-closure evidence remains a historical pre-integration snapshot. Manifest excludes itself.",
+  "artifacts": [
+    {
+      "file": "browser-restart.json",
+      "bytes": 736,
+      "sha256": "6f95762fe4fc207510ccc982879d101c225487f6a4272171e5eeb1546d669d58"
+    },
+    {
+      "file": "browser-states.json",
+      "bytes": 1414,
+      "sha256": "089401964d88ae8d804d00fa344e0915b1c79e175be4291c876972f08ac8ed57"
+    },
+    {
+      "file": "browser-workflows.json",
+      "bytes": 2666,
+      "sha256": "f0b7a9c505430398364b62562e1967362017e75b576a720bb5bc6fc44fbf12a7"
+    },
+    {
+      "file": "local-mobile-persian-detail.png",
+      "bytes": 138787,
+      "sha256": "bf31745035f1a9adf62441f3cc538214eb15ceae23f943109dc815e4e3d735cd"
+    },
+    {
+      "file": "local-restart-text-only-retry.png",
+      "bytes": 187080,
+      "sha256": "47db46d766823dff28b021d5eaac5915e48c3eb3397738b986441765b02d5f9c"
+    },
+    {
+      "file": "local-retry.json",
+      "bytes": 744,
+      "sha256": "a4ab982f45c76ea474853df6e2d702fbadc5633b51ff9f2f160cf796872df8ac"
+    },
+    {
+      "file": "local-scenario.json",
+      "bytes": 1206,
+      "sha256": "5f3aa8a2edb9d477759c0843852a778cf54c8351690df8c05087e6f8304271c7"
+    },
+    {
+      "file": "npm-audit.json",
+      "bytes": 2245,
+      "sha256": "60a8a4a2837a9ff15c331f38016780c9e7ef1ad2e6810efd0e3773f8261023a8"
+    },
+    {
+      "file": "real-dashboard.png",
+      "bytes": 165043,
+      "sha256": "c5b71ab4b500d1d44c7d26e8cd3045bab526560a5510fb77b4f97c7564f52c3c"
+    },
+    {
+      "file": "real-mobile-persian.png",
+      "bytes": 69467,
+      "sha256": "bb489c12807b99d9a6253e70c15f8a2ba457c2b4307d1cfc5f24b225afb0dbd7"
+    },
+    {
+      "file": "validation.txt",
+      "bytes": 30957,
+      "sha256": "6e47719ab9f91bb51b54b3ccacc44971e92f471beecc9a0661138edc3c6a09db"
+    }
+  ]
+}
