@@ -35,10 +35,9 @@ export const metadata: Metadata = {
 };
 export const viewport: Viewport = { themeColor: "#06070a", width: "device-width", initialScale: 1 };
 
-/** Pre-paint language restore: a saved Persian preference must not first
- *  render an LTR frame (direction flash = a UI that lies about its own state
- *  for ~100 ms). Runs before hydration; the provider takes over afterwards. */
-const LANG_BOOT = `try{var d=document.documentElement;var l=localStorage.getItem("asa-lang");if(l==="fa"){d.lang="fa";d.dir="rtl";}var q=localStorage.getItem("asa-density");if(q==="compact")d.dataset.density="compact";var m=localStorage.getItem("asa-motion");if(m==="reduced")d.dataset.motion="reduced";var r=localStorage.getItem("asa-rail");if(r==="compact")d.dataset.rail="compact";}catch(e){}`;
+/** Pre-paint language and theme restore: a saved Persian preference or theme
+ *  must not first render wrong frame. Runs before hydration. */
+const LANG_BOOT = `try{var d=document.documentElement;var l=localStorage.getItem("asa-lang");if(l==="fa"){d.lang="fa";d.dir="rtl";}var q=localStorage.getItem("asa-density");if(q==="compact")d.dataset.density="compact";var m=localStorage.getItem("asa-motion");if(m==="reduced")d.dataset.motion="reduced";var r=localStorage.getItem("asa-rail");if(r==="compact")d.dataset.rail="compact";var th=localStorage.getItem("asa-theme");if(th==="light"){d.dataset.theme="light";d.classList.add("light");}}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

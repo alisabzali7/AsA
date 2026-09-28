@@ -89,6 +89,44 @@ html[data-density="compact"] {
   --d-cell-y: 3px;
 }
 
+/* Light Theme Variables */
+html[data-theme="light"], html.light {
+  color-scheme: light;
+  --color-obsidian: #f6f7fb;
+  --color-ink: #ebedf5;
+  --color-panel: #ffffff;
+  --color-panel-2: #f1f3f9;
+  --color-panel-3: #e6e9f2;
+  --color-line: #dbe0eb;
+  --color-line-2: #c5ccdc;
+  --color-line-3: #adb6cb;
+
+  --color-text: #10141d;
+  --color-muted: #565e70;
+  --color-dim: #7f889c;
+
+  --color-gold: #b38b32;
+  --color-gold-2: #947225;
+  --color-gold-3: #6b5217;
+  --color-gold-dim: #f7eedb;
+
+  --color-up: #1b9e6e;
+  --color-down: #cf4341;
+  --color-warn: #c4871b;
+  --color-info: #357bd9;
+  --color-void: #8c93a3;
+
+  --ring-gold: rgba(179, 139, 50, 0.12);
+  --lift: 0 12px 34px -18px rgba(0, 0, 0, 0.14);
+}
+html[data-theme="light"] body::before, html.light body::before {
+  background:
+    radial-gradient(1100px 420px at 72% -12%, rgba(179, 139, 50, 0.05), transparent 62%),
+    linear-gradient(rgba(30, 50, 90, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30, 50, 90, 0.025) 1px, transparent 1px);
+  background-size: 100% 100%, 44px 44px, 44px 44px;
+}
+
 /* ------------------------------------------------------------------ base */
 html, body { height: 100%; }
 body {

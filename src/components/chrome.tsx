@@ -17,9 +17,9 @@ import { useEffect, useSyncExternalStore, useState, type ReactNode } from "react
 import { useLang } from "./lang";
 import { stateColor } from "./hooks";
 import { NAV_GROUPS, MOBILE_PRIMARY, recordRecent } from "./nav";
-import { densityPref, motionPref, railPref } from "./selection";
+import { densityPref, motionPref, railPref, themePref } from "./selection";
 import { FOOTER_EXACT } from "@/lib/i18n/strings";
-import { IconClose, IconCommandCenter, IconDensity, IconLang, IconSearch, IconSettings } from "./icons";
+import { IconClose, IconCommandCenter, IconDensity, IconLang, IconMoon, IconSearch, IconSettings, IconSun } from "./icons";
 import { SheetClose, useOverlay } from "./overlay";
 
 interface HealthShape { evidence_mode?: string | null; ok: boolean; market: string; reason?: string; ts: number }
@@ -62,6 +62,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [density, setDensity] = densityPref.use();
   const [motion, setMotion] = motionPref.use();
   const [rail, setRail] = railPref.use();
+  const [theme, setTheme] = themePref.use();
 
   // remember destinations for the palette's RECENT group (device-owned)
   useEffect(() => { if (path) recordRecent(path); }, [path]);
@@ -187,6 +188,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               </button>
               <button className="focus-ring icon-btn" onClick={() => setDensity(density === "compact" ? "comfortable" : "compact")} aria-pressed={density === "compact"} title={`density: ${density}`}>
                 <IconDensity size={14} />
+              </button>
+              <button className="focus-ring icon-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-pressed={theme === "light"} title={`theme: ${theme}`}>
+                {theme === "light" ? <IconMoon size={14} /> : <IconSun size={14} />}
               </button>
               <button className="focus-ring icon-btn text-[11px] font-bold" onClick={() => setLang(lang === "en" ? "fa" : "en")} aria-label="switch language">
                 <span className="lg:hidden"><IconLang size={15} /></span>
