@@ -125,3 +125,84 @@ export const IconLayers = (p: P) => (
 export const IconPulse = (p: P) => (
   <Svg {...p}><path d="M2.5 12H6l2-6 4 12 2-6h7.5" /></Svg>
 );
+
+export const IconFullscreen = (p: P) => (
+  <Svg {...p}><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></Svg>
+);
+export const IconFullscreenExit = (p: P) => (
+  <Svg {...p}><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></Svg>
+);
+export const IconCamera = (p: P) => (
+  <Svg {...p}><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" /><circle cx="12" cy="13" r="4" /></Svg>
+);
+export const IconPin = (p: P) => (
+  <Svg {...p}><path d="M12 17v5M5 9l14-4-5 14-3-5z" /></Svg>
+);
+export const IconPinFilled = (p: P) => (
+  <Svg {...p}><path d="M12 17v5M5 9l14-4-5 14-3-5z" fill="currentColor" /></Svg>
+);
+export const IconTrendLine = (p: P) => (
+  <Svg {...p}><path d="M4 19L20 5M4 19a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM20 5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" /></Svg>
+);
+export const IconHorizontalLine = (p: P) => (
+  <Svg {...p}><path d="M3 12h18M12 12a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" /></Svg>
+);
+export const IconVerticalLine = (p: P) => (
+  <Svg {...p}><path d="M12 3v18M12 12a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" /></Svg>
+);
+export const IconRay = (p: P) => (
+  <Svg {...p}><path d="M4 18L19 7M19 7h-5M19 7v5M4 18a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" /></Svg>
+);
+export const IconRectangle = (p: P) => (
+  <Svg {...p}><rect x="4" y="5" width="16" height="14" rx="2" /></Svg>
+);
+export const IconRuler = (p: P) => (
+  <Svg {...p}><path d="M4 18l14-14M7 9l2 2M10 6l2 2M13 3l2 2M10 12l2 2M13 15l2 2" /></Svg>
+);
+export const IconFibonacci = (p: P) => (
+  <Svg {...p}><path d="M3 5h18M3 9h18M3 12h18M3 15h18M3 19h18" opacity=".8" /><path d="M5 19L19 5" strokeWidth={2} /></Svg>
+);
+export const IconText = (p: P) => (
+  <Svg {...p}><path d="M4 7V4h16v3M12 4v16M8 20h8" /></Svg>
+);
+export const IconTrash = (p: P) => (
+  <Svg {...p}><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6" /></Svg>
+);
+export const IconEye = (p: P) => (
+  <Svg {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></Svg>
+);
+export const IconEyeOff = (p: P) => (
+  <Svg {...p}><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19M1 1l22 22M9.88 9.88a3 3 0 104.24 4.24" /></Svg>
+);
+export const IconCrosshair = (p: P) => (
+  <Svg {...p}><circle cx="12" cy="12" r="8" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></Svg>
+);
+export const IconCursor = (p: P) => (
+  <Svg {...p}><path d="M4 4l7 17 2.5-6.5L20 12z" /></Svg>
+);
+export const IconSliders = (p: P) => (
+  <Svg {...p}><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" /></Svg>
+);
+export const IconCopy = (p: P) => (
+  <Svg {...p}><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></Svg>
+);
+export const IconFilter = (p: P) => (
+  <Svg {...p}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></Svg>
+);
+export const IconSun = (p: P) => (
+  <Svg {...p}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></Svg>
+);
+export const IconMoon = (p: P) => (
+  <Svg {...p}><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" /></Svg>
+);
+export const IconSparkles = (p: P) => (
+  <Svg {...p}><path d="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5L12 3zM19 17l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3zM5 19l.6 1.8 1.8.6-1.8.6L5 24l-.6-1.8L2.6 22l1.8-.6L5 19z" /></Svg>
+);
+export const IconTrendingUp = (p: P) => (
+  <Svg {...p}><path d="M23 6l-9.5 9.5-5-5L1 18" /><path d="M17 6h6v6" /></Svg>
+);
+export const IconTrendingDown = (p: P) => (
+  <Svg {...p}><path d="M23 18l-9.5-9.5-5 5L1 6" /><path d="M17 18h6v-6" /></Svg>
+);
+
+

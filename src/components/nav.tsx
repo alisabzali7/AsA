@@ -5,7 +5,7 @@
 import type { ComponentType } from "react";
 import {
   IconCommandCenter, IconMarket, IconChart, IconOpportunity, IconSignal,
-  IconMind, IconAi, IconClone, IconBacktest, IconLab, IconBrain, IconNews,
+  IconStrategy, IconMind, IconAi, IconClone, IconBacktest, IconLab, IconBrain, IconNews,
   IconSystem, IconSettings,
 } from "./icons";
 
@@ -38,6 +38,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     label: "Decision",
     labelFa: "تصمیم",
     items: [
+      { href: "/strategies", key: "strategies", en: "Strategies", icon: IconStrategy },
       { href: "/psychology", key: "psychology", en: "Psychology", icon: IconMind },
       { href: "/ai", key: "ai_analysis", en: "AI Analysis", icon: IconAi },
       { href: "/ai-clone", key: "ai", en: "AI Clone", icon: IconClone },
