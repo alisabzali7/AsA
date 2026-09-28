@@ -240,8 +240,9 @@ export function unknownCriticalFields(b: ParsedStrategyBlock): CriticalSpecField
   const tf = get(["timeframe"]);
   if (tf.length === 0 || tf.every((f) => f.is_unknown)) out.push("timeframe");
 
-  // invalidation is expressed via exit conditions or exclusions in this corpus
-  const inval = get(["exit", "exclusions"]);
+  // Only an explicit exit field can supply invalidation/exit semantics.
+  // Exclusions describe when not to enter; they are not an exit substitute.
+  const inval = get(["exit"]);
   if (inval.length === 0 || inval.every((f) => f.is_unknown)) out.push("invalidation");
 
   return out;

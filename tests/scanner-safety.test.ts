@@ -32,7 +32,7 @@ function baseInput(series: Map<string, Map<string, Candle[]>>, over: Record<stri
     riskPolicy: POLICY,
     psychologyPolicies: PSYCH,
     psychologyState: {
-      declared_state: "ok" as const, consecutive_losses: 0, minutes_since_last_loss: null,
+      declared_state: "ok" as const, journal_coverage: "COMPLETE" as const, consecutive_losses: 0, minutes_since_last_loss: null,
       daily_loss_pct: 0, trades_today: 0, max_trades_per_day: 5, cooldown_min: 60,
       checklist_completed: true, security_checklist_completed: true, standards_declared: true,
       unreviewed_closed_trades: 0, distance_from_entry_zone_atr: null, daily_loss_limit_pct: 5,
@@ -107,18 +107,22 @@ describe.runIf(hasReplay)("opportunity scanner", () => {
     expect(r.rejected.some((c) => c.admission_reasons.join(" ").includes("DISABLED"))).toBe(true);
   });
 
-  it("a psychology hard block vetoes admission even at threshold 0", () => {
+  it("does not activate the daily-loss psychology policy while RAW_4 is truncated", () => {
+    const dailyLossPolicy = buildRiskPolicies().find((policy) => policy.policy_id === "RISK-DAILY-5PCT")!;
     const r = scanForOpportunities(baseInput(series(), {
       scoreThreshold: 0,
+      riskPolicy: dailyLossPolicy,
       psychologyState: {
-        declared_state: "tilted" as const, consecutive_losses: 0, minutes_since_last_loss: null,
-        daily_loss_pct: 0, trades_today: 0, max_trades_per_day: 5, cooldown_min: 60,
+        declared_state: "ok" as const, journal_coverage: "COMPLETE" as const, consecutive_losses: 0, minutes_since_last_loss: null,
+        daily_loss_pct: 5, trades_today: 0, max_trades_per_day: 5, cooldown_min: 60,
         checklist_completed: true, security_checklist_completed: true, standards_declared: true,
         unreviewed_closed_trades: 0, distance_from_entry_zone_atr: null, daily_loss_limit_pct: 5,
       },
     }));
     expect(r.admitted).toEqual([]);
-    expect(r.rejected.some((c) => c.psychology?.verdict === "block")).toBe(true);
+    expect(r.rejected.some((candidate) => candidate.psychology?.active_policy_ids.includes("PSY-DAILY-LOSS"))).toBe(false);
+    expect(r.rejected.some((candidate) => candidate.psychology?.verdict === "unknown" &&
+      candidate.psychology.not_evaluated.some((item) => item.includes("PSY-DAILY-LOSS") && item.includes("TRUNCATED")))).toBe(true);
   });
 
   it("insufficient bars are skipped before any detector runs", () => {

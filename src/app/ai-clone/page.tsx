@@ -32,12 +32,26 @@ interface CloneLlmInfo {
   latency_ms: number | null;
 }
 
+interface CloneOutputValidation {
+  status: string;
+  semantic_status: "NOT_PROVEN";
+  displayed: boolean;
+  unsupported_numbers: string[];
+  unsupported_symbols: string[];
+  authority_violations: string[];
+  note: string;
+}
+
 interface CloneShape {
   ok: boolean;
   question?: string;
   symbol?: string | null;
+  provider_mode?: string;
   facts: string[];
+  ai_context?: Record<string, unknown>;
   explanation: string | null;
+  explanation_authority?: string;
+  explanation_validation?: CloneOutputValidation | null;
   tags: string[];
   llm_online: boolean;
   llm: CloneLlmInfo;
@@ -114,8 +128,12 @@ function AiCloneInner() {
         ts: j2.ts ?? now,
         question: j2.question ?? query,
         symbol: j2.symbol ?? null,
+        provider_mode: j2.provider_mode,
         facts: j2.facts ?? [],
+        ai_context: j2.ai_context,
         explanation: j2.explanation ?? null,
+        explanation_authority: j2.explanation_authority,
+        explanation_validation: j2.explanation_validation ?? null,
         tags: j2.tags ?? [],
         llm_online: j2.llm_online ?? false,
         llm: j2.llm ?? { provider: null, model: null, status: "disabled", error: null, latency_ms: null },
@@ -252,7 +270,8 @@ function AiCloneInner() {
                 {h.tags.map((tag) => (
                   <Badge key={tag} color="var(--color-gold)">{tag}</Badge>
                 ))}
-                {h.llm.status === "ok" && (
+                {h.provider_mode && <Badge color="var(--color-dim)">mode · {h.provider_mode}</Badge>}
+                {h.llm.status === "ok" && h.explanation !== null && (
                   <Badge color="var(--color-up)">
                     LLM · {h.llm.provider} {h.llm.model ? `· ${h.llm.model}` : ""} ({h.llm.latency_ms ?? 0}ms)
                   </Badge>
@@ -276,6 +295,9 @@ function AiCloneInner() {
                   <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-gold flex items-center gap-1.5">
                     <IconAi size={12} />
                     {t("ai", "explanation")}
+                  </p>
+                  <p className="mb-1 text-[9.5px] text-dim">
+                    {t("ai", "nonAuthoritative")} · {h.explanation_authority ?? "NON_AUTHORITATIVE"} · {h.explanation_validation?.status ?? "NOT_PROVEN"} · {h.explanation_validation?.semantic_status ?? "NOT_PROVEN"}
                   </p>
                   <div className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-text" dir="auto">
                     {h.explanation}
@@ -327,6 +349,12 @@ function AiCloneInner() {
                   })}
                 </ul>
               </div>
+              {h.ai_context && (
+                <details className="mt-2 border-t hairline pt-2">
+                  <summary className="cursor-pointer text-[9.5px] text-dim">structured request context (audit view)</summary>
+                  <pre className="mt-2 max-h-[360px] overflow-auto whitespace-pre-wrap break-words text-[9px] text-muted" dir="ltr">{JSON.stringify(h.ai_context, null, 2)}</pre>
+                </details>
+              )}
             </Panel>
           ))}
         </div>

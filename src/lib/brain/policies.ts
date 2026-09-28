@@ -12,6 +12,7 @@
  * during Stage 0 and are reproducible with:
  *   grep -n "ریسک" knowledge/raw/RAW_*.txt
  */
+import { sourceCompletenessFor } from "./corpus-manifest";
 import type { ConflictGroup, PsychologyPolicy, RiskPolicy, SourceRef } from "./types";
 
 const ref = (file: string, line: number, quote: string): SourceRef => ({
@@ -40,7 +41,7 @@ export function buildRiskPolicies(): RiskPolicy[] {
         ref("1.txt", 286, "ریسک دقیقاً روی ۲ درصد"),
         ref("1.txt", 329, "ریسک ۲ درصد"),
         ref("1.txt", 854, "ریسک ۲ درصد"),
-        ref("1.txt", 876, "ریسکِ ثابت (مانند ریسک ۲ درصد)"),
+        ref("1.txt", 876, "ریسکِ ثابت (مانند ریسک ۲ درصدی حساب)"),
       ],
       source_status: "CONFLICT",
       conflict_group_id: RISK_CONFLICT_GROUP,
@@ -102,18 +103,21 @@ export function buildRiskPolicies(): RiskPolicy[] {
     },
     {
       policy_id: "RISK-ACCOUNT-11PCT",
-      canonical_name: "Total account risk ~11% (RAW_4)",
+      canonical_name: "~11% small-account test observation (RAW_4; not a limit)",
       risk_per_trade_pct: null,
       daily_loss_limit_pct: null,
-      max_account_risk_pct: 11,
+      max_account_risk_pct: null,
       period_loss_limit_pct: null,
       max_leverage: null,
       max_concurrent_positions: null,
-      source_refs: [ref("4.txt", 1898, "ریسک کلی اکانت حدود ۱۱ درصد"), ref("4.txt", 1958, "ریسک ۱۱ درصد")],
-      source_status: "SOURCE_VERIFIED",
-      conflict_group_id: null,
-      runtime_status: base.runtime,
-      notes: "Aggregate open-risk figure (portfolio heat ceiling).",
+      source_refs: [
+        ref("4.txt", 1898, "ریسک کلی اکانت حدود ۱۱ درصد گزارش شده است"),
+        ref("4.txt", 1958, "ریسک ۱۱ درصدی اکانت تست خود را نشان می‌دهد"),
+      ],
+      source_status: "CLAIM",
+      conflict_group_id: "CFG-ACCOUNT-RISK-CONTEXT",
+      runtime_status: "DISABLED",
+      notes: "The supplied source reports an observed ~11% risk on a small full-margin test account and separately says normal-account total risk should be below 5–6%. It is an account example/claim, not a source-backed maximum, default, or selectable production policy. The source itself marks this context as a conflict; no numeric cap is inferred.",
     },
     {
       policy_id: "RISK-PERIOD-15PCT",
@@ -179,7 +183,14 @@ export function buildPsychologyPolicies(): PsychologyPolicy[] {
   ): PsychologyPolicy => ({
     policy_id: id, canonical_name: name, description: desc, effect, score_penalty: penalty,
     trigger_condition: trigger, source_refs: refs, source_status: sourceStatus,
-    runtime_status: "LIVE_ADVISORY_ONLY", user_overridable: overridable,
+    // A sourced policy is not live unless every cited artifact is explicitly
+    // COMPLETE. Exact quotes from a TRUNCATED file do not establish that the
+    // full source has no later conflict or qualification.
+    runtime_status: sourceStatus === "SOURCE_VERIFIED" && refs.length > 0 &&
+      refs.every((sourceRef) => sourceCompletenessFor(sourceRef.file) === "COMPLETE")
+      ? "LIVE_ADVISORY_ONLY"
+      : "DISABLED",
+    user_overridable: overridable,
   });
 
   return [
@@ -237,9 +248,9 @@ export function buildPsychologyPolicies(): PsychologyPolicy[] {
 }
 
 /**
- * Build conflict groups. The risk group is authored explicitly (we know the
- * exact competing variants); textual CONFLICT markers found during ingestion
- * are preserved as their own group so nothing is lost.
+ * Build explicit source-linked conflict groups without choosing a winner;
+ * textual CONFLICT markers found during ingestion are also preserved so no
+ * source adjudication is silently erased.
  */
 export function buildConflictGroups(
   conflictLines: { file: string; line: number; text: string }[],
@@ -268,6 +279,31 @@ export function buildConflictGroups(
           label: "5% tolerance example",
           statement: "ریسک: اگر تحمل 5% — presented as an example of risk tolerance, not a rule.",
           source_refs: [ref("4.txt", 202, "ریسک: اگر تحمل 5%")],
+        },
+      ],
+      resolution: "UNRESOLVED",
+      chosen_variant: null,
+      resolved_by: null,
+      resolved_at_ms: null,
+    },
+    {
+      conflict_group_id: "CFG-ACCOUNT-RISK-CONTEXT",
+      topic: "Observed small-account risk versus normal-account guidance",
+      variants: [
+        {
+          label: "Observed small full-margin test account around 11%",
+          statement: "The source reports approximately 11% account risk on a small full-margin test account; this is an observation, not a maximum.",
+          source_refs: [ref("4.txt", 1898, "ریسک کلی اکانت حدود ۱۱ درصد گزارش شده است")],
+        },
+        {
+          label: "Normal-account total risk below 5–6%",
+          statement: "The same source says normal-account total risk should be below 5–6%; the range is preserved and not collapsed into one threshold.",
+          source_refs: [ref("4.txt", 1898, "برای حساب‌های نرمال، ریسک کل باید زیر ۵ الی ۶ درصد باشد")],
+        },
+        {
+          label: "Source's explicit conflict marker",
+          statement: "The transcript itself marks the 11% test-account observation versus broader account/period guidance as a conflict; no interpretation is selected here.",
+          source_refs: [ref("4.txt", 1958, "CONFLICT: مدرس از یک سو ریسک ۱۱ درصدی اکانت تست خود را نشان می‌دهد")],
         },
       ],
       resolution: "UNRESOLVED",

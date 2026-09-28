@@ -9,7 +9,8 @@ import { useSelection } from "@/components/selection";
 
 
 interface Section { key: string; label: string; state: string; verdict: string; value?: number | string | null; evidence: string[]; reason?: string }
-interface PsychShape { ok: boolean; symbol: string; bias: string; bias_reason: string; sections: Section[]; universe_funding: { measured: number; total: number; mean: number | null; max_abs: number | null } }
+interface PsychSource { status: string; semantic_status: string; runtime_status: string; user_traits_inferred: boolean; note?: string; sources: { file_id: string; sha256: string; total_lines: number; total_bytes: number; truncated: boolean }[]; principles: { principle_id: string; category: string; statement: string; source_refs: { file: string; start_line: number; end_line: number }[]; source_status: string; semantic_status: string; runtime_status: string }[] }
+interface PsychShape { ok: boolean; symbol: string; bias: string; bias_reason: string; sections: Section[]; universe_funding: { measured: number; total: number; mean: number | null; max_abs: number | null }; user_psychology_source?: PsychSource }
 
 const VERDICT_COLOR: Record<string, string> = { MEASURED: "var(--color-up)", DERIVED: "var(--color-warn)", PROXY: "var(--color-warn)", UNVERIFIED: "var(--color-muted)", UNAVAILABLE: "var(--color-dim)" };
 
@@ -89,6 +90,30 @@ export default function PsychologyPage() {
           </Panel>
         </div>
       </div>
+      <Panel title="user-supplied psychology source (separate from market context)">
+        {d?.user_psychology_source ? <>
+          <div className="mb-2 flex flex-wrap gap-2 text-[10px]">
+            <Badge color={d.user_psychology_source.status === "COMPLETE" ? "#3fb68b" : "#d6a24a"}>{`source ${d.user_psychology_source.status}`}</Badge>
+            <Badge color="#8b8f99">semantic {d.user_psychology_source.semantic_status}</Badge>
+            <Badge color="#8b8f99">runtime {d.user_psychology_source.runtime_status}</Badge>
+            <span className="text-muted">user traits inferred: {String(d.user_psychology_source.user_traits_inferred)}</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {d.user_psychology_source.sources.map((source) => <div key={source.file_id} className="panel-2 p-2 text-[10px]">
+              <div className="flex justify-between gap-2"><b>{source.file_id}</b><span>{source.truncated ? "TRUNCATED" : "completeness UNKNOWN"}</span></div>
+              <div className="text-muted">{source.total_lines} lines · {source.total_bytes} bytes · sha256 {source.sha256.slice(0, 16)}…</div>
+            </div>)}
+          </div>
+          <ul className="mt-2 grid gap-1 sm:grid-cols-2">
+            {d.user_psychology_source.principles.map((principle) => <li key={principle.principle_id} className="panel-2 p-2 text-[10px]">
+              <div className="flex justify-between gap-2"><b>{principle.category}</b><span>{principle.source_status} · {principle.semantic_status}</span></div>
+              <p className="mt-1 text-muted">{principle.statement}</p>
+              <p className="mt-1 text-dim">{principle.source_refs.map((ref) => `${ref.file}:${ref.start_line}-${ref.end_line}`).join("; ")}</p>
+            </li>)}
+          </ul>
+          <p className="mt-2 text-[10px] text-dim">{d.user_psychology_source.note}</p>
+        </> : <Empty text="user psychology source inventory UNKNOWN" />}
+      </Panel>
     </div>
   );
 }

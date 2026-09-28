@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { getBrain } from "@/lib/brain/store";
 import { SCORE_DISCLAIMER } from "@/lib/brain/score";
+import { CORPUS_FILES } from "@/lib/brain/corpus-manifest";
 
 export const dynamic = "force-dynamic";
 
@@ -25,29 +26,76 @@ export async function GET(): Promise<NextResponse> {
       byFamily[s.family] = (byFamily[s.family] ?? 0) + 1;
     }
 
-    const truncated = docs.filter((d) => d.truncated);
+    const expectedById = new Map(CORPUS_FILES.map((source) => [source.file_id, source]));
+    const documents = docs.map((d) => {
+      const expected = expectedById.get(d.file_id);
+      const identity_status = !expected
+        ? "UNKNOWN" as const
+        : d.source_hash !== expected.expected_sha256
+          || d.total_lines !== expected.expected_lines
+          || d.total_chars !== expected.expected_chars
+          || (d.total_bytes !== 0 && d.total_bytes !== expected.expected_bytes)
+          ? "MISMATCH" as const
+          : d.total_bytes === 0 ? "UNKNOWN" as const : "MATCH" as const;
+      const storedTruncationAgrees = expected
+        ? d.truncated === (expected.completeness === "TRUNCATED")
+        : false;
+      const completeness = identity_status === "MATCH" && storedTruncationAgrees
+        ? expected!.completeness
+        : "UNKNOWN" as const;
+      return {
+        file_id: d.file_id,
+        filename: d.filename,
+        lines: d.total_lines,
+        chars: d.total_chars,
+        bytes: d.total_bytes,
+        sha256: d.source_hash,
+        identity_status,
+        manifest_completeness: expected?.completeness ?? "UNKNOWN",
+        ingested_truncated: d.truncated,
+        completeness,
+        truncated: completeness === "TRUNCATED",
+        truncation_note: completeness === "TRUNCATED"
+          ? d.truncation_note ?? "Source manifest marks the supplied bytes TRUNCATED; cutoff cause and continuation are not established."
+          : completeness === "UNKNOWN"
+            ? "Completeness is UNKNOWN: source identity/ingest status does not establish COMPLETE."
+            : null,
+      };
+    });
+    const truncated = documents.filter((d) => d.completeness === "TRUNCATED");
+    const unknown = documents.filter((d) => d.completeness === "UNKNOWN");
+    const mismatched = documents.filter((d) => d.identity_status === "MISMATCH");
+    const statusMismatch = documents.filter((d) =>
+      d.identity_status === "MATCH"
+      && d.ingested_truncated !== (d.manifest_completeness === "TRUNCATED"),
+    );
 
     return NextResponse.json({
       ok: true,
       ingested: stats.documents > 0,
       last_ingest_ms: Number(brain.meta("last_ingest_ms") ?? 0) || null,
       stats,
-      documents: docs.map((d) => ({
-        file_id: d.file_id,
-        filename: d.filename,
-        lines: d.total_lines,
-        chars: d.total_chars,
-        sha256: d.source_hash,
-        truncated: d.truncated,
-        truncation_note: d.truncation_note,
-      })),
+      canonical_pack_role: "INDEX_ONLY",
+      source_completeness_summary: {
+        COMPLETE: documents.filter((d) => d.completeness === "COMPLETE").length,
+        TRUNCATED: truncated.length,
+        UNKNOWN: unknown.length,
+      },
+      documents,
       strategies_by_runtime: byRuntime,
       strategies_by_family: byFamily,
       limitations: [
         ...(truncated.length
-          ? [
-              `${truncated.length} of 5 source files (${truncated.map((t) => t.file_id).join(", ")}) were truncated upstream at 350,000 characters. Content beyond that point is absent from the supplied package and has NOT been reconstructed.`,
-            ]
+          ? [`${truncated.length} supplied raw source file(s) are marked TRUNCATED by the identity-bound manifest (${truncated.map((d) => d.file_id).join(", ")}). The capture cause, continuation location and any external copies are not established; no continuation is reconstructed.`]
+          : []),
+        ...(unknown.length
+          ? [`${unknown.length} supplied raw source file(s) have completeness UNKNOWN (${unknown.map((d) => d.file_id).join(", ")}); byte/character count or an apparently clean ending does not establish completeness.`]
+          : []),
+        ...(mismatched.length
+          ? [`${mismatched.length} ingested source identity/byte record(s) do not match the current manifest (${mismatched.map((d) => d.file_id).join(", ")}); completeness is UNKNOWN until verified and re-ingested.`]
+          : []),
+        ...(statusMismatch.length
+          ? [`${statusMismatch.length} ingested truncation flag(s) disagree with the current source manifest (${statusMismatch.map((d) => d.file_id).join(", ")}); completeness is UNKNOWN until re-ingested.`]
           : []),
         "No strategy is empirically validated: every strategy is UNTESTED, so none can reach LIVE_ADVISORY_ONLY.",
         "Instructor claims (win rates, reversal frequencies) are stored as CLAIM and are never presented as measured performance.",

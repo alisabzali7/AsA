@@ -19,12 +19,59 @@ beforeAll(async () => {
     stdin: { contents: 'export { syntheticMarket } from "./tests/fixtures/publication-opportunity"; export { __setOperationalUniverse } from "./src/lib/market/operational-universe"; export { sharedStore } from "./src/lib/market/store"; export { getRepo, closeRepo } from "./src/db/sqlite"; export { publishSignal } from "./src/lib/pipeline/orchestrator"; export { evaluateLiveRisk } from "./src/lib/risk/live";', resolveDir: process.cwd(), loader: "ts" },
     outfile: bundle, bundle: true, platform: "node", format: "cjs", logLevel: "silent",
     plugins: [{ name: "LOCAL-synthetic-admission", setup(b) {
-      b.onLoad({ filter: /backtest\/promotion\.ts$/ }, async (args) => ({ contents: (await fs.promises.readFile(args.path, "utf8")).replace("export function promotedRuntimeStatus(", "function realRuntimeStatus(") + '\nexport function promotedRuntimeStatus(id:string){return id === "test" ? "LIVE_ADVISORY_ONLY" : realRuntimeStatus(id);}', loader: "ts" }));
-      b.onLoad({ filter: /risk\/policy\.ts$/ }, async (args) => ({ contents: (await fs.promises.readFile(args.path, "utf8")).replace("export function getProductionRiskPolicy(", "function realPolicy(") + '\nexport function getProductionRiskPolicy(){return {...realPolicy(),daily_loss_limit_pct:null,period_loss_limit_pct:null};}', loader: "ts" }));
+      b.onLoad({ filter: /backtest\/promotion\.ts$/ }, async (args) => ({
+        contents: (await fs.promises.readFile(args.path, "utf8"))
+          .replace("export function promotedRuntimeStatus(", "function realRuntimeStatus(")
+          + '\nexport function promotedRuntimeStatus(id:string){return id === "test" ? "LIVE_ADVISORY_ONLY" : realRuntimeStatus(id);}',
+        loader: "ts",
+      }));
+      // The fixture is a test-only policy selection. The source's TRUNCATED
+      // completeness remains visible; this override exercises transaction and
+      // concurrency logic, not production-policy eligibility or source limits.
+      b.onLoad({ filter: /risk\/policy\.ts$/ }, async (args) => ({
+        contents: (await fs.promises.readFile(args.path, "utf8"))
+          .replace("export function getProductionRiskPolicy(", "function realPolicy(")
+          + '\nexport function getProductionRiskPolicy(){const policy=realPolicy();return {...policy,selection_status:"SELECTED",selected_by:"operator_pref",selection_reason:"TEST ONLY: explicit concurrency fixture; not production eligibility",policy_version:RISK_POLICY_VERSION,risk_per_trade_pct:null,daily_loss_limit_pct:null,max_account_risk_pct:null,period_loss_limit_pct:null,max_leverage:null,max_concurrent_positions:5};}',
+        loader: "ts",
+      }));
+      // Publication persistence is under test here; isolate unrelated
+      // psychology-source eligibility with a clearly named test-only PASS.
+      b.onLoad({ filter: /psychology\/gate\.ts$/ }, async (args) => ({
+        contents: (await fs.promises.readFile(args.path, "utf8"))
+          .replace("export function evaluatePsychologyGate(", "function realEvaluatePsychologyGate(")
+          + '\nexport function evaluatePsychologyGate(..._args:Parameters<typeof realEvaluatePsychologyGate>):ReturnType<typeof realEvaluatePsychologyGate>{return {verdict:"pass",score_penalty:0,blocks:[],penalties:[],flags:[],checklists_required:[],not_evaluated:[],evaluated:1,active_policy_ids:["TEST-ONLY-WORKER-GATE"]};}',
+        loader: "ts",
+      }));
+      b.onLoad({ filter: /strategy\/runtime\.ts$/ }, async (args) => ({
+        contents: (await fs.promises.readFile(args.path, "utf8"))
+          .replace("export function getRuntimeStrategy(", "function realGetRuntimeStrategy(")
+          + '\nexport function getRuntimeStrategy(id:string):ReturnType<typeof realGetRuntimeStrategy>{if(!id.startsWith("SET-WORKER-"))return realGetRuntimeStrategy(id);return {strategy_id:"test",setup_id:id,name:"TEST ONLY worker fixture",family:"test",direction:"long",timeframe:"1h",min_bars:0,availability:"EXECUTABLE",blocked_reason:null,source_contract_status:"SOURCE_FAITHFUL",source_contract_blockers:[],strategy_version:"TEST-ONLY-V1",version:"TEST-ONLY-V1",rule_ids:[],rule_versions:[],source_refs:[],impl:null};}',
+        loader: "ts",
+      }));
     } }, { name: "native-sqlite", setup(b) { b.onResolve({ filter: /^better-sqlite3$/ }, () => ({ path: require.resolve("better-sqlite3"), external: true })); } }],
   });
 });
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+function configureTestPublicationAuthority(repo: SqliteRepo): void {
+  repo.configSet("pref.risk.policyId", "RISK-DAILY-5PCT");
+  repo.configSet("pref.risk.equity", "10000");
+  repo.configSet("pref.risk.perTradePct", "1");
+  repo.configSet("pref.risk.maxLeverage", "5");
+}
+
+function workerOpportunity(id: string, symbol: string, now: number) {
+  return publicationIdentity({
+    id, symbol, timeframe: "1h", direction: "long", strategy_id: "test",
+    setup_id: `SET-WORKER-${id}`, strategy_version: "TEST-ONLY-V1",
+    rule_ids: [], rule_versions: [], source_contract_status: "SOURCE_FAITHFUL",
+    source_contract_blockers: [], state: "READY", mode: "live", score: 90,
+    anchor_close_ms: now, entry_zone: { top: 100, bottom: 100 }, stop: 95,
+    targets: [110], data_quality: { stale: false }, blocked_factors: [],
+    contradictions: [], psychology: { state: "READY", hard_blocks: [], soft_warnings: [], score_modifier: 0, not_evaluated: [] },
+    portfolio: { verdict: "pass", reasons: ["TEST ONLY fixture"], unenforced: [] },
+  } as never);
+}
 
 async function race(file: string, action: "publish" | "claim" | "read", id: number | string | string[]) {
   const workers = ["A", "B"].map((token, index) => new Worker(`
@@ -70,8 +117,8 @@ describe("T05 separate-worker persistence proofs", () => {
     const repo = new SqliteRepo(file);
     try {
       const now = Date.now();
-      const opp = publicationIdentity({ id: "race", symbol: "BTCUSDT", timeframe: "1h", direction: "long", strategy_id: "test", state: "READY", mode: "live", score: 90,
-        anchor_close_ms: now, entry_zone: { top: 100, bottom: 100 }, stop: 95, targets: [110], data_quality: { stale: false }, blocked_factors: [], contradictions: [] } as never);
+      configureTestPublicationAuthority(repo);
+      const opp = workerOpportunity("race", "BTCUSDT", now);
       repo.opportunityUpsert({ ...opp, payload_json: JSON.stringify(opp), created_ms: now, updated_ms: now });
       repo.signalInsert({ id: "existing-candidate", state: "qualified", symbol: opp.symbol, timeframe: opp.timeframe, direction: opp.direction, strategy_id: opp.strategy_id, score: opp.score, opp_id: opp.id, payload_json: "{}", created_ms: 123, updated_ms: now });
       const results = await race(file, "publish", opp.id) as Array<{ published: boolean; id: string; reason: string }>;
@@ -135,11 +182,11 @@ it("LOCAL different-worker candidates cannot oversubscribe the last portfolio sl
   const repo = new SqliteRepo(file);
   try {
     const now = Date.now();
+    configureTestPublicationAuthority(repo);
     for(let i=0;i<4;i++) repo.signalInsert({id:`open-${i}`,state:"published",symbol:`TEST-${i}`,timeframe:"1h",direction:"long",strategy_id:"test",score:90,opp_id:`open-${i}`,created_ms:now,updated_ms:now,
       payload_json:JSON.stringify({anchor_close_ms:now,timeframe:"1h",risk:{numbers:{risk_notional:100}}})});
     const ids = ["ETHUSDT", "ADAUSDT"].map(symbol => {
-      const opp = publicationIdentity({id:symbol,symbol,timeframe:"1h",direction:"long",strategy_id:"test",state:"READY",mode:"live",score:90,
-        anchor_close_ms:now,entry_zone:{top:100,bottom:100},stop:95,targets:[110],data_quality:{stale:false},blocked_factors:[],contradictions:[]} as never);
+      const opp = workerOpportunity(symbol, symbol, now);
       repo.opportunityUpsert({...opp,payload_json:JSON.stringify(opp),created_ms:now,updated_ms:now});
       return opp.id;
     });

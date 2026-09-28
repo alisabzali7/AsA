@@ -1,6 +1,8 @@
 > **HISTORICAL DOCUMENT.** Stage-0 baseline captured at the start of the Brain
 > ingestion phase. Figures (68 tests, 48/48 market board) describe that moment.
-> Current truth: `FINAL_STATUS.md` / `MACHINE_READABLE_STATUS.json`.
+> The current source-completeness and runtime contract is
+> `docs/roadmap/ASA_100_PERCENT_CONTRACT.md`; run `npm run closure:validate` for
+> the deterministic closure status.
 
 # Stage 0 — Inventory & Safety Baseline (2026-09-09)
 
@@ -19,34 +21,43 @@
 | RAW_5.txt | 960  | 109,216 | 184,218 | yes (pack `5.txt`) |
 
 All five sha256 digests match `ASA_CANONICAL_KNOWLEDGE_PACK_v1_1.json.source_files`, proving the
-canonical pack is a derivative of exactly these bytes. The pack is therefore usable to accelerate
-implementation (authority order #2) without re-deriving everything from scratch.
+canonical pack identifies these exact supplied bytes. Under the current contract, the pack is a
+structured derivative with role `INDEX_ONLY`, not an independent source authority.
 
-## [FINDING-1] Upstream truncation of RAW_1/2/4 — CANNOT be repaired from this package
-RAW_1, RAW_2 and RAW_4 each stop at **exactly 350,000 unicode characters, mid-sentence**:
+## [FINDING-1] Supplied RAW_1/2/4 are explicitly marked TRUNCATED
+Their observed sizes are **349,998 / 350,000 / 350,000 unicode characters** respectively, and their
+supplied tails stop mid-content:
 - RAW_1 tail: `...فرض این‌که` (sentence cut)
 - RAW_2 tail: `...در تایم‌فریم یک دق` (word cut)
 - RAW_4 tail: `...در یک روند صعودی (برای گ` (word cut)
 
-RAW_3 (253,714) and RAW_5 (109,216) are below the cap and appear complete.
+**Completeness assessment:** RAW_3 and RAW_5 (253,714 and 109,216 chars) are smaller than the
+observed RAW_1/2/4 ending sizes, but byte/character count and a clean-looking ending do not prove
+that the supplied text includes its original continuation. Their completeness remains `UNKNOWN`;
+neither is treated as complete without a source-backed terminal witness.
 
-This is a property of the supplied source material, not of ingestion. The 350,000-char cap was
-applied before these files reached us. Consequences, recorded honestly rather than papered over:
-- Ingestion is complete **with respect to the bytes supplied**. Provenance covers 100% of them.
-- Content beyond the cap in files 1/2/4 does not exist in this package and is **not** reconstructed
-  from model knowledge (governance rule 4 / D).
-- A `CORPUS_TRUNCATION` capability flag is recorded in the brain and surfaced in the audit report so
+This describes the bytes supplied to the repo, not proof of where truncation occurred or whether a
+continuation survives in another archive/ref. The three flagged files stop near the same observed
+350,000-character boundary mid-content; the repository does not establish who or what produced that
+boundary. At this baseline:
+- Ingestion was complete **with respect to the supplied bytes**. Provenance covered 100% of them.
+- Continuation beyond these file endings was not present in the supplied text and was **not**
+  reconstructed from model knowledge (governance rule 4 / D). Recovery elsewhere was not yet
+  exhaustively assessed.
+- A `CORPUS_TRUNCATION` capability flag was recorded in the brain and surfaced in the audit report so
   no downstream consumer mistakes truncated coverage for full coverage.
 
-## [FINDING-2] Risk percentages genuinely conflict across the corpus
-Grep of the raw files shows differing risk figures that must NOT be averaged (governance F):
-`RAW_1:286,329,854,876` → 2% per trade · `RAW_4:2718` → 1% (and 5% ceiling) ·
-`RAW_4:351,1313,1346` → 5% daily loss cap · `RAW_4:1898,1958` → ~11% account risk ·
-`RAW_4:1934,1958` → 15% period cap · `RAW_5:284` → 1% normal per trade.
-These become separate CANDIDATE risk policies in a conflict group; production policy stays
-operator-chosen.
+## [FINDING-2] Risk statements conflict or have distinct dimensions
+The source records must remain separate; no percentage is averaged or generalized:
+- `RAW_1:286,329,854,876` states 2% per trade; `RAW_4:2718` and `RAW_5:284` state 1% normal per trade. These competing per-trade statements remain unresolved in `CFG-RISK-PCT`.
+- `RAW_4:1912` separately gives a 2% per-position ceiling; it is not silently equated with the fixed 2% per-trade statement.
+- `RAW_4:351,1313,1346` states a 5% daily-loss limit; `RAW_4:1934,1958` states a distinct 15% period-loss ceiling.
+- `RAW_4:202,2718` includes a 5% tolerance example, retained as a disabled `CLAIM`, not mislabeled a prescribed ceiling.
+- `RAW_4:1898,1958` reports an approximately 11% small-account/full-margin test observation; it is a disabled `CLAIM`, not an account-risk limit. The source also says normal-account total risk should be below 5–6% and marks the contextual claims as conflicting. The 5–6% interval is preserved without choosing an endpoint or converting it into a cap.
 
-## Canonical pack contents (accelerator, authority #2)
+All cited raw material is `TRUNCATED` or `UNKNOWN`, and the competing 1%/2% policies are conflicted. Consequently **no corpus-derived risk policy is production-selectable**. Explicit operator selection does not override incomplete sources or unresolved conflict. See the current eligibility report in `docs/brain/AUDIT.md` and the source-to-runtime contract in `docs/roadmap/ASA_100_PERCENT_CONTRACT.md`.
+
+## Canonical pack contents (structured derivative, INDEX_ONLY)
 `strategy_registry` 55 records (SOURCE_NAMED 39 / SOURCE_VERIFIED 14 / SOURCE_INFERRED 2; all
 `UNTESTED`; 39 `DISABLED_UNTIL_VALIDATED`, 16 process-layer), `rule_registry` 503,
 `uncertainty_registry` UNKNOWN 750 / CONFLICT 86 / CLAIM 314 / META_COMMENTARY 23,

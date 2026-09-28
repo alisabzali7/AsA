@@ -67,9 +67,17 @@ export const ASA_HISTORY_DB_PATH = str("ASA_HISTORY_DB_PATH", "./asa-data/histor
 
 export const ASA_API_TOKEN = str("ASA_API_TOKEN");
 
-export const ASA_RISK_ACCOUNT_EQUITY = Math.max(1, num("ASA_RISK_ACCOUNT_EQUITY", 10000));
-export const ASA_RISK_PER_TRADE_PCT = Math.min(50, Math.max(0.1, num("ASA_RISK_PER_TRADE_PCT", 1)));
-export const ASA_RISK_MAX_LEVERAGE = Math.min(50, Math.max(1, num("ASA_RISK_MAX_LEVERAGE", 5)));
+function optionalRiskNum(name: string, lo: number, hi: number): number | null {
+  const raw = process.env[name]?.trim();
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= lo && value <= hi ? value : null;
+}
+
+// Missing operator limits are UNKNOWN, not the old implicit $10k / 1% / 5x defaults.
+export const ASA_RISK_ACCOUNT_EQUITY = optionalRiskNum("ASA_RISK_ACCOUNT_EQUITY", 1, 1e9);
+export const ASA_RISK_PER_TRADE_PCT = optionalRiskNum("ASA_RISK_PER_TRADE_PCT", 0.1, 50);
+export const ASA_RISK_MAX_LEVERAGE = optionalRiskNum("ASA_RISK_MAX_LEVERAGE", 1, 50);
 
 export const ASA_PUBLIC_URL = str("ASA_PUBLIC_URL", "http://localhost:3000");
 // AUDIT FIX (P2): the advisory admission threshold was read directly from

@@ -21,7 +21,7 @@ import {
   nodesByStrategy, verifyRuleRegistryClosure, GRAPH_SEMANTICS,
 } from "../src/lib/strategy/rule-graph";
 import { COMPILED_STRATEGIES, evaluateCompiled, type CompiledStrategy } from "../src/lib/strategy/compiled";
-import { listRuntimeStrategies, evaluateRuntime, executableStrategies } from "../src/lib/strategy/runtime";
+import { listRuntimeStrategies, evaluateRuntime, evaluateResearchRuntime, researchableStrategies } from "../src/lib/strategy/runtime";
 import { evaluateRule, MapFeatureBag } from "../src/lib/rules/engine";
 import type { RuleSpec } from "../src/lib/brain/types";
 import type { Candle } from "../src/lib/domain/types";
@@ -124,23 +124,20 @@ describe("registry projection — MACHINE_EXECUTABLE_RULE rows", () => {
       expect(r.predicates.length, `${r.rule_id} predicates`).toBeGreaterThan(0);
       expect(r.required_features.length, `${r.rule_id} features`).toBeGreaterThan(0);
       expect(r.binding, `${r.rule_id} binding`).toBeTruthy();
-      expect(r.binding!.consumer).toBe("evaluateRuntime");
+      expect(r.binding!.consumer).toBe("evaluateResearchRuntime");
+      expect(r.binding!.strategy_version).toMatch(/^1\.1\./);
+      expect(r.binding!.rule_version).toBe("1.0.0");
       expect(r.binding!.strategy_id).toMatch(/^STR-RAW-/);
       expect(r.binding!.setup_id).toMatch(/^SET-STR-RAW-/);
       expect(r.missing_fields).toEqual([]);
     }
   });
 
-  it("executable nodes become CANDIDATE (never live), blocked nodes stay DISABLED", () => {
+  it("incomplete source contracts keep compiled rules DISABLED in the Brain registry", () => {
     for (const r of rows) {
-      if (r.runtime_status === "CANDIDATE") {
-        expect(r.non_executable_reason).toBeNull();
-      } else {
-        expect(r.runtime_status).toBe("DISABLED");
-        expect(r.non_executable_reason).toBeTruthy();
-      }
-      // live eligibility is NOT a registry concept — nothing is PAPER/LIVE here
-      expect(["CANDIDATE", "DISABLED"]).toContain(r.runtime_status);
+      expect(r.runtime_status).toBe("DISABLED");
+      expect(r.non_executable_reason).toBeTruthy();
+      expect(["CANDIDATE", "PAPER", "LIVE_ADVISORY_ONLY"]).not.toContain(r.runtime_status);
     }
   });
 
@@ -163,7 +160,8 @@ describe("registry projection — MACHINE_EXECUTABLE_RULE rows", () => {
       },
     };
     const g = buildMachineRuleGraph([synthetic]);
-    expect(g.blocked_count).toBe(1);
+    expect(g.blocked_count).toBe(g.node_count); // absent source contract blocks every node; one also has unresolved semantics
+    expect(g.nodes.filter((node) => node.unresolved.length > 0)).toHaveLength(1);
     const blockedRow = machineRuleRegistryRows(g).find((r) => r.rule_id === g.nodes[0].rule_id)!;
     expect(blockedRow.runtime_status).toBe("DISABLED");
     expect(blockedRow.non_executable_reason).toMatch(/qualitative stop/);
@@ -217,7 +215,7 @@ describe.runIf(hasCorpus)("ingest registers the machine rule graph into the Brai
     } finally { brain.close(); }
   });
 
-  it("every compiled strategy record gains rule_ids + compiled binding, gate unchanged", async () => {
+  it("compiled strategy records keep bindings while source-incomplete machine rules stay DISABLED", async () => {
     const { BrainStore } = await import("../src/lib/brain/store");
     const brain = await buildTempBrain();
     try {
@@ -229,9 +227,16 @@ describe.runIf(hasCorpus)("ingest registers the machine rule graph into the Brai
         expect(rec, sid).not.toBeNull();
         expect(rec!.rule_ids.sort()).toEqual(byStrat.get(sid)!.map((n) => n.rule_id).sort());
         expect(rec!.implementation).toBe(compiledImplementationBinding(sid));
-        // empirical gating is untouched: UNTESTED caps at CANDIDATE, never live
-        expect(rec!.runtime_status).toBe("CANDIDATE");
+        // The Brain registry may call an untested record CANDIDATE, but it may not
+        // claim PAPER/LIVE; the separate machine-rule registry enforces source parity.
+        expect(["DISABLED", "CANDIDATE"]).toContain(rec!.runtime_status);
+        expect(["PAPER", "LIVE_ADVISORY_ONLY"]).not.toContain(rec!.runtime_status);
+        const registryRows = machineRuleRegistryRows(graph).filter((row) => row.binding?.strategy_id === sid);
+        expect(registryRows.length).toBeGreaterThan(0);
+        expect(registryRows.every((row) => row.runtime_status === "DISABLED")).toBe(true);
+        expect(registryRows.every((row) => Boolean(row.non_executable_reason))).toBe(true);
       }
+      expect(machineRuleRegistryRows(graph).some((row) => row.non_executable_reason?.includes("source contract INCOMPLETE"))).toBe(true);
       // a strategy WITHOUT compiled binding keeps no rule ids
       const unbound = store.strategies().find((s) => !s.implementation);
       expect(unbound).toBeTruthy();
@@ -309,7 +314,7 @@ describe.runIf(hasCorpus)("closure verifier detects registry corruption", () => 
         source_refs: [{ file: "2.txt", start_line: 1, end_line: 1 }],
         missing_fields: [], source_status: "SOURCE_VERIFIED", empirical_status: "UNTESTED",
         runtime_status: "CANDIDATE",
-        binding: { strategy_id: "STR-RAW-2-581", setup_id: "SET-STR-RAW-2-581", stage: "trigger", consumer: "evaluateRuntime" },
+        binding: { strategy_id: "STR-RAW-2-581", setup_id: "SET-STR-RAW-2-581", stage: "trigger", consumer: "evaluateRuntime", strategy_version: "1.1.0", rule_version: "1.0.0" },
       };
       const report = verifyRuleRegistryClosure({ registryRules: [...store.rules(), orphan], strategies: store.strategies() });
       expect(report.violations).toContainEqual(expect.objectContaining({
@@ -402,22 +407,24 @@ describe("runtime boundary consumes the same rules the registry holds", () => {
     }
   });
 
-  it("evaluateRuntime over a registered strategy produces an evaluation referencing registered rules", () => {
-    const def = executableStrategies().find((s) => s.strategy_id === "STR-RAW-4-2449")!;
+  it("research evaluator consumes registered rules while live evaluation refuses the incomplete source contract", () => {
+    const def = researchableStrategies().find((s) => s.strategy_id === "STR-RAW-4-2449")!;
+    expect(def.availability).toBe("RESEARCH_ONLY");
     // synthetic deterministic candles: enough bars for the detectors
     const candles: Candle[] = [];
     for (let i = 0; i < 200; i++) {
       const base = 100 + Math.sin(i / 7) * 5 + i * 0.01;
       candles.push({ t: 1_700_000_000 + i * 3600, o: base, h: base + 1, l: base - 1, c: base + 0.5, v: 10 });
     }
-    const out = evaluateRuntime(def, "BTCUSDT", candles, 1_700_000_000_000);
+    const live = evaluateRuntime(def, "BTCUSDT", candles, 1_700_000_000_000);
+    expect(live).toMatchObject({ blocked: true });
+    const out = evaluateResearchRuntime(def, "BTCUSDT", candles, 1_700_000_000_000);
     expect("blocked" in out).toBe(false);
     if (!("blocked" in out)) {
       const graphIds = new Set(buildMachineRuleGraph().nodes.map((n) => n.rule_id));
       for (const stage of out.setup.stages) {
         for (const r of stage.rules) expect(graphIds.has(r.rule_id), r.rule_id).toBe(true);
       }
-      // the evaluation outcome is one of the four declared states — never a bare boolean
       expect(["PASS", "FAIL", "UNKNOWN", "BLOCKED"]).toContain(out.setup.outcome);
     }
   });

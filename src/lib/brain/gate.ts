@@ -65,9 +65,11 @@ export function evaluateGate(input: GateInput): GateVerdict {
     );
   }
 
-  if (input.source_status === "UNKNOWN") {
+  if (input.source_status === "UNKNOWN" || input.source_status === "SOURCE_NAMED") {
     ceiling = minStatus(ceiling, "DISABLED");
-    reasons.push("source_status=UNKNOWN — no usable source statement");
+    reasons.push(input.source_status === "SOURCE_NAMED"
+      ? "source_status=SOURCE_NAMED — a name/mention is not a source-backed executable definition"
+      : "source_status=UNKNOWN — no usable source statement");
   }
 
   if (input.source_status === "CONFLICT" || input.conflict_unresolved) {

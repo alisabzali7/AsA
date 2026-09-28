@@ -1,6 +1,8 @@
 > **HISTORICAL AUDIT RECORD** from the remediation run. The commit hash, ZIP
-> size and SHA256 below describe THAT run's artifact. For the current package
-> and commit see `FINAL_STATUS.md` / `PROJECT_SIZE_REPORT.md`.
+> size and SHA256 below describe THAT run's artifact; its gate results are not
+> current closure evidence. The present repository remains source-blocked under
+> `docs/roadmap/ASA_100_PERCENT_CONTRACT.md`; run `npm run closure:validate` for
+> the deterministic implementation-check and source-blocker report.
 
 # FINAL ACCEPTANCE REPORT
 
@@ -57,8 +59,7 @@ P2 OPEN:                   0
 
 ## Honest limitations (non-blocking, documented)
 
-1. RAW_1/2/4 remain `TRUNCATED_UPSTREAM` at 350,000 chars — complete originals
-   do not exist in this workspace and nothing was reconstructed.
+1. RAW_1/2/4 are marked `TRUNCATED` in the supplied-source manifest and end mid-content; the capture cause and any continuation location are not established. RAW_3/5 remain `UNKNOWN`, not `COMPLETE`. Nothing was reconstructed.
 2. **Zero strategies are live.** None has passed the OOS gate. This is the
    governance working, not a defect.
 3. All 55 generated candidates are DISABLED — they compose teaching prose, not

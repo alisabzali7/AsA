@@ -291,9 +291,9 @@ describe("F. scanSymbol evaluates CLOSED bars only", () => {
   it("the strategy never sees the forming bar; anchor = last closed bar", async () => {
     const { candleManager } = await import("../src/lib/market/candles");
     const { scanSymbol } = await import("../src/lib/pipeline/orchestrator");
-    const { executableStrategies } = await import("../src/lib/strategy/runtime");
-    const base = executableStrategies().find((s) => s.timeframe === "1h") ?? executableStrategies()[0];
-    expect(base, "at least one executable strategy exists").toBeTruthy();
+    const { researchableStrategies } = await import("../src/lib/strategy/runtime");
+    const base = researchableStrategies().find((s) => s.timeframe === "1h") ?? researchableStrategies()[0];
+    expect(base, "at least one research-computable strategy exists").toBeTruthy();
     const tf = base.timeframe;
     const step = tf === "1d" ? 86400 : tf === "4h" ? H4 : tf === "15m" ? M15 : H;
     const forming = Math.floor(Date.now() / 1000 / step) * step;
@@ -313,8 +313,8 @@ describe("F. scanSymbol evaluates CLOSED bars only", () => {
   it("insufficient CLOSED history is reported with the closed count", async () => {
     const { candleManager } = await import("../src/lib/market/candles");
     const { scanSymbol } = await import("../src/lib/pipeline/orchestrator");
-    const { executableStrategies } = await import("../src/lib/strategy/runtime");
-    const base = executableStrategies()[0];
+    const { researchableStrategies } = await import("../src/lib/strategy/runtime");
+    const base = researchableStrategies()[0];
     const step = base.timeframe === "1d" ? 86400 : base.timeframe === "4h" ? H4 : base.timeframe === "15m" ? M15 : H;
     const forming = Math.floor(Date.now() / 1000 / step) * step;
     // exactly min_bars INCLUDING the forming bar = min_bars-1 closed → refused

@@ -23,7 +23,7 @@ import { COMPILED_STRATEGIES } from "../src/lib/strategy/compiled";
 import { runStrategyBacktest } from "../src/lib/backtest/strategy-runner";
 import { regressionSeries } from "./fixtures/strategy/regression-harness";
 import { tfSeconds } from "../src/lib/analysis/input";
-import { getProductionRiskPolicy } from "../src/lib/risk/policy";
+import { explicitResearchRunOptions } from "./helpers/research-run-options";
 
 describe("backtest evaluated_at = knowable instant", () => {
   it("every evaluation is stamped at its decision bar's close; windows hold only bars closed by then", () => {
@@ -36,7 +36,7 @@ describe("backtest evaluated_at = knowable instant", () => {
       // re-time the series onto this strategy's timeframe grid
       const t0 = 1_700_000_000 - (1_700_000_000 % step);
       const candles = series.map((k, i) => ({ ...k, t: t0 + i * step }));
-      const res = runStrategyBacktest(strat, "REGUSDT", candles, { equity: 10_000, policy: getProductionRiskPolicy() });
+      const res = runStrategyBacktest(strat, "REGUSDT", candles, explicitResearchRunOptions());
       expect(calls.length).toBeGreaterThan(0);
       for (const c of calls) {
         expect(c.nowMs).toBe((c.lastT + step) * 1000); // close instant, not open

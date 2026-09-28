@@ -20,8 +20,9 @@ import { COMPILED_STRATEGIES, evaluateCompiled, type CompiledEvaluation, type Co
 import type { SetupDefinition } from "../rules/setup";
 import type { RuleDefinition } from "../rules/engine";
 import type { SourceRef } from "../brain/types";
+import { compiledSourceContractFor, sourceContractBlockersFor, sourceContractStatusFor } from "./compiled/source-contract";
 
-export type RuntimeAvailability = "EXECUTABLE" | "NON_COMPUTABLE" | "DISABLED";
+export type RuntimeAvailability = "EXECUTABLE" | "RESEARCH_ONLY" | "NON_COMPUTABLE" | "DISABLED";
 
 export interface StrategyRuntimeDefinition {
   /** stable id, identical to the Brain StrategyRecord id */
@@ -33,12 +34,17 @@ export interface StrategyRuntimeDefinition {
   timeframe: string;
   min_bars: number;
   availability: RuntimeAvailability;
-  /** exact reason when not EXECUTABLE */
+  /** exact reason when not source-faithful executable */
   blocked_reason: string | null;
+  source_contract_status: "SOURCE_FAITHFUL" | "INCOMPLETE" | "CONFLICTING" | "UNKNOWN";
+  source_contract_blockers: string[];
+  /** exact compiled setup version; retained under `version` for compatibility */
+  strategy_version: string;
   version: string;
   rule_ids: string[];
+  rule_versions: string[];
   source_refs: SourceRef[];
-  /** the compiled implementation; null when NON_COMPUTABLE */
+  /** implementation; RESEARCH_ONLY is callable only through research/backtest entry points */
   impl: CompiledStrategy | null;
 }
 
@@ -104,22 +110,26 @@ function buildRuntime(): StrategyRuntimeDefinition[] {
   return COMPILED_STRATEGIES.map((c) => {
     const def: SetupDefinition = c.setup();
     const rules: RuleDefinition[] = def.rules;
-
-    // A strategy is only EXECUTABLE when every one of its rules is
-    // deterministically evaluable. A rule carrying `unresolved` semantics
-    // (qualitative source prose with no deterministic transformation) makes
-    // the whole strategy NON_COMPUTABLE — we never guess the missing meaning.
     const unresolved = rules.filter((r) => r.unresolved.length > 0);
-    // Direction corruption is a HARD disable, never a silent inversion.
     const dirViolations = auditDirection(c.direction, def.direction, rules);
+    const sourceStatus = sourceContractStatusFor(c.strategy_id);
+    const sourceBlockers = sourceContractBlockersFor(c.strategy_id);
+    const sourceContract = compiledSourceContractFor(c.strategy_id);
 
-    const availability: RuntimeAvailability =
-      dirViolations.length > 0 ? "DISABLED" : unresolved.length === 0 ? "EXECUTABLE" : "NON_COMPUTABLE";
+    const availability: RuntimeAvailability = dirViolations.length > 0
+      ? "DISABLED"
+      : unresolved.length > 0
+        ? "NON_COMPUTABLE"
+        : sourceStatus === "SOURCE_FAITHFUL"
+          ? "EXECUTABLE"
+          : "RESEARCH_ONLY";
     const blocked = dirViolations.length
       ? `DIRECTION MISMATCH (refusing to execute): ${dirViolations.join("; ")}`
       : unresolved.length
         ? `non-computable rules: ${unresolved.map((r) => `${r.id} (${r.unresolved.join(", ")})`).join("; ")}`
-        : null;
+        : availability === "RESEARCH_ONLY"
+          ? `source contract ${sourceStatus}: ${sourceBlockers.join("; ") || "source-to-code parity not established"}`
+          : null;
 
     return {
       strategy_id: c.strategy_id,
@@ -131,10 +141,14 @@ function buildRuntime(): StrategyRuntimeDefinition[] {
       min_bars: c.min_bars,
       availability,
       blocked_reason: blocked,
+      source_contract_status: sourceStatus,
+      source_contract_blockers: sourceBlockers,
+      strategy_version: def.version,
       version: def.version,
       rule_ids: rules.map((r) => r.id),
-      source_refs: def.source_refs,
-      impl: availability === "EXECUTABLE" ? c : null,
+      rule_versions: [...new Set(rules.map((r) => r.version))].sort(),
+      source_refs: sourceContract?.source_refs.map((r) => ({ ...r })) ?? def.source_refs,
+      impl: availability === "EXECUTABLE" || availability === "RESEARCH_ONLY" ? c : null,
     };
   });
 }
@@ -167,17 +181,36 @@ export function executableStrategies(): StrategyRuntimeDefinition[] {
   return PRODUCTION_STRATEGIES().filter((s) => s.availability === "EXECUTABLE" && s.impl !== null);
 }
 
-/**
- * Evaluate a runtime strategy. This is the ONE entry point used by both the
- * advisory pipeline and the backtester, so the two can never diverge.
- */
+/** Deterministically computable definitions that are not source-faithful/live eligible. */
+export function researchableStrategies(): StrategyRuntimeDefinition[] {
+  return PRODUCTION_STRATEGIES().filter(
+    (s) => (s.availability === "EXECUTABLE" || s.availability === "RESEARCH_ONLY") && s.impl !== null,
+  );
+}
+
+/** Live/advisory evaluator: only a source-contract-complete definition can run. */
 export function evaluateRuntime(
   def: StrategyRuntimeDefinition,
   symbol: string,
   candles: Candle[],
   now = Date.now(),
 ): CompiledEvaluation | { blocked: true; reason: string } {
-  if (!def.impl) return { blocked: true, reason: def.blocked_reason ?? "strategy is not executable" };
+  if (def.availability !== "EXECUTABLE" || !def.impl) {
+    return { blocked: true, reason: def.blocked_reason ?? `strategy is ${def.availability}` };
+  }
+  return evaluateCompiled(def.impl, symbol, candles, now);
+}
+
+/** Research/backtest evaluator. It never makes a source-incomplete rule live. */
+export function evaluateResearchRuntime(
+  def: StrategyRuntimeDefinition,
+  symbol: string,
+  candles: Candle[],
+  now = Date.now(),
+): CompiledEvaluation | { blocked: true; reason: string } {
+  if ((def.availability !== "EXECUTABLE" && def.availability !== "RESEARCH_ONLY") || !def.impl) {
+    return { blocked: true, reason: def.blocked_reason ?? `strategy is ${def.availability}` };
+  }
   return evaluateCompiled(def.impl, symbol, candles, now);
 }
 

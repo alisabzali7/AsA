@@ -140,7 +140,7 @@ describe("Case E — scanner parity: non-PASS setups never reach ScanResult.admi
           riskPolicy: POLICY,
           psychologyPolicies: buildPsychologyPolicies(),
           psychologyState: {
-            declared_state: "ok", consecutive_losses: 0, minutes_since_last_loss: null,
+            declared_state: "ok", journal_coverage: "COMPLETE", consecutive_losses: 0, minutes_since_last_loss: null,
             daily_loss_pct: 0, trades_today: 0, max_trades_per_day: 5, cooldown_min: 60,
             checklist_completed: true, security_checklist_completed: true, standards_declared: true,
             unreviewed_closed_trades: 0, distance_from_entry_zone_atr: null, daily_loss_limit_pct: 5,
@@ -217,5 +217,35 @@ describe("T05 shared-boundary recovery: unknown is not approval", () => {
     const result = admitOpportunity(perfect(patch as never));
     expect(result.admitted).toBe(false);
     expect(result.reasons.length).toBeGreaterThan(0);
+  });
+
+  it("allows explicitly NOT_APPLICABLE psychology only in separated historical research", () => {
+    const research = admitOpportunity(perfect({
+      psychology_verdict: "not_applicable",
+      psychology_mode: "research",
+    }));
+    expect(research.admitted).toBe(true);
+    expect(research.reasons).toEqual([]);
+    expect(research.warnings).toContain(
+      "user psychology state is not reconstructed for historical research; no claim about psychology-gated performance",
+    );
+
+    for (const psychology_mode of ["live", undefined] as const) {
+      const notSeparated = admitOpportunity(perfect({
+        psychology_verdict: "not_applicable",
+        psychology_mode,
+      }));
+      expect(notSeparated.admitted).toBe(false);
+      expect(notSeparated.reasons.join(" ")).toContain("psychology result UNKNOWN — not approval");
+    }
+  });
+
+  it("research mode does not convert current psychology UNKNOWN into approval", () => {
+    const result = admitOpportunity(perfect({
+      psychology_verdict: "unknown",
+      psychology_mode: "research",
+    }));
+    expect(result.admitted).toBe(false);
+    expect(result.reasons.join(" ")).toContain("psychology result UNKNOWN — not approval");
   });
 });

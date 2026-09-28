@@ -1,36 +1,59 @@
 {
-  "generated_at": "2026-09-21T07:24:16.440Z",
+  "generated_at": "2026-09-27T07:23:09.156Z",
   "brain_db": "./asa-data/brain.db",
+  "source_recovery": {
+    "manifest_status": "PARTIAL",
+    "manifest_sha256": "d54ccd6627dda3fac9173f7fda66f8817768607a072a3850233491a3506ed3c5",
+    "source_manifest_sha256": "7dc60395b54bb44a124fcc05e56f60964cb491d6f11cfd95552e5dcefc5e7640"
+  },
+  "source_contract": {
+    "contract_path": "src/lib/strategy/compiled/source-contracts.json",
+    "contract_version": "1.2.0",
+    "contract_sha256": "13cb5ec0245e1308046e4a5c9d2faeafa8e49520d21c493a335c6a7b4c4477c0",
+    "identity_status": "VALID",
+    "strategy_count": 6,
+    "status_counts": {
+      "INCOMPLETE": 6
+    },
+    "source_faithful_executable_count": 0,
+    "live_eligible_count": 0
+  },
   "corpus": {
-    "files": 5,
-    "total_lines": 9398,
-    "total_chars": 1412928,
+    "files": 7,
+    "total_lines": 12461,
+    "total_chars": 1853289,
     "documents": [
       {
         "file_id": "1.txt",
         "filename": "RAW_1.txt",
         "lines": 2450,
         "chars": 349998,
+        "bytes": 617254,
         "sha256": "b430f52e191c763e7c8752359ddc21820cbe8f79ea58b212f14ca0107d3a7244",
         "truncated": true,
-        "truncation_note": "supplied bytes end mid-content at 349998 chars (upstream 350000-char cap); content beyond this point is NOT present in this package and is not reconstructed"
+        "completeness": "TRUNCATED",
+        "truncation_note": "source manifest marks these supplied bytes TRUNCATED; cutoff cause and continuation location are not established, and continuation is not reconstructed"
       },
       {
         "file_id": "2.txt",
         "filename": "RAW_2.txt",
         "lines": 1987,
         "chars": 350000,
+        "bytes": 598290,
         "sha256": "0177294c7f5b14b758efab3cd8a3b39e3ed8444766c6bdba318978a3e872fbb1",
         "truncated": true,
-        "truncation_note": "supplied bytes end mid-content at 350000 chars (upstream 350000-char cap); content beyond this point is NOT present in this package and is not reconstructed"
+        "completeness": "TRUNCATED",
+        "truncation_note": "source manifest marks these supplied bytes TRUNCATED; cutoff cause and continuation location are not established, and continuation is not reconstructed"
       },
       {
         "file_id": "3.txt",
         "filename": "RAW_3.txt",
         "lines": 1100,
         "chars": 253714,
+        "bytes": 424438,
         "sha256": "bf0ae22b7fdbde3959c5563338058d378f030d5506ca5b15cf92f59a2be06cee",
         "truncated": false,
+        "completeness": "UNKNOWN",
         "truncation_note": null
       },
       {
@@ -38,65 +61,102 @@
         "filename": "RAW_4.txt",
         "lines": 2901,
         "chars": 350000,
+        "bytes": 600086,
         "sha256": "bc050e2aefbb9a0bf0894114d791a7e93dfa01afe263e25ade0b04b1b560db8a",
         "truncated": true,
-        "truncation_note": "supplied bytes end mid-content at 350000 chars (upstream 350000-char cap); content beyond this point is NOT present in this package and is not reconstructed"
+        "completeness": "TRUNCATED",
+        "truncation_note": "source manifest marks these supplied bytes TRUNCATED; cutoff cause and continuation location are not established, and continuation is not reconstructed"
       },
       {
         "file_id": "5.txt",
         "filename": "RAW_5.txt",
         "lines": 960,
         "chars": 109216,
+        "bytes": 184218,
         "sha256": "1c73c915fe90d7bd5c49f2b93ceab47b15850b795f53989914fa1f53d208baaf",
         "truncated": false,
+        "completeness": "UNKNOWN",
         "truncation_note": null
+      },
+      {
+        "file_id": "USER-PSY-1",
+        "filename": "USER_PSYCHOLOGY_1.txt",
+        "lines": 2423,
+        "chars": 349991,
+        "bytes": 624394,
+        "sha256": "31e52de9d6f6aa0c2ddd072b3986cbc4bb0fe64365ccc3dba852fbe0816eab25",
+        "truncated": true,
+        "completeness": "TRUNCATED",
+        "truncation_note": "The supplied file is ~350k characters and ends mid-sentence/content. Content beyond the supplied bytes is absent and is not reconstructed."
+      },
+      {
+        "file_id": "USER-PSY-2",
+        "filename": "USER_PSYCHOLOGY_2.txt",
+        "lines": 640,
+        "chars": 90370,
+        "bytes": 160655,
+        "sha256": "485fa4f9afb49b43ba5fbe4a9b76fba72b157d1ab7a10c721638d5e18ec41e7a",
+        "truncated": true,
+        "completeness": "TRUNCATED",
+        "truncation_note": "The supplied file ends inside an unfinished source passage after a partial list of principles. No missing continuation is reconstructed."
       }
     ],
+    "completeness_counts": {
+      "COMPLETE": 0,
+      "TRUNCATED": 5,
+      "UNKNOWN": 2
+    },
     "truncated_files": [
       "1.txt",
       "2.txt",
-      "4.txt"
+      "4.txt",
+      "USER-PSY-1",
+      "USER-PSY-2"
+    ],
+    "unknown_completeness_files": [
+      "3.txt",
+      "5.txt"
     ],
     "coverage": {
-      "fragments": 9398,
-      "lines_expected": 9398,
+      "fragments": 12461,
+      "lines_expected": 12461,
       "one_fragment_per_line": true
     }
   },
   "counts": {
-    "fragments": 9398,
+    "fragments": 12461,
     "knowledge_items": 104,
     "primitives": 32,
     "features": 22,
     "rules": 534,
     "machine_rules": 31,
     "source_text_rules": 503,
-    "setups": 6,
+    "setups": 0,
     "strategies": 104,
     "risk_policies": 8,
     "psychology_policies": 10,
-    "conflict_groups": 3,
+    "conflict_groups": 4,
     "claims": 553,
     "unknown_fragments": 649,
     "quarantined": 46
   },
   "fragment_classes": {
-    "NARRATIVE": 6782,
+    "NARRATIVE": 9595,
     "UNKNOWN_MARKER": 649,
+    "RISK": 624,
     "SECTION_HEADER": 482,
-    "RISK": 470,
-    "RULE_CANDIDATE": 247,
-    "PSYCHOLOGY": 246,
-    "CLAIM": 239,
-    "CONFLICT_MARKER": 161,
+    "PSYCHOLOGY": 322,
+    "RULE_CANDIDATE": 252,
+    "CLAIM": 241,
+    "CONFLICT_MARKER": 174,
     "STRATEGY_DECL": 76,
     "META_COMMENTARY": 46
   },
   "machine_rule_graph": {
     "present": true,
     "node_count": 31,
-    "executable_count": 31,
-    "blocked_count": 0,
+    "executable_count": 0,
+    "blocked_count": 31,
     "feature_ids": [
       "FTR-ABCD",
       "FTR-DOUBLE",
@@ -123,8 +183,8 @@
   },
   "strategies": {
     "by_runtime": {
-      "DISABLED": 98,
-      "CANDIDATE": 6
+      "DISABLED": 103,
+      "CANDIDATE": 1
     },
     "by_family": {
       "multi-indicator": 2,
@@ -142,87 +202,130 @@
       "harmonic": 3
     },
     "by_source_status": {
-      "SOURCE_VERIFIED": 100,
-      "SOURCE_INFERRED": 4
+      "SOURCE_NAMED": 73,
+      "SOURCE_VERIFIED": 25,
+      "UNKNOWN": 1,
+      "SOURCE_INFERRED": 5
     },
     "by_empirical_status": {
       "UNTESTED": 104
     },
-    "executable_specs": 6,
-    "executable_list": [
+    "implementation_bound_record_count": 6,
+    "compiled_definition_count": 6,
+    "executable_specs": 0,
+    "executable_list": [],
+    "compiled_definition_list": [
       {
         "id": "STR-RAW-2-581",
         "name": "PRZ Bounce Strategy",
-        "family": "level-reaction",
-        "runtime": "CANDIDATE"
+        "contract_status": "INCOMPLETE",
+        "source_completeness": "PARTIAL",
+        "runtime_status": "RESEARCH_ONLY",
+        "promotion_eligible": false,
+        "live_eligible": false,
+        "blocker_count": 5
       },
       {
         "id": "STR-RAW-2-803",
         "name": "پرایس اکشن سطوح نامرئی",
-        "family": "level-reaction",
-        "runtime": "CANDIDATE"
+        "contract_status": "INCOMPLETE",
+        "source_completeness": "PARTIAL",
+        "runtime_status": "RESEARCH_ONLY",
+        "promotion_eligible": false,
+        "live_eligible": false,
+        "blocker_count": 7
       },
       {
         "id": "STR-RAW-2-926",
         "name": "استراتژی ۴-خطی (برگشت از نواحی PRZ)",
-        "family": "level-reaction",
-        "runtime": "CANDIDATE"
+        "contract_status": "INCOMPLETE",
+        "source_completeness": "PARTIAL",
+        "runtime_status": "RESEARCH_ONLY",
+        "promotion_eligible": false,
+        "live_eligible": false,
+        "blocker_count": 6
       },
       {
         "id": "STR-RAW-2-1258",
         "name": "استراتژی معاملاتی دو قله و دو دره بر اساس نواحی PRZ",
-        "family": "level-reaction",
-        "runtime": "CANDIDATE"
+        "contract_status": "INCOMPLETE",
+        "source_completeness": "PARTIAL",
+        "runtime_status": "RESEARCH_ONLY",
+        "promotion_eligible": false,
+        "live_eligible": false,
+        "blocker_count": 5
       },
       {
         "id": "STR-RAW-4-2425",
         "name": "هارمونیک پایه (AB=CD)",
-        "family": "harmonic",
-        "runtime": "CANDIDATE"
+        "contract_status": "INCOMPLETE",
+        "source_completeness": "PARTIAL",
+        "runtime_status": "RESEARCH_ONLY",
+        "promotion_eligible": false,
+        "live_eligible": false,
+        "blocker_count": 5
       },
       {
         "id": "STR-RAW-4-2449",
         "name": "هارمونیک پایه معکوس",
-        "family": "harmonic",
-        "runtime": "CANDIDATE"
+        "contract_status": "INCOMPLETE",
+        "source_completeness": "PARTIAL",
+        "runtime_status": "RESEARCH_ONLY",
+        "promotion_eligible": false,
+        "live_eligible": false,
+        "blocker_count": 5
       }
     ],
+    "source_contract_status_counts": {
+      "INCOMPLETE": 6
+    },
     "live_count": 0,
+    "source_contract_live_eligible_count": 0,
     "disabled_reasons": {
-      "critical spec fields are UNKNOWN in source: stop, target, invalidation": 2,
+      "critical spec fields are UNKNOWN in source: stop, target, invalidation": 4,
+      "source_status=SOURCE_NAMED": 73,
       "no executable implementation binding": 98,
-      "empirical_status=UNTESTED": 98,
-      "compile: stop UNKNOWN in source, target UNKNOWN in source, no exit/invalidation stated in ": 2,
-      "critical spec fields are UNKNOWN in source: stop, target, timeframe": 2,
-      "compile: timeframe UNKNOWN in source, stop UNKNOWN in source, target UNKNOWN in source": 3,
-      "critical spec fields are UNKNOWN in source: stop, target, timeframe, invalidation": 8,
-      "compile: timeframe UNKNOWN in source, stop UNKNOWN in source, target UNKNOWN in source, no": 8,
+      "empirical_status=UNTESTED": 103,
+      "compile: critical source fields NOT_PRESENT: stop, target, exit, one or more critical sour": 1,
+      "critical spec fields are UNKNOWN in source: stop, target, timeframe": 1,
+      "compile: critical source fields explicitly UNKNOWN: timeframe, stop, target, one or more c": 2,
+      "critical spec fields are UNKNOWN in source: stop, target, timeframe, invalidation": 9,
+      "compile: critical source fields explicitly UNKNOWN: timeframe, stop, target, exit, one or": 4,
       "critical spec fields are UNKNOWN in source: entry, stop, target, timeframe, invalidation": 59,
-      "compile: timeframe UNKNOWN in source, no entry condition stated in source, stop UNKNOWN in": 10,
+      "source_status=UNKNOWN": 1,
+      "compile: critical source fields NOT_PRESENT: timeframe, entry, stop, target, exit, SOURCE_": 7,
       "critical spec fields are UNKNOWN in source: target, invalidation": 1,
-      "compile: target UNKNOWN in source, no exit/invalidation stated in source": 1,
-      "critical spec fields are UNKNOWN in source: stop, timeframe": 5,
-      "compile: timeframe UNKNOWN in source, stop UNKNOWN in source": 4,
-      "critical spec fields are UNKNOWN in source: stop, target": 3,
-      "compile: stop UNKNOWN in source, target UNKNOWN in source": 3,
+      "compile: critical source fields NOT_PRESENT: target, exit, critical source fields explicit": 2,
+      "critical spec fields are UNKNOWN in source: stop, timeframe": 2,
+      "compile: critical source fields explicitly UNKNOWN: timeframe, stop, one or more critical": 1,
+      "critical spec fields are UNKNOWN in source: stop, target": 1,
+      "compile: critical source fields explicitly UNKNOWN: stop, target, one or more critical sou": 1,
+      "compile: critical source fields NOT_PRESENT: exit, critical source fields explicitly UNKNO": 7,
       "critical spec fields are UNKNOWN in source: stop": 1,
-      "compile: stop UNKNOWN in source": 1,
+      "compile: critical source fields explicitly UNKNOWN: stop, one or more critical source fiel": 1,
+      "compile: critical source fields NOT_PRESENT: timeframe, stop, target, exit, SOURCE_SPEC_ON": 3,
+      "compile: critical source fields explicitly UNKNOWN: stop, target, exit, one or more critic": 2,
       "critical spec fields are UNKNOWN in source: stop, invalidation": 1,
-      "compile: stop UNKNOWN in source, no exit/invalidation stated in source": 1,
-      "critical spec fields are UNKNOWN in source: entry, stop, target": 3,
-      "compile: no entry condition stated in source, stop UNKNOWN in source, target UNKNOWN in so": 5,
+      "critical spec fields are UNKNOWN in source: stop, timeframe, invalidation": 3,
+      "compile: critical source fields NOT_PRESENT: timeframe, exit, critical source fields expli": 1,
+      "critical spec fields are UNKNOWN in source: entry, stop, target, invalidation": 5,
+      "compile: critical source fields explicitly UNKNOWN: entry, stop, target, exit, one or more": 2,
+      "compile: critical source fields NOT_PRESENT: target, critical source fields explicitly UNK": 1,
+      "compile: critical source fields NOT_PRESENT: timeframe, stop, target, exit, critical sourc": 2,
       "critical spec fields are UNKNOWN in source: entry, target, timeframe": 1,
-      "compile: timeframe UNKNOWN in source, no entry condition stated in source, target UNKNOWN ": 1,
+      "compile: critical source fields explicitly UNKNOWN: timeframe, entry, target, one or more": 1,
       "critical spec fields are UNKNOWN in source: entry, stop, timeframe": 1,
-      "critical spec fields are UNKNOWN in source: entry, stop, target, invalidation": 2,
-      "critical spec fields are UNKNOWN in source: timeframe": 5,
-      "compile: timeframe UNKNOWN in source": 5,
-      "critical spec fields are UNKNOWN in source: timeframe, invalidation": 2,
-      "compile: timeframe UNKNOWN in source, no exit/invalidation stated in source": 2,
+      "compile: critical source fields explicitly UNKNOWN: timeframe, entry, stop, one or more cr": 1,
+      "compile: critical source fields explicitly UNKNOWN: timeframe, stop, exit, one or more cri": 2,
+      "compile: critical source fields NOT_PRESENT: stop, target, exit, critical source fields ex": 1,
+      "critical spec fields are UNKNOWN in source: timeframe, invalidation": 4,
+      "compile: critical source fields NOT_PRESENT: timeframe, exit, critical source fields inclu": 1,
+      "critical spec fields are UNKNOWN in source: timeframe": 3,
+      "compile: critical source fields explicitly UNKNOWN: timeframe, one or more critical source": 3,
       "critical spec fields are UNKNOWN in source: invalidation": 1,
-      "compile: no exit/invalidation stated in source": 1,
+      "compile: critical source fields NOT_PRESENT: entry, stop, target, exit, critical source fi": 1,
       "critical spec fields are UNKNOWN in source: target": 1,
-      "compile: target UNKNOWN in source": 1
+      "compile: critical source fields explicitly UNKNOWN: target, one or more critical source fi": 1
     }
   },
   "empirical_validation": {
@@ -330,8 +433,17 @@
       "account": null,
       "period": null,
       "source_status": "CONFLICT",
+      "source_completeness": {
+        "1.txt": "TRUNCATED"
+      },
       "conflict_group": "CFG-RISK-PCT",
-      "runtime": "CANDIDATE"
+      "runtime": "CANDIDATE",
+      "production_selectable": false,
+      "eligibility_reasons": [
+        "source status is CONFLICT, not SOURCE_VERIFIED",
+        "linked to unresolved source conflict CFG-RISK-PCT",
+        "source 1.txt completeness is TRUNCATED; production selection requires COMPLETE"
+      ]
     },
     {
       "id": "RISK-1PCT-PER-TRADE",
@@ -341,8 +453,19 @@
       "account": null,
       "period": null,
       "source_status": "CONFLICT",
+      "source_completeness": {
+        "5.txt": "UNKNOWN",
+        "4.txt": "TRUNCATED"
+      },
       "conflict_group": "CFG-RISK-PCT",
-      "runtime": "CANDIDATE"
+      "runtime": "CANDIDATE",
+      "production_selectable": false,
+      "eligibility_reasons": [
+        "source status is CONFLICT, not SOURCE_VERIFIED",
+        "linked to unresolved source conflict CFG-RISK-PCT",
+        "source 5.txt completeness is UNKNOWN; production selection requires COMPLETE",
+        "source 4.txt completeness is TRUNCATED; production selection requires COMPLETE"
+      ]
     },
     {
       "id": "RISK-2PCT-POSITION-CAP",
@@ -352,8 +475,17 @@
       "account": null,
       "period": null,
       "source_status": "CONFLICT",
+      "source_completeness": {
+        "4.txt": "TRUNCATED"
+      },
       "conflict_group": "CFG-RISK-PCT",
-      "runtime": "CANDIDATE"
+      "runtime": "CANDIDATE",
+      "production_selectable": false,
+      "eligibility_reasons": [
+        "source status is CONFLICT, not SOURCE_VERIFIED",
+        "linked to unresolved source conflict CFG-RISK-PCT",
+        "source 4.txt completeness is TRUNCATED; production selection requires COMPLETE"
+      ]
     },
     {
       "id": "RISK-DAILY-5PCT",
@@ -363,19 +495,36 @@
       "account": null,
       "period": null,
       "source_status": "SOURCE_VERIFIED",
+      "source_completeness": {
+        "4.txt": "TRUNCATED"
+      },
       "conflict_group": null,
-      "runtime": "CANDIDATE"
+      "runtime": "CANDIDATE",
+      "production_selectable": false,
+      "eligibility_reasons": [
+        "source 4.txt completeness is TRUNCATED; production selection requires COMPLETE"
+      ]
     },
     {
       "id": "RISK-ACCOUNT-11PCT",
-      "name": "Total account risk ~11% (RAW_4)",
+      "name": "~11% small-account test observation (RAW_4; not a limit)",
       "per_trade": null,
       "daily": null,
-      "account": 11,
+      "account": null,
       "period": null,
-      "source_status": "SOURCE_VERIFIED",
-      "conflict_group": null,
-      "runtime": "CANDIDATE"
+      "source_status": "CLAIM",
+      "source_completeness": {
+        "4.txt": "TRUNCATED"
+      },
+      "conflict_group": "CFG-ACCOUNT-RISK-CONTEXT",
+      "runtime": "DISABLED",
+      "production_selectable": false,
+      "eligibility_reasons": [
+        "source status is CLAIM, not SOURCE_VERIFIED",
+        "linked to unresolved source conflict CFG-ACCOUNT-RISK-CONTEXT",
+        "runtime status is DISABLED",
+        "source 4.txt completeness is TRUNCATED; production selection requires COMPLETE"
+      ]
     },
     {
       "id": "RISK-PERIOD-15PCT",
@@ -385,8 +534,15 @@
       "account": null,
       "period": 15,
       "source_status": "SOURCE_VERIFIED",
+      "source_completeness": {
+        "4.txt": "TRUNCATED"
+      },
       "conflict_group": null,
-      "runtime": "CANDIDATE"
+      "runtime": "CANDIDATE",
+      "production_selectable": false,
+      "eligibility_reasons": [
+        "source 4.txt completeness is TRUNCATED; production selection requires COMPLETE"
+      ]
     },
     {
       "id": "RISK-TOLERANCE-5PCT",
@@ -396,8 +552,18 @@
       "account": null,
       "period": null,
       "source_status": "CLAIM",
+      "source_completeness": {
+        "4.txt": "TRUNCATED"
+      },
       "conflict_group": "CFG-RISK-PCT",
-      "runtime": "DISABLED"
+      "runtime": "DISABLED",
+      "production_selectable": false,
+      "eligibility_reasons": [
+        "source status is CLAIM, not SOURCE_VERIFIED",
+        "linked to unresolved source conflict CFG-RISK-PCT",
+        "runtime status is DISABLED",
+        "source 4.txt completeness is TRUNCATED; production selection requires COMPLETE"
+      ]
     },
     {
       "id": "RISK-ASA-CONSERVATIVE-DEFAULT",
@@ -407,90 +573,168 @@
       "account": 11,
       "period": 15,
       "source_status": "SOURCE_INFERRED",
+      "source_completeness": {},
       "conflict_group": null,
-      "runtime": "CANDIDATE"
+      "runtime": "CANDIDATE",
+      "production_selectable": false,
+      "eligibility_reasons": [
+        "source status is SOURCE_INFERRED, not SOURCE_VERIFIED",
+        "no exact source references"
+      ]
     }
   ],
+  "risk_policy_eligibility": {
+    "production_selectable": 0,
+    "blocked": 8,
+    "source_contract_identity_valid": true
+  },
   "psychology_policy_matrix": [
     {
       "id": "PSY-DAILY-LOSS",
       "name": "Daily loss stop",
       "effect": "BLOCK",
       "penalty": 0,
-      "runtime": "LIVE_ADVISORY_ONLY",
-      "overridable": false
+      "source_status": "SOURCE_VERIFIED",
+      "source_completeness": {
+        "4.txt": "TRUNCATED"
+      },
+      "runtime": "DISABLED",
+      "overridable": false,
+      "eligibility_reasons": [
+        "source 4.txt completeness is TRUNCATED; production selection requires COMPLETE"
+      ]
     },
     {
       "id": "PSY-REVENGE",
       "name": "Revenge-trading block",
       "effect": "BLOCK",
       "penalty": 0,
-      "runtime": "LIVE_ADVISORY_ONLY",
-      "overridable": false
+      "source_status": "SOURCE_INFERRED",
+      "source_completeness": {
+        "4.txt": "TRUNCATED"
+      },
+      "runtime": "DISABLED",
+      "overridable": false,
+      "eligibility_reasons": [
+        "source status is SOURCE_INFERRED, not SOURCE_VERIFIED",
+        "runtime status is DISABLED",
+        "source 4.txt completeness is TRUNCATED; production selection requires COMPLETE"
+      ]
     },
     {
       "id": "PSY-COOLDOWN",
       "name": "Post-loss cooldown",
       "effect": "BLOCK",
       "penalty": 0,
-      "runtime": "LIVE_ADVISORY_ONLY",
-      "overridable": true
+      "source_status": "SOURCE_INFERRED",
+      "source_completeness": {},
+      "runtime": "DISABLED",
+      "overridable": true,
+      "eligibility_reasons": [
+        "source status is SOURCE_INFERRED, not SOURCE_VERIFIED",
+        "no exact source references",
+        "runtime status is DISABLED"
+      ]
     },
     {
       "id": "PSY-CHASE",
       "name": "Chasing / FOMO guard",
       "effect": "REDUCE_SCORE",
       "penalty": 15,
-      "runtime": "LIVE_ADVISORY_ONLY",
-      "overridable": true
+      "source_status": "SOURCE_INFERRED",
+      "source_completeness": {},
+      "runtime": "DISABLED",
+      "overridable": true,
+      "eligibility_reasons": [
+        "source status is SOURCE_INFERRED, not SOURCE_VERIFIED",
+        "no exact source references",
+        "runtime status is DISABLED"
+      ]
     },
     {
       "id": "PSY-OVERTRADE",
       "name": "Overtrading guard",
       "effect": "REDUCE_SCORE",
       "penalty": 10,
-      "runtime": "LIVE_ADVISORY_ONLY",
-      "overridable": true
+      "source_status": "SOURCE_INFERRED",
+      "source_completeness": {},
+      "runtime": "DISABLED",
+      "overridable": true,
+      "eligibility_reasons": [
+        "source status is SOURCE_INFERRED, not SOURCE_VERIFIED",
+        "no exact source references",
+        "runtime status is DISABLED"
+      ]
     },
     {
       "id": "PSY-CHECKLIST",
       "name": "Pre-trade checklist",
       "effect": "REQUIRE_CHECKLIST",
       "penalty": 0,
-      "runtime": "LIVE_ADVISORY_ONLY",
-      "overridable": false
+      "source_status": "SOURCE_VERIFIED",
+      "source_completeness": {},
+      "runtime": "DISABLED",
+      "overridable": false,
+      "eligibility_reasons": [
+        "no exact source references",
+        "runtime status is DISABLED"
+      ]
     },
     {
       "id": "PSY-REVIEW",
       "name": "Post-trade review requirement",
       "effect": "FLAG",
       "penalty": 0,
-      "runtime": "LIVE_ADVISORY_ONLY",
-      "overridable": true
+      "source_status": "SOURCE_VERIFIED",
+      "source_completeness": {},
+      "runtime": "DISABLED",
+      "overridable": true,
+      "eligibility_reasons": [
+        "no exact source references",
+        "runtime status is DISABLED"
+      ]
     },
     {
       "id": "PSY-STANDARDS",
       "name": "Standards over vague discipline",
       "effect": "FLAG",
       "penalty": 0,
-      "runtime": "LIVE_ADVISORY_ONLY",
-      "overridable": false
+      "source_status": "SOURCE_VERIFIED",
+      "source_completeness": {},
+      "runtime": "DISABLED",
+      "overridable": false,
+      "eligibility_reasons": [
+        "no exact source references",
+        "runtime status is DISABLED"
+      ]
     },
     {
       "id": "PSY-EMOTIONAL-STATE",
       "name": "Emotional-state restriction",
       "effect": "BLOCK",
       "penalty": 0,
-      "runtime": "LIVE_ADVISORY_ONLY",
-      "overridable": false
+      "source_status": "SOURCE_VERIFIED",
+      "source_completeness": {},
+      "runtime": "DISABLED",
+      "overridable": false,
+      "eligibility_reasons": [
+        "no exact source references",
+        "runtime status is DISABLED"
+      ]
     },
     {
       "id": "PSY-SECURITY",
       "name": "Account security hygiene",
       "effect": "FLAG",
       "penalty": 0,
-      "runtime": "LIVE_ADVISORY_ONLY",
-      "overridable": false
+      "source_status": "SOURCE_VERIFIED",
+      "source_completeness": {},
+      "runtime": "DISABLED",
+      "overridable": false,
+      "eligibility_reasons": [
+        "no exact source references",
+        "runtime status is DISABLED"
+      ]
     }
   ],
   "conflicts": [
@@ -499,6 +743,13 @@
       "topic": "Risk percentage per trade",
       "resolution": "UNRESOLVED",
       "variants": 4,
+      "chosen": null
+    },
+    {
+      "id": "CFG-ACCOUNT-RISK-CONTEXT",
+      "topic": "Observed small-account risk versus normal-account guidance",
+      "resolution": "UNRESOLVED",
+      "variants": 3,
       "chosen": null
     },
     {
@@ -532,95 +783,18 @@
       "aggregation": "weakest_of_newest_per_symbol",
       "ordering": "created_ms DESC, rowid DESC (deterministic newest-first, matching ExperimentStore.evidenceFor)"
     },
-    "experiments": 57,
-    "empirical_by_strategy": {
-      "STR-RAW-4-2449": {
-        "status": "BACKTESTED",
-        "symbols": [
-          "AVAXUSDT",
-          "LINKUSDT",
-          "ADAUSDT",
-          "BNBUSDT",
-          "DOGEUSDT",
-          "XRPUSDT",
-          "SOLUSDT",
-          "ETHUSDT",
-          "BTCUSDT"
-        ]
-      },
-      "STR-RAW-4-2425": {
-        "status": "BACKTESTED",
-        "symbols": [
-          "AVAXUSDT",
-          "LINKUSDT",
-          "ADAUSDT",
-          "BNBUSDT",
-          "DOGEUSDT",
-          "XRPUSDT",
-          "SOLUSDT",
-          "ETHUSDT",
-          "BTCUSDT"
-        ]
-      },
-      "STR-RAW-2-1258": {
-        "status": "UNTESTED",
-        "symbols": [
-          "AVAXUSDT",
-          "LINKUSDT",
-          "ADAUSDT",
-          "BNBUSDT",
-          "DOGEUSDT",
-          "XRPUSDT",
-          "SOLUSDT",
-          "ETHUSDT",
-          "BTCUSDT"
-        ]
-      },
-      "STR-RAW-2-926": {
-        "status": "UNTESTED",
-        "symbols": [
-          "AVAXUSDT",
-          "LINKUSDT",
-          "ADAUSDT",
-          "BNBUSDT",
-          "DOGEUSDT",
-          "XRPUSDT",
-          "SOLUSDT",
-          "ETHUSDT",
-          "BTCUSDT"
-        ]
-      },
-      "STR-RAW-2-803": {
-        "status": "UNTESTED",
-        "symbols": [
-          "AVAXUSDT",
-          "LINKUSDT",
-          "ADAUSDT",
-          "BNBUSDT",
-          "DOGEUSDT",
-          "XRPUSDT",
-          "SOLUSDT",
-          "ETHUSDT",
-          "BTCUSDT"
-        ]
-      },
-      "STR-RAW-2-581": {
-        "status": "UNTESTED",
-        "symbols": [
-          "SOLUSDT",
-          "ETHUSDT",
-          "BTCUSDT"
-        ]
-      }
-    },
+    "experiments": 0,
+    "empirical_by_strategy": {},
     "promoted_to_live": 0,
     "semantics": "OBSERVED evidence view: raw per-run verdicts as RECORDED, before governance. Statuses here are NOT re-derived under the current criteria, NOT provenance-filtered, NOT version-checked and NOT OOS-gated — the promotion gate (src/lib/backtest/promotion.ts) re-derives every row and may reach a weaker status. BACKTESTED != OOS_TESTED != WALK_FORWARD != ROBUST.",
     "relationship_to_empirical_validation": "Deliberately different view from `empirical_validation`: this section reports what EXPERIMENTS observed; `empirical_validation` reports the GOVERNED registry state. An experiment observing BACKTESTED does not rewrite the registry row — see `empirical_semantics`.",
     "note": "empirical status per strategy is the WEAKEST across all symbols tested"
   },
   "missing_implementation": [
-    "98 strategies have no executable spec because the corpus left critical fields UNKNOWN (see disabled_reasons)",
-    "No OOS/walk-forward validation has been run yet, so no strategy can leave CANDIDATE.",
-    "3 source files are truncated upstream; content beyond 350k chars is unavailable."
+    "6 compiled strategy contract(s) are not source-faithful executable; see source_contracts.json blockers. A TypeScript implementation binding alone is not source parity.",
+    "No compiled source contract is currently promotion- and live-eligible.",
+    "2 supplied source file(s) have UNKNOWN completeness; below-cap byte counts do not prove completion.",
+    "5 supplied source file(s) are explicitly TRUNCATED; missing continuation is not reconstructed.",
+    "No experiment rows are persisted in this Brain DB; empirical status remains UNTESTED."
   ]
 }

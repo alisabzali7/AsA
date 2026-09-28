@@ -1,0 +1,107 @@
+{
+  "lock_version": "1.1.0",
+  "contract_path": "src/lib/strategy/compiled/source-contracts.json",
+  "contract_sha256": "26acf24e2055290a35addd6cb3cf2da9d1b2b83802e7ac97da9546dc65ef94a8",
+  "implementation_bindings": [
+    {
+      "file": "src/lib/backtest/strategy-runner.ts",
+      "sha256": "68b0b8c7b9ac7ebf684655afde7b3aebef506b6e6f8348e7ba68a212888e1512"
+    },
+    {
+      "file": "src/lib/strategy/compiled/harmonic-abcd.ts",
+      "sha256": "f5b5468d3c906a9ce8fea7f7f2614732610d7bb0e10668fc34db20c0886febcd"
+    },
+    {
+      "file": "src/lib/strategy/compiled/index.ts",
+      "sha256": "956dfd3c31f34cc4579cf909d16544d8f9d607048832b94a8e3587706a16bdfc"
+    },
+    {
+      "file": "src/lib/strategy/compiled/prz-levels.ts",
+      "sha256": "64ca4b1c01c7115bb8f4b6c06045b25ef7aa37045bfc24475d489511b6fe485b"
+    }
+  ],
+  "source_bindings": [
+    {
+      "file_id": "1.txt",
+      "path": "knowledge/raw/RAW_1.txt",
+      "source_version": "v1-as-supplied",
+      "sha256": "b430f52e191c763e7c8752359ddc21820cbe8f79ea58b212f14ca0107d3a7244",
+      "bytes": 617254,
+      "lines": 2450,
+      "chars": 349998,
+      "completeness": "TRUNCATED"
+    },
+    {
+      "file_id": "2.txt",
+      "path": "knowledge/raw/RAW_2.txt",
+      "source_version": "v1-as-supplied",
+      "sha256": "0177294c7f5b14b758efab3cd8a3b39e3ed8444766c6bdba318978a3e872fbb1",
+      "bytes": 598290,
+      "lines": 1987,
+      "chars": 350000,
+      "completeness": "TRUNCATED"
+    },
+    {
+      "file_id": "3.txt",
+      "path": "knowledge/raw/RAW_3.txt",
+      "source_version": "v1-as-supplied",
+      "sha256": "bf0ae22b7fdbde3959c5563338058d378f030d5506ca5b15cf92f59a2be06cee",
+      "bytes": 424438,
+      "lines": 1100,
+      "chars": 253714,
+      "completeness": "UNKNOWN"
+    },
+    {
+      "file_id": "4.txt",
+      "path": "knowledge/raw/RAW_4.txt",
+      "source_version": "v1-as-supplied",
+      "sha256": "bc050e2aefbb9a0bf0894114d791a7e93dfa01afe263e25ade0b04b1b560db8a",
+      "bytes": 600086,
+      "lines": 2901,
+      "chars": 350000,
+      "completeness": "TRUNCATED"
+    },
+    {
+      "file_id": "5.txt",
+      "path": "knowledge/raw/RAW_5.txt",
+      "source_version": "v1-as-supplied",
+      "sha256": "1c73c915fe90d7bd5c49f2b93ceab47b15850b795f53989914fa1f53d208baaf",
+      "bytes": 184218,
+      "lines": 960,
+      "chars": 109216,
+      "completeness": "UNKNOWN"
+    },
+    {
+      "file_id": "USER-PSY-1",
+      "path": "knowledge/psychology/USER_PSYCHOLOGY_1.txt",
+      "source_version": "user-supplied-v1",
+      "sha256": "31e52de9d6f6aa0c2ddd072b3986cbc4bb0fe64365ccc3dba852fbe0816eab25",
+      "bytes": 624394,
+      "lines": 2423,
+      "chars": 349991,
+      "completeness": "TRUNCATED"
+    },
+    {
+      "file_id": "USER-PSY-2",
+      "path": "knowledge/psychology/USER_PSYCHOLOGY_2.txt",
+      "source_version": "user-supplied-v1",
+      "sha256": "485fa4f9afb49b43ba5fbe4a9b76fba72b157d1ab7a10c721638d5e18ec41e7a",
+      "bytes": 160655,
+      "lines": 640,
+      "chars": 90370,
+      "completeness": "TRUNCATED"
+    }
+  ],
+  "canonical_index": {
+    "path": "knowledge/canonical/ASA_CANONICAL_KNOWLEDGE_PACK_v1_1.json",
+    "source_version": "v1.1",
+    "sha256": "eecb67c9e21af7563068255f1316f08bee508fd6941e4771a537e6dd7782a891",
+    "bytes": 1330269,
+    "lines": 17890,
+    "role": "INDEX_ONLY"
+  },
+  "validator_binding": {
+    "file": "src/lib/strategy/compiled/source-contract.ts",
+    "sha256": "9b59de10a32b62f73b4ab9ad5e8a5e4ee4aa3151b81d33ebddd7ad89127c997b"
+  }
+}

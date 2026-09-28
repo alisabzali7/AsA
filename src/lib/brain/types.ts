@@ -16,6 +16,7 @@
 export type SourceStatus =
   | "SOURCE_VERIFIED"
   | "SOURCE_INFERRED"
+  | "SOURCE_NAMED"
   | "UNKNOWN"
   | "CONFLICT"
   | "CLAIM";
@@ -63,8 +64,10 @@ export interface SourceDocument {
   immutable: true;
   total_lines: number;
   total_chars: number;
+  /** exact UTF-8 byte length; 0 on legacy rows where it was not captured */
+  total_bytes: number;
   ingestion_timestamp: number;
-  /** true when the supplied bytes were cut mid-content upstream */
+  /** true only when the identity-bound source manifest explicitly marks it TRUNCATED */
   truncated: boolean;
   truncation_note: string | null;
 }
@@ -200,7 +203,11 @@ export interface RuleBinding {
   /** pipeline stage this rule occupies (context/location/.../filter) */
   stage: string;
   /** the single runtime entry point that consumes the compiled representation */
-  consumer: "evaluateRuntime";
+  consumer: "evaluateRuntime" | "evaluateResearchRuntime";
+  /** exact compiled setup version at the time this binding was generated */
+  strategy_version: string;
+  /** exact rule version represented by this registry row */
+  rule_version: string;
 }
 
 export interface RuleSpec {
@@ -304,6 +311,8 @@ export interface RiskPolicy {
   conflict_group_id: string | null;
   runtime_status: RuntimeStatus;
   notes: string;
+  /** production only: operator must explicitly select an audited policy */
+  selection_status?: "SELECTED" | "UNSELECTED" | "BLOCKED";
 }
 
 export type PsychologyEffect = "BLOCK" | "REDUCE_SCORE" | "REQUIRE_CHECKLIST" | "FLAG";
@@ -322,6 +331,18 @@ export interface PsychologyPolicy {
   user_overridable: boolean;
 }
 
+/** A source-derived psychology note is not a policy or user-state assertion. */
+export interface PsychologyPrincipleRecord {
+  principle_id: string;
+  category: string;
+  statement: string;
+  source_refs: SourceRef[];
+  source_status: "SOURCE_NAMED" | "UNKNOWN";
+  semantic_status: "NOT_PROVEN" | "SOURCE_VERIFIED";
+  runtime_status: "DISABLED";
+  executable: false;
+}
+
 export interface ConflictGroup {
   conflict_group_id: string;
   topic: string;
@@ -331,6 +352,14 @@ export interface ConflictGroup {
   chosen_variant: string | null;
   resolved_by: string | null;
   resolved_at_ms: number | null;
+}
+
+export interface ConflictHistoryRecord extends ConflictGroup {
+  history_id: string;
+  prior_source_manifest_sha256: string | null;
+  lifecycle: "ACTIVE" | "ORPHANED" | "REPLACED";
+  replaced_by: string | null;
+  recorded_at_ms: number;
 }
 
 export interface ClaimRecord {
@@ -354,6 +383,7 @@ export interface BrainStats {
   strategies: number;
   risk_policies: number;
   psychology_policies: number;
+  psychology_principles: number;
   conflicts: number;
   claims: number;
   unknowns: number;

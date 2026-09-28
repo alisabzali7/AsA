@@ -63,11 +63,18 @@ describe("T05 route/service/SQLite failure truth", () => {
 it("malformed risk settings fail atomically instead of reporting a fake save", async () => {
   const {POST} = await import("../src/app/api/system/config/route");
   repo.configSet("pref.risk.equity","10000");
-  for(const value of [null,true,"",{},"bad"]) {
+  for(const value of [true,"",{},"bad"]) {
     const r=await POST(new Request("http://asa.local/api/system/config",{method:"POST",body:JSON.stringify({section:"risk",equity:12000,maxLeverage:value})}));
     expect(r.status).toBe(400);
     expect(repo.configGet("pref.risk.equity")).toBe("10000");
   }
+  repo.configSet("pref.risk.maxLeverage", "5");
+  const cleared = await POST(new Request("http://asa.local/api/system/config", {
+    method: "POST", body: JSON.stringify({ section: "risk", maxLeverage: null }),
+  }));
+  expect(cleared.status).toBe(200);
+  expect(repo.configGet("pref.risk.maxLeverage")).toBe("UNCONFIGURED");
+  expect(repo.configGet("pref.risk.equity")).toBe("10000");
 });
 
 it("a terminal linked signal cannot leave its historical READY opportunity actionable",async()=>{

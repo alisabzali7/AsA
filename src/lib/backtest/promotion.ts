@@ -51,6 +51,7 @@ import { COMPILED_STRATEGIES } from "../strategy/compiled";
 import { getRuntimeVariants, listRuntimeStrategies, type RuntimeAvailability } from "../strategy/runtime";
 import { DETECTOR_VERSION } from "../features/detectors";
 import { buildReleaseIdentity } from "../release";
+import { sourceContractBlockersFor, sourceContractStatusFor, sourceContractDocumentIdentity, type SourceContractStatus } from "../strategy/compiled/source-contract";
 import type { BacktestMetrics } from "./strategy-runner";
 
 /* ------------------------------------------------------------ check model */
@@ -69,6 +70,7 @@ export type PromotionStatus = "NOT_ELIGIBLE" | "ELIGIBLE" | "BLOCKED" | "UNKNOWN
 export const PROMOTION_CHECK_IDS = [
   "strategy_exists",
   "strategy_executable",
+  "source_contract_fidelity",
   "implementation_binding",
   "source_status_usable",
   "no_unknown_critical",
@@ -76,6 +78,7 @@ export const PROMOTION_CHECK_IDS = [
   "validation_evidence_exists",
   "evidence_dataset_provenance",
   "evidence_versions_current",
+  "evidence_compiled_binding_current",
   "evidence_methodology_declared",
   "required_metrics_computed",
   "evidence_verdict_reproducible",
@@ -105,11 +108,23 @@ export type RequiredMetric = (typeof REQUIRED_METRICS)[number];
 /** Version set describing the build the evidence must still describe. */
 export interface CurrentVersions {
   code_version: string;
+  source_tree_sha256: string;
+  source_tree_digest_status: "COMPLETE" | "PARTIAL" | "UNKNOWN" | "INVALID";
   detector_version: string;
   /** every setup version of the strategy's runtime variants */
   strategy_versions: string[];
   /** every rule version of the strategy's runtime variants */
   rule_versions: string[];
+  /** exact current setup bindings; aggregate version sets are not a substitute */
+  compiled_bindings: {
+    setup_id: string;
+    direction: "long" | "short";
+    timeframe: string;
+    strategy_version: string;
+    rule_bindings: { rule_id: string; rule_version: string }[];
+  }[];
+  /** exact source-contract document used for the validation binding */
+  source_contract_sha256: string;
 }
 
 export interface RuntimeFacts {
@@ -124,6 +139,8 @@ export interface RuntimeFacts {
   source_refs: SourceRef[];
   name: string | null;
   family: string | null;
+  source_contract_status: SourceContractStatus;
+  source_contract_blockers: string[];
 }
 
 export interface GovernanceFacts {
@@ -214,6 +231,61 @@ export interface PromotionDecision {
 }
 
 /* ---------------------------------------------------------------- helpers */
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+function sortedRuleBindings(value: unknown): { rule_id: string; rule_version: string }[] | null {
+  if (!Array.isArray(value)) return null;
+  const bindings: { rule_id: string; rule_version: string }[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.rule_id !== "string" || !item.rule_id || typeof item.rule_version !== "string" || !item.rule_version) return null;
+    bindings.push({ rule_id: item.rule_id, rule_version: item.rule_version });
+  }
+  if (new Set(bindings.map((binding) => binding.rule_id)).size !== bindings.length) return null;
+  return bindings.sort((a, b) => a.rule_id.localeCompare(b.rule_id));
+}
+
+function validateEvidenceCompiledBinding(
+  evidence: ExperimentEvidence,
+  versions: CurrentVersions,
+): { verdict: PromotionCheckVerdict; detail: string } {
+  if (!Array.isArray(versions.compiled_bindings)) return { verdict: "UNKNOWN", detail: "current per-setup compiled bindings are unavailable" };
+  if (typeof evidence.setup_id !== "string" || !evidence.setup_id) return { verdict: "UNKNOWN", detail: "evidence setup_id is missing" };
+  const current = versions.compiled_bindings.find((binding) => binding.setup_id === evidence.setup_id);
+  if (!current) return { verdict: "FAIL", detail: `evidence setup ${evidence.setup_id} is not present in the current compiled registry` };
+  const recorded = evidence.params?.compiled_binding;
+  if (!isRecord(recorded)) return { verdict: "UNKNOWN", detail: "experiment is missing its version-bound compiled_binding metadata" };
+
+  const unknowns: string[] = [];
+  const problems: string[] = [];
+  for (const key of ["setup_id", "direction", "timeframe", "strategy_version", "source_contract_sha256"] as const) {
+    if (typeof recorded[key] !== "string" || recorded[key] === "") unknowns.push(`${key} is missing`);
+  }
+  if (typeof recorded.setup_id === "string" && recorded.setup_id !== evidence.setup_id) problems.push(`recorded setup_id ${recorded.setup_id} differs from evidence ${evidence.setup_id}`);
+  if (typeof recorded.direction === "string" && recorded.direction !== current.direction) problems.push(`direction ${recorded.direction} differs from current ${current.direction}`);
+  if (typeof recorded.timeframe === "string" && recorded.timeframe !== current.timeframe) problems.push(`timeframe ${recorded.timeframe} differs from current ${current.timeframe}`);
+  if (typeof recorded.strategy_version === "string" && recorded.strategy_version !== current.strategy_version) problems.push(`strategy version ${recorded.strategy_version} differs from current ${current.strategy_version}`);
+  if (evidence.versions.strategy_version !== current.strategy_version) problems.push(`experiment strategy version ${evidence.versions.strategy_version || "UNKNOWN"} differs from setup version ${current.strategy_version}`);
+
+  const recordedRules = sortedRuleBindings(recorded.rule_bindings);
+  const currentRules = sortedRuleBindings(current.rule_bindings);
+  if (!recordedRules) unknowns.push("rule_bindings are missing or malformed");
+  else if (!currentRules) unknowns.push("current rule_bindings are missing or malformed");
+  else if (JSON.stringify(recordedRules) !== JSON.stringify(currentRules)) problems.push("recorded rule IDs/versions differ from the current setup");
+  const currentRuleVersions = currentRules ? [...new Set(currentRules.map((binding) => binding.rule_version))].sort() : [];
+  const recordedAggregateRuleVersions = evidence.versions.rule_version.split("+").map((v) => v.trim()).filter(Boolean).sort();
+  if (!evidence.versions.rule_version) unknowns.push("experiment rule_version is missing");
+  else if (JSON.stringify(recordedAggregateRuleVersions) !== JSON.stringify(currentRuleVersions)) problems.push("experiment aggregate rule_version does not exactly match this setup's rule versions");
+  if (typeof recorded.source_contract_sha256 === "string" && recorded.source_contract_sha256 !== versions.source_contract_sha256) {
+    problems.push("source-contract document identity differs from the current contract");
+  }
+  if (!/^[0-9a-f]{64}$/.test(versions.source_contract_sha256)) unknowns.push("current source-contract identity is unavailable");
+
+  if (problems.length) return { verdict: "FAIL", detail: problems.join("; ") };
+  if (unknowns.length) return { verdict: "UNKNOWN", detail: unknowns.join("; ") };
+  return { verdict: "PASS", detail: `setup ${current.setup_id} direction=${current.direction} timeframe=${current.timeframe} strategy=${current.strategy_version} rules=${currentRules!.map((binding) => `${binding.rule_id}@${binding.rule_version}`).join(",")}; source contract ${versions.source_contract_sha256}` };
+}
 
 function check(
   checks: PromotionCheck[],
@@ -373,7 +445,7 @@ export function derivePromotionStatus(
   const unknowns = unknownChecks ?? [];
   const conflicts = conflictReasons ?? [];
   const govFailed = failed.some((c) =>
-    ["implementation_binding", "source_status_usable", "no_unknown_critical", "no_unresolved_conflict", "governance_ceiling_allows_live"].includes(c),
+    ["source_contract_fidelity", "implementation_binding", "source_status_usable", "no_unknown_critical", "no_unresolved_conflict", "governance_ceiling_allows_live"].includes(c),
   );
   if (govFailed || conflicts.length > 0) return "BLOCKED";
   if (unknowns.length > 0) return "UNKNOWN";
@@ -412,6 +484,27 @@ export function buildPromotionDecision(input: PromotionGateInput): PromotionDeci
       "strategy is not in the registry, so executability cannot be established");
   }
 
+  // Runtime callers may deserialize older or malformed audit objects despite
+  // the TypeScript surface. Missing contract fields are UNKNOWN, never a throw
+  // and never an empty blocker list that can be mistaken for parity.
+  const rawContractStatus = (rt as RuntimeFacts & { source_contract_status?: SourceContractStatus }).source_contract_status;
+  const rawContractBlockers = (rt as RuntimeFacts & { source_contract_blockers?: unknown }).source_contract_blockers;
+  const contractStatus: SourceContractStatus = rawContractStatus ?? "UNKNOWN";
+  const contractBlockers = Array.isArray(rawContractBlockers)
+    ? rawContractBlockers.filter((value): value is string => typeof value === "string")
+    : ["source_contract_blockers is missing or malformed"];
+  const blockersFieldPresent = Array.isArray(rawContractBlockers);
+  if (contractStatus === "SOURCE_FAITHFUL" && blockersFieldPresent && contractBlockers.length === 0) {
+    check(checks, "source_contract_fidelity", "source-to-implementation contract", "PASS",
+      "field-level source parity audit is complete with no blocking gaps");
+  } else if (contractStatus === "UNKNOWN" || !blockersFieldPresent) {
+    check(checks, "source_contract_fidelity", "source-to-implementation contract", "UNKNOWN",
+      `source contract is UNKNOWN${contractBlockers.length ? `: ${contractBlockers.join("; ")}` : " — no field-level source parity record exists"}`);
+  } else {
+    check(checks, "source_contract_fidelity", "source-to-implementation contract", "FAIL",
+      `source contract ${contractStatus}: ${contractBlockers.join("; ") || "source-to-code parity is incomplete"}`);
+  }
+
   /* ---- 2. governance (source truth) ------------------------------- */
   if (!gov.record_present) {
     const why = gov.resolve_error ? ` (${gov.resolve_error})` : "";
@@ -431,11 +524,13 @@ export function buildPromotionDecision(input: PromotionGateInput): PromotionDeci
       check(checks, "implementation_binding", "implementation binding", "FAIL",
         "the Brain record carries no executable implementation binding");
     }
-    if (gov.source_status === "SOURCE_VERIFIED" || gov.source_status === "SOURCE_INFERRED") {
+    if (gov.source_status === "SOURCE_VERIFIED") {
       check(checks, "source_status_usable", "source status usable", "PASS", `source_status=${gov.source_status}`);
+    } else if (gov.source_status === "UNKNOWN") {
+      check(checks, "source_status_usable", "source status usable", "UNKNOWN", "source status is explicitly UNKNOWN");
     } else {
       check(checks, "source_status_usable", "source status usable", "FAIL",
-        `source_status=${gov.source_status} — only SOURCE_VERIFIED / SOURCE_INFERRED may be promoted (a CLAIM or CONFLICT is not evidence)`);
+        `source_status=${gov.source_status} — promotion requires SOURCE_VERIFIED evidence; inferred, named-only, claimed, or conflicting source is insufficient`);
     }
     const unknownCritical = gov.unknown_critical as string[];
     if (unknownCritical.length === 0) {
@@ -492,6 +587,13 @@ export function buildPromotionDecision(input: PromotionGateInput): PromotionDeci
     else if (v.code_version !== input.versions.code_version) {
       versionProblems.push(`code_version ${v.code_version} ≠ current ${input.versions.code_version}`);
     }
+    if (!/^[0-9a-f]{64}$/.test(v.source_tree_sha256)) versionUnknowns.push("source_tree_sha256 is absent or malformed");
+    if (v.source_tree_digest_status !== "COMPLETE") versionUnknowns.push(`evidence source-tree digest status is ${String(v.source_tree_digest_status ?? "UNKNOWN")}`);
+    if (input.versions.source_tree_digest_status !== "COMPLETE") versionUnknowns.push(`current source-tree digest status is ${String(input.versions.source_tree_digest_status ?? "UNKNOWN")}`);
+    if (!/^[0-9a-f]{64}$/.test(input.versions.source_tree_sha256)) versionUnknowns.push("current source_tree_sha256 is unavailable or malformed");
+    else if (v.source_tree_sha256 !== input.versions.source_tree_sha256) {
+      versionProblems.push(`source_tree_sha256 ${v.source_tree_sha256} ≠ current ${input.versions.source_tree_sha256}`);
+    }
     if (!v.detector_version) versionUnknowns.push("detector_version is empty");
     else if (v.detector_version !== input.versions.detector_version) {
       versionProblems.push(`detector_version ${v.detector_version} ≠ current ${input.versions.detector_version}`);
@@ -520,10 +622,18 @@ export function buildPromotionDecision(input: PromotionGateInput): PromotionDeci
       `version lineage incomplete: ${versionUnknowns.join("; ")}`);
   } else {
     check(checks, "evidence_versions_current", "evidence describes this build", "PASS",
-      `code ${input.versions.code_version} · detector ${input.versions.detector_version} · strategy ${input.versions.strategy_versions.join("/")} · rule ${input.versions.rule_versions.join("/")}`);
+      `code ${input.versions.code_version} · source ${input.versions.source_tree_sha256} · detector ${input.versions.detector_version} · strategy ${input.versions.strategy_versions.join("/")} · rule ${input.versions.rule_versions.join("/")}`);
   }
 
-  /* ---- 6. methodology is declared and current --------------------- */
+  /* ---- 6. exact setup/version binding ----------------------------- */
+  if (!primary) {
+    check(checks, "evidence_compiled_binding_current", "evidence matches exact compiled setup", "UNKNOWN", "no evidence row to bind to a compiled setup");
+  } else {
+    const binding = validateEvidenceCompiledBinding(primary.evidence, input.versions);
+    check(checks, "evidence_compiled_binding_current", "evidence matches exact compiled setup", binding.verdict, binding.detail);
+  }
+
+  /* ---- 7. methodology is declared and current --------------------- */
   if (!primary) {
     check(checks, "evidence_methodology_declared", "methodology declared", "UNKNOWN", "no evidence row to read");
   } else if (primary.evidence.methodology === null) {
@@ -808,6 +918,8 @@ export interface ProvenanceChain {
     timeframe: string | null;
     availability: RuntimeAvailability | "MISSING";
     rule_ids: string[];
+    source_contract_status: SourceContractStatus;
+    source_contract_blockers: string[];
   };
   validation_run: {
     experiment_id: string | null;
@@ -932,6 +1044,8 @@ export function buildProvenanceChain(
       timeframe: input.runtime.timeframe,
       availability: input.runtime.availability,
       rule_ids: input.runtime.rule_ids,
+      source_contract_status: input.runtime.source_contract_status,
+      source_contract_blockers: input.runtime.source_contract_blockers,
     },
     validation_run: {
       experiment_id: row.experiment_id,
@@ -1083,18 +1197,31 @@ export function buildValidationRecord(decision: PromotionDecision, input: Promot
 export function currentVersionsFor(strategyId: string): CurrentVersions {
   const strategyVersions = new Set<string>();
   const ruleVersions = new Set<string>();
+  const compiledBindings: CurrentVersions["compiled_bindings"] = [];
   for (const c of COMPILED_STRATEGIES) {
     if (c.strategy_id !== strategyId) continue;
     const def = c.setup();
     strategyVersions.add(def.version);
     for (const r of def.rules) ruleVersions.add(r.version);
+    compiledBindings.push({
+      setup_id: c.setup_id,
+      direction: c.direction,
+      timeframe: c.timeframe,
+      strategy_version: def.version,
+      rule_bindings: def.rules.map((rule) => ({ rule_id: rule.id, rule_version: rule.version })).sort((a, b) => a.rule_id.localeCompare(b.rule_id)),
+    });
   }
   const release = buildReleaseIdentity();
+  const contractIdentity = sourceContractDocumentIdentity();
   return {
     code_version: release.git_commit,
+    source_tree_sha256: release.source_tree_sha256,
+    source_tree_digest_status: release.source_tree_digest_status,
     detector_version: DETECTOR_VERSION,
     strategy_versions: [...strategyVersions],
     rule_versions: [...ruleVersions],
+    compiled_bindings: compiledBindings.sort((a, b) => a.setup_id.localeCompare(b.setup_id)),
+    source_contract_sha256: contractIdentity.contract_sha256 ?? "",
   };
 }
 
@@ -1131,11 +1258,15 @@ export function resolvePromotionInput(
         source_refs: variants[0].source_refs,
         name: variants[0].name,
         family: variants[0].family,
+        source_contract_status: sourceContractStatusFor(strategyId),
+        source_contract_blockers: sourceContractBlockersFor(strategyId),
       }
     : {
         exists: false, availability: "MISSING", blocked_reason: null, setup_ids: [],
         direction_variants: 0, timeframe: null, version: null, rule_ids: [], source_refs: [],
         name: null, family: null,
+        source_contract_status: sourceContractStatusFor(strategyId),
+        source_contract_blockers: sourceContractBlockersFor(strategyId),
       };
 
   let record: StrategyRecord | null = opts.brainRecord ?? null;

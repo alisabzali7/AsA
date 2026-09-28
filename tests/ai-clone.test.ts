@@ -2,6 +2,11 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vites
 import http from "node:http";
 import { AddressInfo } from "node:net";
 import { readFileSync } from "node:fs";
+
+// AI Clone route tests isolate every runtime store in memory.
+process.env.ASA_DB_PATH = ":memory:";
+process.env.ASA_HISTORY_DB_PATH = ":memory:";
+process.env.ASA_BRAIN_DB_PATH = ":memory:";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -141,6 +146,9 @@ describe("deterministic context (buildCloneFacts — via the real store)", () =>
     expect(route.buildCloneFacts("can you buy for me now", null).some((f) => f.startsWith("RULE: AsA is advisory-only"))).toBe(true);
     expect(route.buildCloneFacts("what is the probability?", null).some((f) => f.startsWith("RULE: AsA scores are deterministic scores"))).toBe(true);
     expect(route.buildCloneFacts("tell me about TONUSDT", null).some((f) => f.includes("TONUSDT is excluded"))).toBe(true);
+    const strategyFacts = route.buildCloneFacts("explain the strategy", null);
+    expect(strategyFacts.some((f) => f.includes("compiled setup definition(s)") && f.includes("source contracts="))).toBe(true);
+    expect(strategyFacts.some((f) => /executable strategies come from|no strategy currently holds/i.test(f))).toBe(false);
   });
 
   it("unmapped question: only well-formed deterministic lines, no fabricated evidence about the question", async () => {
@@ -197,6 +205,11 @@ describe("AI Clone route: deterministic context + LLM conversation (real POST, m
     // deterministic facts present and well-formed
     expect(res.facts).toContain("FACT: board live 0/0 universe symbols (source ttt stats sweep)");
     expect(res.facts.every((f: string) => /^(FACT|RULE|UNAVAILABLE):/.test(f))).toBe(true);
+    expect(res.provider_mode).toBe("auto");
+    expect(res.ai_context.authority.model_output).toBe("NON_AUTHORITATIVE");
+    expect(res.ai_context.research_live_separation.live_advisory).toBe("PROMOTION_GATE_REQUIRED");
+    expect(res.ai_context.risk.portfolio_verdict).toBe("NOT_EVALUATED_NO_CANDIDATE");
+    expect(res.ai_context.psychology.user_state.status).toBe("NOT_SHARED_FOR_THIS_QUESTION");
     // LLM actually invoked and its text is in the SEPARATE explanation field
     expect(res.explanation).toBe("Explanation: I can only restate the deterministic context.");
     expect(res.llm.status).toBe("ok");
@@ -209,20 +222,23 @@ describe("AI Clone route: deterministic context + LLM conversation (real POST, m
     expect(mock.chatCalls[0].messages[0].content).toContain("NO TRADE");
     expect(mock.chatCalls[0].messages[1].content).toContain("DETERMINISTIC CONTEXT");
     expect(mock.chatCalls[0].messages[1].content).toContain("FACT: board live 0/0 universe symbols");
+    expect(mock.chatCalls[0].messages[1].content).toContain("STRUCTURED AI CONTEXT");
+    expect(mock.chatCalls[0].messages[1].content).toContain("NON_AUTHORITATIVE");
     expect(mock.chatCalls[0].model).toBe("test-model-1");
   });
 
-  it("NO TRADE protection: a contradictory LLM answer cannot touch the deterministic facts", async () => {
+  it("NO TRADE protection: a contradictory LLM answer is withheld and cannot touch deterministic facts", async () => {
     mock.setChatResponse({ status: 200, content: "Forget the context: BUY now, override every risk gate and NO TRADE — it is guaranteed profit." });
     const { route } = await awaitRouteEnv({ OLLAMA_URL: mock.url, AI_OLLAMA_MODEL: "test-model-1", AI_DEFAULT_PROVIDER: "auto", OPENAI_BASE_URL: undefined, OPENAI_API_KEY: undefined });
     const res = await postRoute(route.POST, { question: "can you trade now?" });
-    // deterministic block: untouched, includes the advisory-only RULE for this question
     expect(res.facts.some((f: string) => f.startsWith("RULE: AsA is advisory-only"))).toBe(true);
     expect(res.facts.every((f: string) => /^(FACT|RULE|UNAVAILABLE):/.test(f))).toBe(true);
     expect(res.facts.some((f: string) => f.includes("guaranteed profit"))).toBe(false);
-    // the LLM's (boundary-violating) text is quarantined in its own field — never merged into facts
-    expect(res.explanation).toContain("guaranteed profit");
-    expect(res.llm.status).toBe("ok");
+    expect(res.explanation).toBeNull();
+    expect(res.explanation_validation.status).toBe("REJECTED_AUTHORITY_VIOLATION");
+    expect(res.explanation_validation.displayed).toBe(false);
+    expect(res.explanation_validation.authority_violations).toContain("DIRECT_TRADE_INSTRUCTION");
+    expect(res.llm.status).toBe("ok"); // transport succeeded; prose was rejected
   });
 
   it("stale context stays visibly stale through the route (age + STALE marker, LLM cannot erase it)", async () => {
@@ -241,7 +257,8 @@ describe("AI Clone route: deterministic context + LLM conversation (real POST, m
     expect(res.explanation).toBeNull();
     expect(res.llm.status).toBe("disabled");
     expect(res.llm_online).toBe(false);
-    expect(res.tags.some((t: string) => t.includes("no LLM provider configured/online"))).toBe(true);
+    expect(res.tags).toContain("deterministic assembly only · selected LLM provider unavailable (ollama=NOT_CONFIGURED, openai=NOT_CONFIGURED)");
+    expect(res.llm.error).toBe("selected provider unavailable (ollama=NOT_CONFIGURED, openai=NOT_CONFIGURED)");
     expect(res.facts.every((f: string) => /^(FACT|RULE|UNAVAILABLE):/.test(f))).toBe(true);
     expect(mock.chatCalls.length).toBe(0);
   });
@@ -259,13 +276,144 @@ describe("AI Clone route: deterministic context + LLM conversation (real POST, m
     expect(mock.chatCalls.length).toBe(1); // one attempt, then honest fallback
   });
 
-  it("AI_DEFAULT_PROVIDER=heuristic: no LLM call even when a provider is online", async () => {
+  it("heuristic provider mode: no LLM call even when a provider is online", async () => {
     const { route } = await awaitRouteEnv({ OLLAMA_URL: mock.url, AI_OLLAMA_MODEL: "test-model-1", AI_DEFAULT_PROVIDER: "heuristic", OPENAI_BASE_URL: undefined, OPENAI_API_KEY: undefined });
     const res = await postRoute(route.POST, { question: "how is the market?" });
     expect(res.explanation).toBeNull();
     expect(res.llm.status).toBe("disabled");
-    expect(res.tags.some((t: string) => t.includes("LLM disabled (AI_DEFAULT_PROVIDER=heuristic)"))).toBe(true);
+    expect(res.provider_mode).toBe("heuristic");
+    expect(res.tags.some((t: string) => t.includes("LLM disabled (selected provider mode=heuristic)"))).toBe(true);
     expect(mock.chatCalls.length).toBe(0);
+  });
+
+  it("persisted provider preference takes precedence over the environment default", async () => {
+    const { route } = await awaitRouteEnv({ OLLAMA_URL: mock.url, AI_OLLAMA_MODEL: "test-model-1", AI_DEFAULT_PROVIDER: "auto", OPENAI_BASE_URL: undefined, OPENAI_API_KEY: undefined });
+    const db = await import("../src/db/sqlite");
+    db.getRepo().configSet("pref.ai.provider", "heuristic");
+    const res = await postRoute(route.POST, { question: "how is the market?" });
+    expect(res.provider_mode).toBe("heuristic");
+    expect(res.explanation).toBeNull();
+    expect(mock.chatCalls.length).toBe(0);
+  });
+
+  it("an explicit provider selection does not fail over to a different configured provider", async () => {
+    const { route } = await awaitRouteEnv({ OLLAMA_URL: mock.url, AI_OLLAMA_MODEL: "test-model-1", AI_DEFAULT_PROVIDER: "auto", OPENAI_BASE_URL: undefined, OPENAI_API_KEY: undefined });
+    const db = await import("../src/db/sqlite");
+    db.getRepo().configSet("pref.ai.provider", "openai");
+    const res = await postRoute(route.POST, { question: "how is the market?" });
+    expect(res.provider_mode).toBe("openai");
+    expect(res.explanation).toBeNull();
+    expect(res.llm.status).toBe("disabled");
+    expect(res.llm.error).toContain("openai=NOT_CONFIGURED");
+    expect(mock.chatCalls.length).toBe(0);
+  });
+
+  it("user psychology data is omitted unless the question explicitly asks about the user", async () => {
+    const { route } = await awaitRouteEnv({ OLLAMA_URL: undefined, OPENAI_BASE_URL: undefined, OPENAI_API_KEY: undefined });
+    const general = await postRoute(route.POST, { question: "how is the market?" });
+    expect(general.ai_context.psychology.user_state.status).toBe("NOT_SHARED_FOR_THIS_QUESTION");
+    expect(general.ai_context.psychology.source_archive.status).toBe("NOT_SHARED_FOR_THIS_QUESTION");
+    expect(general.ai_context.psychology.source_archive.manifest_sha256).toBeNull();
+    expect(general.ai_context.psychology.source_archive.sources).toEqual([]);
+    expect(general.ai_context.psychology.source_only_principles).toEqual([]);
+    const unrelatedFirstPerson = await postRoute(route.POST, { question: "What can I do about BTC funding?" });
+    expect(unrelatedFirstPerson.ai_context.psychology.user_state.status).toBe("NOT_SHARED_FOR_THIS_QUESTION");
+    expect(unrelatedFirstPerson.ai_context.psychology.source_only_principles).toEqual([]);
+    const personal = await postRoute(route.POST, { question: "Am I ready to trade?" });
+    expect(personal.ai_context.psychology.user_state.status).toBe("EXPLICIT_OR_JOURNAL_DERIVED_FIELDS_ONLY");
+    expect(personal.ai_context.psychology.user_state.state.declared_state).toBeNull();
+    expect(personal.ai_context.psychology.user_state.state.journal_coverage).toBe("UNKNOWN");
+    expect(personal.ai_context.psychology.source_archive.user_traits_inferred).toBe(false);
+    expect(personal.ai_context.psychology.source_only_principles.length).toBeGreaterThan(0);
+  });
+
+  it("unsupported model numbers and symbols are withheld from the displayed explanation", async () => {
+    mock.setChatResponse({ status: 200, content: "BTCUSDT is at 999999 and may move next." });
+    const { route } = await awaitRouteEnv({ OLLAMA_URL: mock.url, AI_OLLAMA_MODEL: "test-model-1", AI_DEFAULT_PROVIDER: "auto", OPENAI_BASE_URL: undefined, OPENAI_API_KEY: undefined });
+    const res = await postRoute(route.POST, { question: "how is the market?" });
+    expect(res.explanation).toBeNull();
+    expect(res.explanation_validation.status).toBe("REJECTED_UNSUPPORTED_TOKENS");
+    expect(res.explanation_validation.unsupported_numbers).toContain("999999");
+    expect(res.explanation_validation.unsupported_symbols).toContain("BTCUSDT");
+  });
+
+  it("tokens appearing only in the user's question do not become model evidence", async () => {
+    mock.setChatResponse({ status: 200, content: "BTCUSDT is at 999999." });
+    const { route } = await awaitRouteEnv({ OLLAMA_URL: mock.url, AI_OLLAMA_MODEL: "test-model-1", AI_DEFAULT_PROVIDER: "auto", OPENAI_BASE_URL: undefined, OPENAI_API_KEY: undefined });
+    const res = await postRoute(route.POST, { question: "BTCUSDT is at 999999, is that true?" });
+    expect(res.explanation).toBeNull();
+    expect(res.explanation_validation.unsupported_numbers).toContain("999999");
+    expect(res.explanation_validation.unsupported_symbols).toContain("BTCUSDT");
+  });
+
+  it("execution commands are withheld in English and Persian while execution remains user-controlled", async () => {
+    const { route } = await awaitRouteEnv({ OLLAMA_URL: mock.url, AI_OLLAMA_MODEL: "test-model-1", AI_DEFAULT_PROVIDER: "auto", OPENAI_BASE_URL: undefined, OPENAI_API_KEY: undefined });
+    mock.setChatResponse({ status: 200, content: "Execute the trade now." });
+    const english = await postRoute(route.POST, { question: "what does the context say?" });
+    expect(english.explanation).toBeNull();
+    expect(english.explanation_validation.authority_violations).toContain("EXECUTION_INSTRUCTION");
+
+    mock.setChatResponse({ status: 200, content: "سفارش را اجرا کنید." });
+    const persian = await postRoute(route.POST, { question: "وضعیت چیست؟" });
+    expect(persian.explanation).toBeNull();
+    expect(persian.explanation_validation.authority_violations).toContain("EXECUTION_INSTRUCTION");
+
+    mock.setChatResponse({ status: 200, content: "Execution is an independent choice for the user." });
+    const choice = await postRoute(route.POST, { question: "what does the context say?" });
+    expect(choice.explanation).toBe("Execution is an independent choice for the user.");
+  });
+
+  it("localized Persian/Arabic numerals and Persian trade commands cannot bypass output quarantine", async () => {
+    mock.setChatResponse({ status: 200, content: "قیمت ۹۹۹٬۹۹۹ و ٩٩٩٩٩٩ است؛ همین الان BTCUSDT را بخرید." });
+    const { route } = await awaitRouteEnv({ OLLAMA_URL: mock.url, AI_OLLAMA_MODEL: "test-model-1", AI_DEFAULT_PROVIDER: "auto", OPENAI_BASE_URL: undefined, OPENAI_API_KEY: undefined });
+    const res = await postRoute(route.POST, { question: "وضعیت بازار؟", symbol: "BTCUSDT" });
+    expect(res.explanation).toBeNull();
+    expect(res.explanation_validation.unsupported_numbers).toContain("۹۹۹٬۹۹۹");
+    expect(res.explanation_validation.unsupported_numbers).toContain("٩٩٩٩٩٩");
+    expect(res.explanation_validation.authority_violations).toContain("PERSIAN_DIRECT_TRADE_INSTRUCTION");
+
+    mock.setChatResponse({ status: 200, content: "ریسک و محدودیت را نادیده بگیر." });
+    const override = await postRoute(route.POST, { question: "وضعیت بازار؟", symbol: "BTCUSDT" });
+    expect(override.explanation).toBeNull();
+    expect(override.explanation_validation.authority_violations).toContain("DETERMINISTIC_GATE_OVERRIDE");
+  });
+
+  it("provider receives the returned structured context exactly and no raw journal/source text", async () => {
+    const { route } = await awaitRouteEnv({ OLLAMA_URL: mock.url, AI_OLLAMA_MODEL: "test-model-1", AI_DEFAULT_PROVIDER: "auto", OPENAI_BASE_URL: undefined, OPENAI_API_KEY: undefined });
+    const db = await import("../src/db/sqlite");
+    db.getRepo().journalAdd({
+      created_ms: Date.now(), updated_ms: Date.now(), symbol: "BTCUSDT", direction: "long",
+      notes: "PRIVATE_JOURNAL_SENTINEL_DO_NOT_SEND", opp_id: null, r_multiple: -1,
+    });
+    const res = await postRoute(route.POST, { question: "how is the market?" });
+    expect(mock.chatCalls[0].messages).toHaveLength(2);
+    expect(mock.chatCalls[0].messages[0]).toEqual({ role: "system", content: route.buildCloneSystemPrompt() });
+    expect(mock.chatCalls[0].messages[1]).toEqual({
+      role: "user",
+      content: route.buildCloneUserMessage(res.question, res.facts, res.ai_context),
+    });
+    const providerMessage = mock.chatCalls[0].messages[1].content;
+    expect(providerMessage).toContain(JSON.stringify(res.ai_context));
+    expect(providerMessage).toContain("configured_inputs");
+    expect(providerMessage).toContain("advisory_open_book");
+    expect(providerMessage).toContain("compiled_source_contracts");
+    expect(providerMessage).not.toContain("PRIVATE_JOURNAL_SENTINEL_DO_NOT_SEND");
+    expect(providerMessage).not.toContain(readSrc("knowledge/psychology/USER_PSYCHOLOGY_1.txt"));
+    expect(res.ai_context.psychology.user_state.status).toBe("NOT_SHARED_FOR_THIS_QUESTION");
+
+    const personal = await postRoute(route.POST, { question: "Am I ready to trade?" });
+    expect(mock.chatCalls[1].messages).toHaveLength(2);
+    expect(mock.chatCalls[1].messages[0]).toEqual({ role: "system", content: route.buildCloneSystemPrompt() });
+    expect(mock.chatCalls[1].messages[1]).toEqual({
+      role: "user",
+      content: route.buildCloneUserMessage(personal.question, personal.facts, personal.ai_context),
+    });
+    const personalMessage = mock.chatCalls[1].messages[1].content;
+    expect(personalMessage).toContain(JSON.stringify(personal.ai_context));
+    expect(personalMessage).toContain("source_only_principles");
+    expect(personalMessage).toContain("USER_PSYCHOLOGY_1.txt"); // identity/provenance only
+    expect(personalMessage).not.toContain(readSrc("knowledge/psychology/USER_PSYCHOLOGY_1.txt"));
+    expect(personalMessage).not.toContain("PRIVATE_JOURNAL_SENTINEL_DO_NOT_SEND");
   });
 
   it("style isolation: tone/language wording in the question never changes the deterministic facts", async () => {
@@ -290,10 +438,11 @@ describe("AI Clone frontend (presentation contract — source-level, no DOM)", (
     // facts block renders facts; explanation block renders explanation — different fields
     expect(s).toMatch(/explanation[^]*?h\.explanation/);
     expect(s).toMatch(/facts[^]*?h\.facts\.map/);
+    expect(s).toContain("h.explanation_validation?.semantic_status");
   });
 
   it("the LLM badge is shown only when the LLM actually produced the answer", () => {
-    expect(page()).toContain('h.llm.status === "ok"');
+    expect(page()).toContain('h.llm.status === "ok" && h.explanation !== null');
     // the old conflation (badge from provider probe state) must be gone
     expect(page()).not.toContain("llmOnline && <Badge");
   });

@@ -36,6 +36,42 @@ process.env.ASA_DB_PATH = path.join(TMP, "asa.db");
 process.env.ASA_HISTORY_DB_PATH = path.join(TMP, "history.db");
 process.env.ASA_BRAIN_DB_PATH = path.join(TMP, "brain.db");
 
+// Synthetic authority exists only inside this publisher regression suite; it
+// exercises the durable publication transaction without making any shipped
+// strategy source-faithful or promotion-eligible.
+const publicationAuthority = vi.hoisted(() => ({
+  setups: new Map<string, unknown>(),
+  statuses: new Map<string, string>(),
+  psychologyPass: true,
+}));
+vi.mock("../src/lib/strategy/runtime", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/strategy/runtime")>();
+  return {
+    ...mod,
+    getRuntimeStrategy: (id: string) => publicationAuthority.setups.get(id) as ReturnType<typeof mod.getRuntimeStrategy> ?? mod.getRuntimeStrategy(id),
+  };
+});
+vi.mock("../src/lib/backtest/promotion", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/backtest/promotion")>();
+  return {
+    ...mod,
+    promotedRuntimeStatus: (id: string) => (publicationAuthority.statuses.get(id) ?? mod.promotedRuntimeStatus(id)) as ReturnType<typeof mod.promotedRuntimeStatus>,
+  };
+});
+vi.mock("../src/lib/psychology/gate", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/psychology/gate")>();
+  return {
+    ...mod,
+    evaluatePsychologyGate: (...args: Parameters<typeof mod.evaluatePsychologyGate>) => {
+      const state = args[1];
+      if (publicationAuthority.psychologyPass && state.declared_state === null) {
+        return { verdict: "pass", score_penalty: 0, blocks: [], penalties: [], flags: [], checklists_required: [], not_evaluated: [], evaluated: 1, active_policy_ids: ["TEST-ONLY"] };
+      }
+      return mod.evaluatePsychologyGate(...args);
+    },
+  };
+});
+
 type Repo = import("../src/db/repo").Repo;
 type SignalRow = import("../src/db/repo").SignalRow;
 
@@ -51,6 +87,9 @@ beforeAll(async () => {
   const orch = await import("../src/lib/pipeline/orchestrator");
   closeRepo = sqlite.closeRepo;
   repo = sqlite.getRepo();
+  repo.configSet("pref.risk.equity", "10000");
+  repo.configSet("pref.risk.perTradePct", "1");
+  repo.configSet("pref.risk.maxLeverage", "5");
   publishSignal = orch.publishSignal;
   publishActionFor = orch.publishActionFor;
   expireStaleSignals = (maxAgeMs?: number, r?: Repo) => orch.expireStaleSignals(maxAgeMs, r ?? repo);
@@ -68,20 +107,49 @@ afterAll(() => {
 let seq = 0;
 function makeOpp(overrides: Partial<OpportunityPayload> = {}): OpportunityPayload {
   seq += 1;
-  return persistPublicationFixture(repo, publicationIdentity({
+  const strategyId = overrides.strategy_id ?? "STR-TEST-CLOSURE";
+  const setupId = overrides.setup_id ?? `SET-PUBLISH-TEST-${seq}`;
+  const direction = overrides.direction ?? "long";
+  const timeframe = overrides.timeframe ?? "1h";
+  const ruleIds = overrides.rule_ids ?? ["RULE-PUBLISH-TEST"];
+  const ruleVersions = overrides.rule_versions ?? ["1.0.0"];
+  publicationAuthority.setups.set(setupId, {
+    strategy_id: strategyId,
+    setup_id: setupId,
+    direction,
+    timeframe,
+    strategy_version: "1.0.0",
+    version: "1.0.0",
+    rule_ids: ruleIds,
+    rule_versions: ruleVersions,
+    availability: "EXECUTABLE",
+    source_contract_status: "SOURCE_FAITHFUL",
+    source_contract_blockers: [],
+    blocked_reason: null,
+    source_refs: [],
+    impl: null,
+  });
+  if (strategyId === "STR-TEST-CLOSURE") publicationAuthority.statuses.set(strategyId, "LIVE_ADVISORY_ONLY");
+  publicationAuthority.psychologyPass = true;
+  const qualifiedFixture = publicationIdentity({
     id: `opptest${seq}`,
     symbol: "BTCUSDT",
-    timeframe: "1h",
-    direction: "long",
+    timeframe,
+    direction,
     score: 90,
     setup: "s",
     thesis: "t",
     entry_zone: { top: 100, bottom: 100 },
     invalidation: null,
-    stop: 95,
-    targets: [110],
+    stop: direction === "long" ? 95 : 105,
+    targets: [direction === "long" ? 110 : 90],
     rr: null,
-    strategy_id: "STR-TEST-CLOSURE",
+    strategy_id: strategyId,
+    strategy_version: "1.0.0",
+    rule_ids: ruleIds,
+    rule_versions: ruleVersions,
+    source_contract_status: "SOURCE_FAITHFUL",
+    source_contract_blockers: [],
     mode: "live",
     state: "READY",
     anchor_ts_ms: 0,
@@ -96,13 +164,13 @@ function makeOpp(overrides: Partial<OpportunityPayload> = {}): OpportunityPayloa
     unknown_factors: [],
     source_refs: [],
     data_quality: { bars: 1, stale: false, age_ms: 0, state: "FRESH" },
-    psychology: null,
-    portfolio: null,
-    setup_id: null,
-    score_semantics: "s",
+    psychology: { state: "READY", hard_blocks: [], soft_warnings: [], score_modifier: 0, not_evaluated: [] },
+    portfolio: { verdict: "pass", reasons: ["test-only measured portfolio pass"], unenforced: [] },
+    setup_id: setupId,
+    score_semantics: "test-only decision score",
     chart_evidence: null,
-    // FIX (T05 T2): an explicit valid risk-PASS is the ONLY publishable risk
-    // state — fixtures must never rely on a missing risk object.
+    // The publish boundary re-evaluates this exact risk result against the
+    // synthetic test market and explicit test-only sizing inputs.
     risk: RISK_PASS,
     ai: null,
     provenance: {
@@ -110,7 +178,14 @@ function makeOpp(overrides: Partial<OpportunityPayload> = {}): OpportunityPayloa
       data: { series_fetched_ms: 0, stats_fetched_ms: null, native_1d: true, candles: { macro: null, context: null, trigger: 1 } },
     },
     ...overrides,
-  }));
+  });
+  // publicationIdentity supplies explicit PASS evidence to ordinary fixtures;
+  // retain an explicitly requested null so missing-evidence tests exercise the
+  // actual refusal path instead of silently becoming positive fixtures.
+  const fixture = Object.prototype.hasOwnProperty.call(overrides, "portfolio")
+    ? { ...qualifiedFixture, portfolio: overrides.portfolio ?? null }
+    : qualifiedFixture;
+  return persistPublicationFixture(repo, fixture);
 }
 
 const RISK_BLOCK = { verdict: "block", reasons: ["LONG requires stop < entry"], numbers: {} };
@@ -123,6 +198,47 @@ function outboxRowsFor(oppId: string) {
     .filter((r) => r.kind === "signal")
     .filter((r) => (JSON.parse(r.payload_json) as { opportunity_id?: string }).opportunity_id === oppId);
 }
+
+describe("final live admission boundary: portfolio, source binding, and promotion", () => {
+  it("missing, UNKNOWN, or BLOCKED portfolio results cannot publish", () => {
+    const refused = [
+      makeOpp({ portfolio: null }),
+      makeOpp({ portfolio: { verdict: "unknown", reasons: ["book UNKNOWN"], unenforced: [] } }),
+      makeOpp({ portfolio: { verdict: "block", reasons: ["heat cap"], unenforced: [] } }),
+    ];
+    for (const opp of refused) {
+      const result = publishSignal(opp);
+      expect(result.published).toBe(false);
+      expect(result.reason).toMatch(/portfolio.*explicit portfolio PASS/);
+      expect(repo.signalByOpp(opp.id)).toBeNull();
+      expect(outboxRowsFor(opp.id)).toHaveLength(0);
+    }
+  });
+
+  it("requires the current exact compiled setup, source-faithful status, and matching versions", () => {
+    const wrongSource = makeOpp({ source_contract_status: "INCOMPLETE" as never });
+    const wrongVersion = makeOpp({ strategy_version: "0.9.0" });
+    const missingSetup = makeOpp({ setup_id: null });
+    for (const opp of [wrongSource, wrongVersion, missingSetup]) {
+      const result = publishSignal(opp);
+      expect(result.published).toBe(false);
+      expect(result.reason).toMatch(/source|compiled setup|runtime identity/i);
+      expect(repo.signalByOpp(opp.id)).toBeNull();
+      expect(outboxRowsFor(opp.id)).toHaveLength(0);
+    }
+  });
+
+  it("rechecks the current promotion gate instead of trusting READY or payload eligibility", () => {
+    const opp = makeOpp();
+    publicationAuthority.statuses.set(opp.strategy_id, "DISABLED");
+    const result = publishSignal(opp);
+    expect(result.published).toBe(false);
+    expect(result.reason).toMatch(/promotion gate reports DISABLED/);
+    expect(repo.signalByOpp(opp.id)).toBeNull();
+    expect(outboxRowsFor(opp.id)).toHaveLength(0);
+    publicationAuthority.statuses.set(opp.strategy_id, "LIVE_ADVISORY_ONLY");
+  });
+});
 
 describe("T05 publish boundary: lifecycle classification", () => {
   it("classifies every SIGNAL_STATES value; unknown states fail SAFE as terminal", () => {
@@ -143,6 +259,15 @@ describe("T05 publish boundary: lifecycle classification", () => {
 });
 
 describe("T05 publish boundary: exactly-once publication (closure §V)", () => {
+  it("research-mode opportunities cannot cross the live signal boundary", () => {
+    const opp = makeOpp({ mode: "research", risk: RISK_PASS });
+    const result = publishSignal(opp);
+    expect(result.published).toBe(false);
+    expect(result.reason).toMatch(/research-only/);
+    expect(repo.signalByOpp(opp.id)).toBeNull();
+    expect(outboxRowsFor(opp.id)).toHaveLength(0);
+  });
+
   it("repeated publishes of one opportunity yield ONE signal row and ONE outbox row", () => {
     const opp = makeOpp({ risk: RISK_PASS });
     const r1 = publishSignal(opp);
@@ -284,6 +409,7 @@ describe("T05 publish boundary: FINAL hard risk boundary (strict)", () => {
       ["empty object", {}],
       ["non-string verdict", { verdict: 123, reasons: [] }],
       ["no reasons", { verdict: "pass" }],
+      ["pass without a risk notional", { verdict: "pass", reasons: [] }],
       ["reasons not an array", { verdict: "pass", reasons: "not-an-array" }],
       ["risk is a string", "pass"],
       ["risk is a number", 7],
@@ -337,7 +463,7 @@ describe("T05 publish boundary: FINAL hard risk boundary (strict)", () => {
   });
 
   it("published payload retains full decision provenance", () => {
-    const opp = makeOpp({ risk: RISK_PASS, setup_id: "SET-X", thesis: "level touch" });
+    const opp = makeOpp({ risk: RISK_PASS, thesis: "level touch" });
     publishSignal(opp);
     const row = repo.signalByOpp(opp.id)!;
     expect(row.symbol).toBe(opp.symbol);
@@ -346,7 +472,7 @@ describe("T05 publish boundary: FINAL hard risk boundary (strict)", () => {
     const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
     expect(payload.id).toBe(opp.id);
     expect(payload.thesis).toBe("level touch");
-    expect(payload.setup_id).toBe("SET-X");
+    expect(payload.setup_id).toBe(opp.setup_id);
     expect(typeof payload.published_at_ms).toBe("number");
     // the queued advisory row is traceable to this opportunity
     const outbox = outboxRowsFor(opp.id)[0];
@@ -414,18 +540,29 @@ describe("T05 recovery: logical identity and evidence cannot be caller-renamed",
   });
 });
 
-// TEST ONLY: boundary fixtures are not empirical promotion or account-loss proof.
-vi.mock("../src/lib/backtest/promotion", async (original) => {
-  const mod = await original<typeof import("../src/lib/backtest/promotion")>();
-  return { ...mod,
-  promotedRuntimeStatus: (id: string) => id === "STR-TEST-CLOSURE" ? "LIVE_ADVISORY_ONLY" : mod.promotedRuntimeStatus(id),
-}; });
-vi.mock("../src/lib/risk/policy", async (original) => {
-  const mod = await original<typeof import("../src/lib/risk/policy")>();
-  return { ...mod, getProductionRiskPolicy: () => ({ ...mod.getProductionRiskPolicy(), daily_loss_limit_pct: null, period_loss_limit_pct: null }) };
+// TEST ONLY: these synthetic values exercise the publication transaction; they
+// do not assert that an incomplete source policy is production-selectable.
+vi.mock("../src/lib/risk/policy", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/risk/policy")>();
+  const source = mod.selectableRiskPolicies().find((policy) => policy.policy_id === "RISK-DAILY-5PCT")!;
+  const testOnlyPolicy = {
+    ...source,
+    selection_status: "SELECTED" as const,
+    selected_by: "operator_pref" as const,
+    selection_reason: "TEST ONLY: publication-boundary math fixture; not production eligibility",
+    policy_version: mod.RISK_POLICY_VERSION,
+    source_completeness: mod.riskPolicyEligibility(source).source_completeness,
+    daily_loss_limit_pct: null,
+    period_loss_limit_pct: null,
+  };
+  return { ...mod, getProductionRiskPolicy: () => testOnlyPolicy };
 });
 
-beforeEach(() => { for (const row of repo.signalActive()) repo.signalUpdate({id:row.id,state:"expired"}); });
+beforeEach(() => {
+  for (const row of repo.signalActive()) repo.signalUpdate({ id: row.id, state: "expired" });
+  repo.configSet("pref.psychology.declared_state", "");
+  publicationAuthority.psychologyPass = true;
+});
 
 describe("closure: current authoritative admission, not caller READY", () => {
   it("refuses an unpromoted strategy even with a correct numeric PASS and stored READY", () => {
@@ -452,6 +589,20 @@ describe("closure: current authoritative admission, not caller READY", () => {
       expect(result.reason).toMatch(/current admission gate BLOCK/);
       expect(outboxRowsFor(o.id)).toHaveLength(0);
     } finally { repo.configSet("pref.psychology.declared_state", "ok"); }
+  });
+  it("incomplete current psychology source coverage stays UNKNOWN and blocks publication", () => {
+    const o = makeOpp();
+    publicationAuthority.psychologyPass = false;
+    try {
+      const result = publishSignal(o);
+      expect(result.published).toBe(false);
+      expect(result.reason).toMatch(/current admission gate BLOCK/);
+      expect(result.reason).toMatch(/PSYCHOLOGY-POLICY-SET|source-verified|source completeness|journal coverage/i);
+      expect(repo.signalByOpp(o.id)).toBeNull();
+      expect(outboxRowsFor(o.id)).toHaveLength(0);
+    } finally {
+      publicationAuthority.psychologyPass = true;
+    }
   });
   it("serializes different candidates against current opposing exposure", async () => {
     const first = makeOpp();

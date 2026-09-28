@@ -14,12 +14,12 @@ import {
 import { evaluateRule, MapFeatureBag, type RuleDefinition } from "../src/lib/rules/engine";
 import { evaluateSetup } from "../src/lib/rules/setup";
 import { COMPILED_STRATEGIES, evaluateCompiled, COMPILED_STRATEGY_IDS } from "../src/lib/strategy/compiled";
-import { runStrategyBacktest, computeMetrics, DEFAULT_COSTS } from "../src/lib/backtest/strategy-runner";
+import { runStrategyBacktest, computeMetrics } from "../src/lib/backtest/strategy-runner";
+import { explicitResearchRunOptions } from "./helpers/research-run-options";
 import { runOOS, runWalkForward, decidePromotion, PROMOTION_CRITERIA } from "../src/lib/backtest/validation";
-import { buildRiskPolicies } from "../src/lib/brain/policies";
 import { okFeature, invalidFeature } from "../src/lib/features/types";
 
-const POLICY = buildRiskPolicies().find((p) => p.policy_id === "RISK-ASA-CONSERVATIVE-DEFAULT")!;
+const TEST_RUN_OPTIONS = explicitResearchRunOptions({ equity: 10_000 });
 
 function loadReplay(file: string, tfMin: number): Candle[] {
   const j = JSON.parse(fs.readFileSync(`tests/fixtures/replay/${file}`, "utf8"));
@@ -259,7 +259,7 @@ describe.runIf(hasReplay)("backtest — no lookahead", () => {
 
   it("never enters before the bar after the signal", () => {
     const strat = COMPILED_STRATEGIES.find((s) => s.strategy_id === "STR-RAW-2-803")!;
-    const r = runStrategyBacktest(strat, "BTCUSDT", candles(), { equity: 10000, policy: POLICY });
+    const r = runStrategyBacktest(strat, "BTCUSDT", candles(), TEST_RUN_OPTIONS);
     expect(r.trades.length).toBeGreaterThan(0);
     for (const t of r.trades) {
       expect(t.entry_ts, "entry must be strictly after the signal bar").toBeGreaterThan(t.signal_ts);
@@ -282,7 +282,7 @@ describe.runIf(hasReplay)("backtest — no lookahead", () => {
 
   it("resolves a same-bar stop+target tie to the STOP (conservative)", () => {
     const strat = COMPILED_STRATEGIES.find((s) => s.strategy_id === "STR-RAW-2-803")!;
-    const r = runStrategyBacktest(strat, "BTCUSDT", candles(), { equity: 10000, policy: POLICY });
+    const r = runStrategyBacktest(strat, "BTCUSDT", candles(), TEST_RUN_OPTIONS);
     expect(r.same_bar_policy).toBe("stop_first");
     expect(r.assumptions.join(" ")).toMatch(/same-bar stop\+target ambiguity/i);
     // no trade may report a target outcome with a bar that also hit the stop
@@ -291,8 +291,8 @@ describe.runIf(hasReplay)("backtest — no lookahead", () => {
 
   it("applies fees and slippage so gross R exceeds net R", () => {
     const strat = COMPILED_STRATEGIES.find((s) => s.strategy_id === "STR-RAW-2-803")!;
-    const r = runStrategyBacktest(strat, "BTCUSDT", candles(), { equity: 10000, policy: POLICY });
-    expect(r.costs).toEqual(DEFAULT_COSTS);
+    const r = runStrategyBacktest(strat, "BTCUSDT", candles(), TEST_RUN_OPTIONS);
+    expect(r.costs).toEqual(TEST_RUN_OPTIONS.costs);
     for (const t of r.trades) {
       expect(t.fees_r).toBeGreaterThan(0);
       expect(t.r_multiple).toBeLessThan(t.gross_r + 1e-9);
@@ -301,7 +301,7 @@ describe.runIf(hasReplay)("backtest — no lookahead", () => {
 
   it("never overlaps positions for one strategy/symbol", () => {
     const strat = COMPILED_STRATEGIES.find((s) => s.strategy_id === "STR-RAW-2-803")!;
-    const r = runStrategyBacktest(strat, "BTCUSDT", candles(), { equity: 10000, policy: POLICY });
+    const r = runStrategyBacktest(strat, "BTCUSDT", candles(), TEST_RUN_OPTIONS);
     for (let i = 1; i < r.trades.length; i++) {
       expect(r.trades[i].signal_ts).toBeGreaterThan(r.trades[i - 1].exit_ts);
     }
@@ -309,8 +309,8 @@ describe.runIf(hasReplay)("backtest — no lookahead", () => {
 
   it("is deterministic across runs", () => {
     const strat = COMPILED_STRATEGIES.find((s) => s.strategy_id === "STR-RAW-2-803")!;
-    const a = runStrategyBacktest(strat, "BTCUSDT", candles(), { equity: 10000, policy: POLICY });
-    const b = runStrategyBacktest(strat, "BTCUSDT", candles(), { equity: 10000, policy: POLICY });
+    const a = runStrategyBacktest(strat, "BTCUSDT", candles(), TEST_RUN_OPTIONS);
+    const b = runStrategyBacktest(strat, "BTCUSDT", candles(), TEST_RUN_OPTIONS);
     expect(JSON.stringify(a.trades)).toBe(JSON.stringify(b.trades));
   });
 
@@ -319,8 +319,8 @@ describe.runIf(hasReplay)("backtest — no lookahead", () => {
     // starting balance, so the first position must match the opening equity
     // and later ones must stay proportional to the policy percentage.
     const strat = COMPILED_STRATEGIES.find((s) => s.strategy_id === "STR-RAW-2-803")!;
-    const r = runStrategyBacktest(strat, "BTCUSDT", candles(), { equity: 10000, policy: POLICY });
-    const pct = POLICY.risk_per_trade_pct! / 100;
+    const r = runStrategyBacktest(strat, "BTCUSDT", candles(), TEST_RUN_OPTIONS);
+    const pct = TEST_RUN_OPTIONS.riskPerTradePct! / 100;
     expect(Math.abs(r.trades[0].risk_amount - 10000 * pct)).toBeLessThan(0.01);
     for (const t of r.trades) {
       expect(t.risk_amount).toBeGreaterThan(0);
@@ -387,7 +387,7 @@ describe.runIf(hasReplay)("OOS and walk-forward mechanics", () => {
   it("splits chronologically and never tests on training decisions", () => {
     const strat = COMPILED_STRATEGIES.find((s) => s.strategy_id === "STR-RAW-2-803")!;
     const c = loadReplay("BTCUSDT-60.json", 60);
-    const s = runOOS(strat, "BTCUSDT", c, { equity: 10000, policy: POLICY }, 0.7);
+    const s = runOOS(strat, "BTCUSDT", c, TEST_RUN_OPTIONS, 0.7);
     expect(s.split_index).toBeGreaterThan(strat.min_bars);
     for (const t of s.out_of_sample.trades) {
       expect(t.signal_ts).toBeGreaterThanOrEqual(c[s.split_index].t);
@@ -397,7 +397,7 @@ describe.runIf(hasReplay)("OOS and walk-forward mechanics", () => {
   it("produces the requested number of walk-forward windows", () => {
     const strat = COMPILED_STRATEGIES.find((s) => s.strategy_id === "STR-RAW-2-803")!;
     const c = loadReplay("BTCUSDT-60.json", 60);
-    const wf = runWalkForward(strat, "BTCUSDT", c, { equity: 10000, policy: POLICY }, 4);
+    const wf = runWalkForward(strat, "BTCUSDT", c, TEST_RUN_OPTIONS, 4);
     expect(wf.total_windows).toBe(4);
     for (let i = 1; i < wf.windows.length; i++) {
       expect(wf.windows[i].test_from).toBeGreaterThan(wf.windows[i - 1].test_from);

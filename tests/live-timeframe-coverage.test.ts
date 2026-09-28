@@ -1,18 +1,19 @@
 /**
- * TEAM 05 — Task 5: production-timeframe runtime completeness, restart
+ * TEAM 05 — Task 5: source-faithful live timeframe coverage, restart
  * catch-up and deterministic-poison handling.
  *
- * Root cause pinned (1d gap): `MarketEngine.scheduleCloseRefreshes` watched
- * ONLY `CORE_TFS` (4h/1h/15m) although the engine backfills "1d" at boot and
- * one executable strategy (STR-RAW-2-581) declares "1d". No close refresh →
- * no `candle.closed` → the 1d strategy was unreachable by the live scanner.
- * Now the watched set is `closeWatchTimeframes()` = CORE_TFS ∪ every
- * executable strategy's declared timeframe.
+ * Current source contracts keep every compiled strategy RESEARCH_ONLY, so the
+ * production live scanner watches CORE_TFS plus no strategy-specific setup
+ * timeframes; the 1d source is explicitly not promoted into live scanning.
+ * Timeframe-agnostic close detection remains covered separately, while the
+ * live integration asserts that the 1d research setup is refused at the live
+ * boundary. Synthetic executable strategies are used only to exercise scanner
+ * lifecycle and risk plumbing, never to establish source parity.
  *
  * These tests drive the REAL engine method + REAL CandleManager close
- * detection + REAL event bus + REAL live scanner; the only stubs are the TTT
+ * detection + REAL event bus + REAL live scanner; the only stubs are TTT
  * transport (`tttClient.getUdfHistory/getDailyCandles`), the rate scheduler,
- * and the promotion gate for one synthetic strategy id (as in T4).
+ * test-only measured gate context, and promotion for one synthetic id.
  */
 import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import fs from "node:fs";
@@ -28,9 +29,83 @@ process.env.TELEGRAM_BOT_TOKEN = "test-token";
 process.env.TELEGRAM_CHAT_ID = "123456789";
 process.env.TELEGRAM_DRY_RUN = "0";
 
+const syntheticRuntimes = vi.hoisted(() => new Map<string, unknown>());
+vi.mock("../src/lib/strategy/runtime", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/strategy/runtime")>();
+  return {
+    ...mod,
+    getRuntimeStrategy: (id: string) => syntheticRuntimes.get(id) as ReturnType<typeof mod.getRuntimeStrategy> ?? mod.getRuntimeStrategy(id),
+  };
+});
+
 vi.mock("../src/lib/backtest/promotion", async (importOriginal) => {
   const mod = await importOriginal<typeof import("../src/lib/backtest/promotion")>();
   return { ...mod, promotedRuntimeStatus: (id: string) => (id === "STR-T5-LIVE" ? "LIVE_ADVISORY_ONLY" : mod.promotedRuntimeStatus(id)) };
+});
+
+vi.mock("../src/lib/risk/policy", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/risk/policy")>();
+  const source = mod.selectableRiskPolicies().find((policy) => policy.policy_id === "RISK-DAILY-5PCT")!;
+  const testOnlyPolicy = {
+    ...source,
+    selection_status: "SELECTED" as const,
+    selected_by: "operator_pref" as const,
+    selection_reason: "TEST ONLY: production source-completeness gate bypassed for scanner lifecycle coverage",
+    policy_version: mod.RISK_POLICY_VERSION,
+    source_completeness: mod.riskPolicyEligibility(source).source_completeness,
+  };
+  return { ...mod, getProductionRiskPolicy: () => testOnlyPolicy };
+});
+
+// The scanner lifecycle needs one active psychology policy so it can exercise
+// the real gate. This synthetic complete source is test-only and does not
+// upgrade or stand in for any supplied RAW transcript.
+vi.mock("../src/lib/brain/corpus-manifest", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/brain/corpus-manifest")>();
+  return {
+    ...mod,
+    sourceCompletenessFor: (fileId: string) => fileId === "TEST-LIVE-PSYCHOLOGY" ? "COMPLETE" : mod.sourceCompletenessFor(fileId),
+  };
+});
+vi.mock("../src/lib/brain/policies", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/brain/policies")>();
+  return {
+    ...mod,
+    buildPsychologyPolicies: () => [{
+      policy_id: "PSY-DAILY-LOSS",
+      canonical_name: "Test-only daily loss stop",
+      description: "TEST ONLY synthetic policy for scanner lifecycle coverage",
+      effect: "BLOCK" as const,
+      score_penalty: 0,
+      trigger_condition: "daily_loss_pct >= risk_policy.daily_loss_limit_pct",
+      source_refs: [{ file: "TEST-LIVE-PSYCHOLOGY", start_line: 1, end_line: 1, quote: "test-only fixture" }],
+      source_status: "SOURCE_VERIFIED" as const,
+      runtime_status: "LIVE_ADVISORY_ONLY" as const,
+      user_overridable: false,
+    }],
+  };
+});
+
+// Explicit test measurements isolate scanner lifecycle from unavailable
+// production PnL/journal facts; actual absence handling is covered elsewhere.
+vi.mock("../src/lib/pipeline/live-gates", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/pipeline/live-gates")>();
+  return {
+    ...mod,
+    loadLiveGateContext: (_repo: unknown, _nowMs: number, opts: { daily_loss_limit_pct: number | null }) => ({
+      psychology: {
+        declared_state: "ok" as const, journal_coverage: "COMPLETE" as const,
+        consecutive_losses: 0, minutes_since_last_loss: 60, daily_loss_pct: 0,
+        trades_today: 0, max_trades_per_day: null, cooldown_min: null,
+        checklist_completed: true, security_checklist_completed: true, standards_declared: true,
+        unreviewed_closed_trades: 0, distance_from_entry_zone_atr: 0,
+        daily_loss_limit_pct: opts.daily_loss_limit_pct,
+      },
+      open_risks: [], daily_realized_loss: 0, period_realized_loss: 0,
+      daily_loss_reason: "test fixture provides an explicit measurement",
+      open_book_reason: "test fixture provides an explicit empty measured book",
+    }),
+  };
 });
 
 type Repo = import("../src/db/repo").Repo;
@@ -96,9 +171,9 @@ function strategyOn(tf: TimeframeId, mode: "pass" | "block" = "pass"): StrategyR
     setup_id: setupId, strategy_id: "STR-T5-LIVE", name: setupId, direction: "long" as const, timeframe: tf, source_refs: SRC as never, version: "1.0.0",
     rules: (["context", "location", "structure", "trigger", "confirmation"] as const).map((k) => rule(`${setupId}-${k}`, k, tf)),
   };
-  return {
+  const definition: StrategyRuntimeDefinition = {
     strategy_id: "STR-T5-LIVE", setup_id: setupId, name: setupId, family: "test", direction: "long", timeframe: tf, min_bars: 120,
-    availability: "EXECUTABLE", blocked_reason: null, version: "1.0.0", rule_ids: setupDef.rules.map((r) => r.id), source_refs: SRC as never,
+    availability: "EXECUTABLE", blocked_reason: null, source_contract_status: "SOURCE_FAITHFUL", source_contract_blockers: [], strategy_version: "1.0.0", version: "1.0.0", rule_ids: setupDef.rules.map((r) => r.id), rule_versions: [...new Set(setupDef.rules.map((r) => r.version))], source_refs: SRC as never,
     impl: {
       strategy_id: "STR-T5-LIVE", setup_id: setupId, name: setupId, family: "test", direction: "long", timeframe: tf, min_bars: 120,
       build: (c, t) => MapFeatureBag.from([["FTR-T5", okFeature("FTR-T5", t, 1, c[c.length - 1]?.t ?? 0, c.length, "1.0.0", ["candles"])]]),
@@ -111,6 +186,8 @@ function strategyOn(tf: TimeframeId, mode: "pass" | "block" = "pass"): StrategyR
       },
     },
   };
+  syntheticRuntimes.set(setupId, definition);
+  return definition;
 }
 
 type ScanEv = { type: string; symbol: string; timeframe: string; outcome: string; trigger: string; reason: string | null; opportunity_id: string | null };
@@ -168,6 +245,10 @@ beforeEach(() => {
   udfCalls = [];
   live.stopLiveSignalScanner(); // each test attaches its own strategy list
   live.resetLiveScanDedupe();
+  repo.configSet("pref.risk.policyId", "RISK-DAILY-5PCT");
+  repo.configSet("pref.risk.equity", "10000");
+  repo.configSet("pref.risk.perTradePct", "1");
+  repo.configSet("pref.risk.maxLeverage", "5");
 });
 
 /** run the engine's private close detector (real code) */
@@ -180,12 +261,15 @@ async function drainCandleQueue(): Promise<void> {
 }
 
 describe("T05 T5 — production timeframe close-event coverage", () => {
-  it("closeWatchTimeframes() = core hierarchy ∪ every executable strategy timeframe (includes 1d from STR-RAW-2-581)", async () => {
-    const { executableStrategies } = await import("../src/lib/strategy/runtime");
+  it("live close watches include core timeframes and only source-faithful executable strategy timeframes", async () => {
+    const { executableStrategies, listRuntimeStrategies } = await import("../src/lib/strategy/runtime");
     const watch = engine.closeWatchTimeframes();
     for (const tf of timeframes.CORE_TFS) expect(watch).toContain(tf);
     for (const s of executableStrategies()) expect(watch, `${s.setup_id} declares ${s.timeframe}`).toContain(s.timeframe);
-    expect(watch).toContain("1d");
+    const daily = listRuntimeStrategies().find((s) => s.strategy_id === "STR-RAW-2-581");
+    expect(daily?.availability).toBe("RESEARCH_ONLY");
+    expect(daily?.source_contract_status).toBe("INCOMPLETE");
+    expect(watch).not.toContain("1d");
     expect(new Set(watch).size).toBe(watch.length);
   });
 
@@ -239,52 +323,38 @@ describe("T05 T5 — production timeframe close-event coverage", () => {
     off();
   });
 
-  it("1d end-to-end: engine close detection → candle.closed → live scanner → scanSymbol → publishSignal → outbox (exactly once for one close)", async () => {
+  it("the incomplete 1d contract is not scheduled or evaluated as a live signal", async () => {
     const symbol = "BTCUSDT";
-    const s1d = strategyOn("1d");
+    const { listRuntimeStrategies } = await import("../src/lib/strategy/runtime");
+    const daily = listRuntimeStrategies().find((s) => s.strategy_id === "STR-RAW-2-581")!;
+    expect(daily.availability).toBe("RESEARCH_ONLY");
     const prevOpen = lastClosedOpenSec("1d") - 86400;
-    store.sharedStore.putSeries(fixture(symbol, "1d", prevOpen)); // yesterday's series already in memory (pre-restart state)
-    live.startLiveSignalScanner({ strategies: () => [s1d] });
+    store.sharedStore.putSeries(fixture(symbol, "1d", prevOpen));
     const scansBefore = live.liveScanState().scans_total;
     scheduleCloseRefreshes();
     await drainCandleQueue();
-    await vi.waitFor(() => expect(live.liveScanState().scans_total).toBe(scansBefore + 1));
-    await vi.waitFor(() => expect(live.liveScanState().in_flight).toBe(0));
-    const last = evs().filter((e) => e.type === "scan.completed" && e.timeframe === "1d").pop()!;
-    expect(last.symbol).toBe(symbol);
-    expect(last.trigger).toBe("candle.closed");
-    expect(last.outcome).toBe("published");
-    const sigs = repo.signalList(500).filter((s) => s.symbol === symbol && s.timeframe === "1d");
-    expect(sigs).toHaveLength(1);
-    expect(sigs[0].outbox_id).not.toBeNull();
-    const oppPayload = JSON.parse(repo.opportunityGet(sigs[0].opp_id!)!.payload_json) as { timeframe: string; risk: { verdict: string }; anchor_close_ms: number };
-    expect(oppPayload.timeframe).toBe("1d");
-    expect(oppPayload.risk.verdict).toBe("pass");
-    expect(oppPayload.anchor_close_ms).toBe(lastClosedOpenSec("1d") * 1000);
+    expect(udfCalls.filter((c) => c.symbol === symbol && c.resolution === "1D")).toHaveLength(0);
+    expect(live.liveScanState().scans_total).toBe(scansBefore);
 
-    // replayed close event for the SAME 1d bar → no second scan, no second signal/outbox row
-    eventBus.emit("candle.closed", { symbol, timeframe: "1d", close_time_ms: lastClosedOpenSec("1d") * 1000 });
-    await new Promise((r) => setTimeout(r, 30));
-    expect(live.liveScanState().scans_total).toBe(scansBefore + 1);
-    expect(repo.signalList(500).filter((s) => s.symbol === symbol && s.timeframe === "1d")).toHaveLength(1);
-    expect(repo.outboxList("ALL", 500).filter((r) => (JSON.parse(r.payload_json) as { opportunity_id?: string }).opportunity_id === sigs[0].opp_id)).toHaveLength(1);
-    live.stopLiveSignalScanner();
+    // Even an explicit internal attempt is refused before fetching/evaluation.
+    const [result] = await live.runLiveScan(symbol, "1d", "manual", { strategies: [daily] });
+    expect(result.outcome).toBe("not_evaluated");
+    expect(result.reason).toMatch(/RESEARCH_ONLY/);
+    expect(result.opportunity_id).toBeNull();
+    expect(repo.signalList(500).filter((s) => s.symbol === symbol && s.timeframe === "1d")).toHaveLength(0);
+    expect(repo.outboxList("ALL", 500).filter((r) => (JSON.parse(r.payload_json) as { symbol?: string; timeframe?: string }).symbol === symbol && (JSON.parse(r.payload_json) as { timeframe?: string }).timeframe === "1d")).toHaveLength(0);
   });
 
-  it("1d blocked decision through the same close path → REJECTED, no signal, no outbox row", async () => {
+  it("an explicit risk BLOCK on a synthetic 1h scan yields no signal or outbox row", async () => {
     const symbol = "ETHUSDT";
-    store.sharedStore.putSeries(fixture(symbol, "1d", lastClosedOpenSec("1d") - 86400));
-    live.startLiveSignalScanner({ strategies: () => [strategyOn("1d", "block")] });
-    const scansBefore = live.liveScanState().scans_total;
-    scheduleCloseRefreshes();
-    await drainCandleQueue();
-    await vi.waitFor(() => expect(live.liveScanState().scans_total).toBe(scansBefore + 1));
-    const last = evs().filter((e) => e.type === "scan.completed" && e.symbol === symbol && e.timeframe === "1d").pop()!;
-    expect(last.outcome).toBe("not_ready");
-    expect(last.reason).toMatch(/risk engine BLOCK/);
-    expect(repo.opportunityGet(last.opportunity_id!)!.state).toBe("REJECTED");
-    expect(repo.signalByOpp(last.opportunity_id!)).toBeNull();
-    live.stopLiveSignalScanner();
+    store.sharedStore.putSeries(fixture(symbol, "1h", lastClosedOpenSec("1h")));
+    const [result] = await live.runLiveScan(symbol, "1h", "manual", { strategies: [strategyOn("1h", "block")] });
+    expect(result.outcome).toBe("not_ready");
+    expect(result.reason).toMatch(/risk engine BLOCK/);
+    expect(result.opportunity_id).toBeTruthy();
+    expect(repo.opportunityGet(result.opportunity_id!)!.state).toBe("REJECTED");
+    expect(repo.signalByOpp(result.opportunity_id!)).toBeNull();
+    expect(repo.outboxList("ALL", 500).filter((r) => (JSON.parse(r.payload_json) as { opportunity_id?: string }).opportunity_id === result.opportunity_id)).toHaveLength(0);
   });
 });
 
@@ -303,7 +373,7 @@ describe("T05 T5 — restart / first-sighting catch-up (no poll)", () => {
     await vi.waitFor(() => expect(live.liveScanState().in_flight).toBe(0));
     const ev = evs().filter((e) => e.type === "scan.completed" && e.symbol === symbol && e.timeframe === "1h").pop()!;
     expect(ev.trigger).toBe("candles.updated");
-    expect(ev.outcome).toBe("published");
+    expect(ev.outcome, ev.reason ?? "").toBe("published");
     expect(udfCalls.filter((c) => c.symbol === symbol)).toHaveLength(1); // the scan reused the stored series — no extra venue call
 
     // same newest bar re-stored (e.g. a 45s cache refresh) → ignored
@@ -386,10 +456,4 @@ describe("T05 T5 — pre-transport error classification (transient vs determinis
     expect(row.state).toBe("SENT");
     spy.mockRestore();
   });
-});
-
-// LOCAL synthetic account measurements, not real account/PnL verification.
-vi.mock("../src/lib/pipeline/live-gates", async (original) => {
-  const mod = await original<typeof import("../src/lib/pipeline/live-gates")>();
-  return { ...mod, loadLiveGateContext: (...args: Parameters<typeof mod.loadLiveGateContext>) => ({...mod.loadLiveGateContext(...args),daily_realized_loss:0,period_realized_loss:0}) };
 });

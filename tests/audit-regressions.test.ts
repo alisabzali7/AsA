@@ -37,6 +37,49 @@ process.env.ASA_BRAIN_DB_PATH = path.join(TMP, "brain.db");
 process.env.TTT_API_BASE = "https://apiv2.thetruetrade.io";
 delete process.env.ASA_API_TOKEN; // development mode: mutation guard open
 
+const publicationAuthority = vi.hoisted(() => ({
+  setups: new Map<string, unknown>(),
+  statuses: new Map<string, string>(),
+  psychologyPass: false,
+  riskPolicy: null as unknown,
+}));
+vi.mock("../src/lib/strategy/runtime", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/strategy/runtime")>();
+  return {
+    ...mod,
+    getRuntimeStrategy: (id: string) => publicationAuthority.setups.get(id) as ReturnType<typeof mod.getRuntimeStrategy> ?? mod.getRuntimeStrategy(id),
+  };
+});
+vi.mock("../src/lib/backtest/promotion", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/backtest/promotion")>();
+  return {
+    ...mod,
+    promotedRuntimeStatus: (id: string) => (publicationAuthority.statuses.get(id) ?? (id === "STR-TEST-CLOSURE" ? "LIVE_ADVISORY_ONLY" : mod.promotedRuntimeStatus(id))) as ReturnType<typeof mod.promotedRuntimeStatus>,
+  };
+});
+vi.mock("../src/lib/psychology/gate", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/psychology/gate")>();
+  return {
+    ...mod,
+    evaluatePsychologyGate: (...args: Parameters<typeof mod.evaluatePsychologyGate>) => publicationAuthority.psychologyPass
+      ? { verdict: "pass", score_penalty: 0, blocks: [], penalties: [], flags: [], checklists_required: [], not_evaluated: [], evaluated: 1, active_policy_ids: ["TEST-ONLY"] }
+      : mod.evaluatePsychologyGate(...args),
+  };
+});
+vi.mock("../src/lib/risk/policy", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/risk/policy")>();
+  const source = mod.selectableRiskPolicies().find((policy) => policy.policy_id === "RISK-DAILY-5PCT")!;
+  const testOnlyPolicy = {
+    ...source,
+    selection_status: "SELECTED" as const,
+    selected_by: "operator_pref" as const,
+    selection_reason: "TEST ONLY: production source-completeness gate bypassed for backtest lineage regression",
+    policy_version: mod.RISK_POLICY_VERSION,
+    source_completeness: mod.riskPolicyEligibility(source).source_completeness,
+  };
+  return { ...mod, getProductionRiskPolicy: () => publicationAuthority.riskPolicy ?? testOnlyPolicy };
+});
+
 type FetchImpl = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 const jsonRes = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -183,6 +226,8 @@ describe("P0-7 backtest data-freshness contract", () => {
 
   it("runBacktest surfaces the freshness contract in warnings AND lineage", async () => {
     const { runBacktest } = await import("../src/lib/backtest/engine");
+    const { getRepo } = await import("../src/db/sqlite");
+    getRepo().configSet("pref.risk.policyId", "RISK-DAILY-5PCT");
     const candles = Array.from({ length: 200 }, (_, i) => ({
       t: 1_700_000_000 + i * 3600, o: 100, h: 101, l: 99, c: 100, v: 10,
     }));
@@ -190,6 +235,13 @@ describe("P0-7 backtest data-freshness contract", () => {
       strategyId: "SET-STR-RAW-2-803", // 1h short, min_bars 120
       symbol: "BTCUSDT",
       candles,
+      feeRoundTripPct: 0.08,
+      slippagePct: 0.02,
+      sameBarPolicy: "stop_first",
+      maxHoldBars: 120,
+      accountEquity: 10_000,
+      riskPerTradePct: 1,
+      maxLeverage: 5,
       dataMode: "ttt",
       dataFreshness: {
         fresh_sync_status: "failed",
@@ -270,13 +322,25 @@ describe("P1-6 expireStaleSignals expires every stale signal despite pagination"
 /* ─────────────── P1-9: executable ≠ live-eligible ─────────────── */
 
 describe("P1-9 executable strategies are never presented as live-eligible", () => {
-  it("executableStrategyCandidates returns EXECUTABLE strategies only", async () => {
+  it("source-incomplete research strategies never enter executable candidates", async () => {
     const { executableStrategyCandidates } = await import("../src/lib/strategy/registry");
-    const all = executableStrategyCandidates();
-    expect(all.length).toBeGreaterThan(0);
-    for (const s of all) {
-      expect(s.availability).toBe("EXECUTABLE");
+    const { researchableStrategies } = await import("../src/lib/strategy/runtime");
+    const { sourceContractStatusFor, sourceContractBlockersFor } = await import("../src/lib/strategy/compiled/source-contract");
+    const executable = executableStrategyCandidates();
+    expect(executable).toEqual([]);
+
+    const researchable = researchableStrategies();
+    expect(researchable.length).toBeGreaterThan(0);
+    for (const s of researchable) {
+      expect(s.availability).toBe("RESEARCH_ONLY");
+      // Preserve the identity-bound source contract's exact epistemic state;
+      // UNKNOWN is not rewritten as INCOMPLETE (and CONFLICTING remains distinct).
+      expect(s.source_contract_status).toBe(sourceContractStatusFor(s.strategy_id));
+      expect(s.source_contract_status).not.toBe("SOURCE_FAITHFUL");
+      expect(s.source_contract_blockers).toEqual(sourceContractBlockersFor(s.strategy_id));
+      expect(s.source_contract_blockers.length).toBeGreaterThan(0);
       expect(s.impl).not.toBeNull();
+      expect(executable.some((candidate) => candidate.setup_id === s.setup_id)).toBe(false);
     }
   });
 
@@ -418,33 +482,99 @@ describe("audit B1/B2: dynamic universe and type safety", () => {
 /* ─────────────── D-section: signal idempotency ─────────────── */
 
 describe("audit D: signal idempotency is enforced by the database", () => {
-  it("re-publishing the same opportunity yields ONE signal row (UNIQUE opp_id)", async () => {
+  it("a direct READY payload with no portfolio evidence is refused before any signal row is created", async () => {
     const { publishSignal } = await import("../src/lib/pipeline/orchestrator");
     const { getRepo, closeRepo } = await import("../src/db/sqlite");
     try {
-      (await import("../src/lib/market/store")).sharedStore.catalog.set("BTCUSDT", syntheticMarket("BTCUSDT"));
-  (await import("../src/lib/market/operational-universe")).__setOperationalUniverse(["BTCUSDT"]);
-      const opp = publicationIdentity({
+      const opp = { ...publicationIdentity({
         id: "oppfixed", symbol: "BTCUSDT", timeframe: "1h", direction: "long",
         score: 90, setup: "s", thesis: "t",
-        entry_zone: { top: 100, bottom: 100 }, invalidation: null, stop: 95, targets: [110], rr: 2,
-        strategy_id: "STR-TEST-CLOSURE", mode: "live", state: "READY",
+        entry_zone: null, invalidation: null, stop: null, targets: [], rr: null,
+        strategy_id: "STR-RAW-2-803", mode: "live", state: "READY",
+        strategy_version: "1.0.0", rule_ids: [], rule_versions: ["1.0.0"],
+        source_contract_status: "SOURCE_FAITHFUL", source_contract_blockers: [],
         anchor_ts_ms: 0, anchor_close_ms: Date.now(), freshness_ms: 0,
         evidence: [], contradictions: [], score_breakdown: null,
         positive_factors: [], negative_factors: [], blocked_factors: [], unknown_factors: [],
         source_refs: [], data_quality: { bars: 1, stale: false, age_ms: 0, state: "FRESH" },
         psychology: null, portfolio: null, setup_id: null, score_semantics: "s",
-        chart_evidence: null, risk: (await import("../src/lib/risk/live")).evaluateLiveRisk("BTCUSDT", "long", 100, 95, 110), ai: null,
-        provenance: { generated_at_ms: 0, data: { series_fetched_ms: 0, stats_fetched_ms: null, native_1d: true, candles: { macro: 0, context: 0, trigger: 0 } } },
-      } as never);
-      persistPublicationFixture(getRepo(), opp);
-      publishSignal(opp);
-      publishSignal(opp);
-      publishSignal(opp);
-      const repo = getRepo();
-      const rows = repo.signalList(100).filter((r) => r.opp_id === opp.id);
-      expect(rows.length).toBe(1);
+        chart_evidence: null, risk: { verdict: "pass", reasons: ["test-only explicit PASS"], numbers: { risk_notional: 100 } }, ai: null,
+        provenance: { generated_at_ms: 0, data: { series_fetched_ms: 0, stats_fetched_ms: null, native_1d: true, candles: { macro: null, context: null, trigger: 0 } } },
+      } as never), portfolio: null };
+      const first = publishSignal(opp);
+      const second = publishSignal(opp);
+      expect(first.published).toBe(false);
+      expect(first.reason).toMatch(/portfolio.*explicit portfolio PASS/);
+      expect(second.published).toBe(false);
+      const rows = getRepo().signalList(100).filter((row) => row.opp_id === opp.id);
+      expect(rows).toHaveLength(0);
     } finally {
+      closeRepo();
+    }
+  });
+
+  it("repeated publication of the same fully qualified stored opportunity creates exactly one signal and outbox row", async () => {
+    const { publishSignal } = await import("../src/lib/pipeline/orchestrator");
+    const { getRepo, closeRepo } = await import("../src/db/sqlite");
+    try {
+      const repo = getRepo();
+      const strategyId = "STR-TEST-CLOSURE";
+      const setupId = "SET-AUDIT-PUBLISH";
+      const ruleIds = ["RULE-AUDIT-PUBLISH"];
+      const ruleVersions = ["1.0.0"];
+      const riskPolicy = await import("../src/lib/risk/policy");
+      publicationAuthority.riskPolicy = {
+        ...riskPolicy.getProductionRiskPolicy(),
+        daily_loss_limit_pct: null,
+        period_loss_limit_pct: null,
+      };
+      publicationAuthority.psychologyPass = true;
+      publicationAuthority.statuses.set(strategyId, "LIVE_ADVISORY_ONLY");
+      publicationAuthority.setups.set(setupId, {
+        strategy_id: strategyId, setup_id: setupId, direction: "long", timeframe: "1h",
+        strategy_version: "1.0.0", version: "1.0.0", rule_ids: ruleIds, rule_versions: ruleVersions,
+        availability: "EXECUTABLE", source_contract_status: "SOURCE_FAITHFUL", source_contract_blockers: [],
+        blocked_reason: null, source_refs: [], impl: null,
+      });
+      repo.configSet("pref.risk.equity", "10000");
+      repo.configSet("pref.risk.perTradePct", "1");
+      repo.configSet("pref.risk.maxLeverage", "5");
+      (await import("../src/lib/market/store")).sharedStore.catalog.set("BTCUSDT", syntheticMarket("BTCUSDT"));
+      (await import("../src/lib/market/operational-universe")).__setOperationalUniverse(["BTCUSDT"]);
+      const risk = (await import("../src/lib/risk/live")).evaluateLiveRisk("BTCUSDT", "long", 100, 95, 110);
+      expect(risk.verdict).toBe("pass");
+
+      const opp = publicationIdentity({
+        id: "oppfixed", symbol: "BTCUSDT", timeframe: "1h", direction: "long",
+        score: 90, setup: "test-only source-bound fixture", thesis: "test-only",
+        entry_zone: { top: 100, bottom: 100 }, invalidation: null, stop: 95, targets: [110], rr: 2,
+        strategy_id: strategyId, strategy_version: "1.0.0", rule_ids: ruleIds, rule_versions: ruleVersions,
+        source_contract_status: "SOURCE_FAITHFUL", source_contract_blockers: [],
+        mode: "live", state: "READY", anchor_ts_ms: 0, anchor_close_ms: Date.now(), freshness_ms: 0,
+        evidence: [], contradictions: [], score_breakdown: null,
+        positive_factors: [], negative_factors: [], blocked_factors: [], unknown_factors: [], source_refs: [],
+        data_quality: { bars: 1, stale: false, age_ms: 0, state: "FRESH" },
+        psychology: { state: "READY", hard_blocks: [], soft_warnings: [], score_modifier: 0, not_evaluated: [] },
+        portfolio: { verdict: "pass", reasons: ["test-only explicit PASS"], unenforced: [] },
+        setup_id: setupId, score_semantics: "test-only decision score", chart_evidence: null,
+        risk, ai: null,
+        provenance: { generated_at_ms: Date.now(), data: { series_fetched_ms: Date.now(), stats_fetched_ms: null, native_1d: true, candles: { macro: null, context: null, trigger: 1 } } },
+      } as never);
+      persistPublicationFixture(repo, opp);
+      const first = publishSignal(opp);
+      const second = publishSignal(opp);
+      const third = publishSignal(opp);
+      expect(first.published, first.reason).toBe(true);
+      expect(second.reason).toMatch(/already published/);
+      expect(third.reason).toMatch(/already published/);
+      const rows = repo.signalList(100).filter((row) => row.opp_id === opp.id);
+      const outbox = repo.outboxList("ALL", 100).filter((row) => row.kind === "signal")
+        .filter((row) => (JSON.parse(row.payload_json) as { opportunity_id?: string }).opportunity_id === opp.id);
+      expect(rows).toHaveLength(1);
+      expect(outbox).toHaveLength(1);
+    } finally {
+      publicationAuthority.riskPolicy = null;
+      publicationAuthority.psychologyPass = false;
       closeRepo();
     }
   });
@@ -682,15 +812,4 @@ describe("audit B3/B4: discovery drives the operational universe honestly", () =
     await refreshOperationalUniverse(true);
     expect(operationalUniverse()).toEqual(["AAAUSDT", "NEWLISTEDUSDT"]);
   });
-});
-
-// TEST ONLY: boundary fixtures are not empirical promotion or account-loss proof.
-vi.mock("../src/lib/backtest/promotion", async (original) => {
-  const mod = await original<typeof import("../src/lib/backtest/promotion")>();
-  return { ...mod,
-  promotedRuntimeStatus: (id: string) => id === "STR-TEST-CLOSURE" ? "LIVE_ADVISORY_ONLY" : mod.promotedRuntimeStatus(id),
-}; });
-vi.mock("../src/lib/risk/policy", async (original) => {
-  const mod = await original<typeof import("../src/lib/risk/policy")>();
-  return { ...mod, getProductionRiskPolicy: () => ({ ...mod.getProductionRiskPolicy(), daily_loss_limit_pct: null, period_loss_limit_pct: null }) };
 });

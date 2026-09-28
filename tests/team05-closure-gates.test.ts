@@ -1,6 +1,16 @@
 /** Fresh closure reproductions; no promotion/account mocks in this file. */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+const testRiskPolicyAuthority = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock("../src/lib/risk/policy", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/risk/policy")>();
+  return {
+    ...mod,
+    getProductionRiskPolicy: () => testRiskPolicyAuthority.current as ReturnType<typeof mod.getProductionRiskPolicy> | null ?? mod.getProductionRiskPolicy(),
+  };
+});
 import { SqliteRepo } from "../src/db/sqlite";
+import { TEST_ONLY_SOURCE_RISK_MATH_POLICY } from "./helpers/research-run-options";
 import { loadLiveGateContext, advisoryOpenRisks } from "../src/lib/pipeline/live-gates";
 import type { SignalRow } from "../src/db/repo";
 const now = Date.now();
@@ -19,19 +29,26 @@ describe("closure: complete, honest advisory exposure", () => {
       expect(ctx.daily_realized_loss).toBeNull();
     } finally { repo.close(); }
   });
-  it("unknown risk notional is unavailable, never a zero-risk holding", () => {
-    expect(advisoryOpenRisks([signal("unknown", { payload_json: JSON.stringify({timeframe:"1h",anchor_close_ms:now}) })], now)).toBeNull();
+  it("unknown risk notional remains an UNKNOWN holding, never a zero-risk or omitted position", () => {
+    expect(advisoryOpenRisks([signal("unknown", { payload_json: JSON.stringify({timeframe:"1h",anchor_close_ms:now}) })], now))
+      .toEqual([{ symbol: "unknown", direction: "long", risk_amount: null }]);
   });
 });
 
 import { liveMeasurementBlocks } from "../src/lib/pipeline/live-gates";
-import { getProductionRiskPolicy } from "../src/lib/risk/policy";
-it("default live policy cannot skip unknown currency loss; research accounting remains explicit", () => {
+import { buildRiskPolicies } from "../src/lib/brain/policies";
+it("configured source-backed loss dimensions require measured currency loss; no combined default is invented", () => {
   const repo = new SqliteRepo(":memory:");
   try {
     const ctx = loadLiveGateContext(repo, now, { daily_loss_limit_pct: 5 });
-    expect(liveMeasurementBlocks(ctx, getProductionRiskPolicy())).toEqual([
-      "daily realized loss UNAVAILABLE for configured hard limit", "period realized loss UNAVAILABLE for configured hard limit",
+    const policies = buildRiskPolicies();
+    const daily = policies.find((policy) => policy.policy_id === "RISK-DAILY-5PCT")!;
+    const period = policies.find((policy) => policy.policy_id === "RISK-PERIOD-15PCT")!;
+    expect(liveMeasurementBlocks(ctx, daily)).toEqual([
+      "daily realized loss UNAVAILABLE for configured hard limit",
+    ]);
+    expect(liveMeasurementBlocks(ctx, period)).toEqual([
+      "period realized loss UNAVAILABLE for configured hard limit",
     ]);
   } finally { repo.close(); }
 });
@@ -61,11 +78,14 @@ it("cross-linked outbox provenance never reports another signal's delivery", () 
   } finally { repo.close(); }
 });
 
-import { vi } from "vitest";
 import * as sqlite from "../src/db/sqlite";
 import * as universe from "../src/lib/market/operational-universe";
 it("live risk rejects corrupt server prefs and stale discovery even when metadata exists", () => {
   const repo = new SqliteRepo(":memory:");
+  repo.configSet("pref.risk.equity", "10000");
+  repo.configSet("pref.risk.perTradePct", "1");
+  repo.configSet("pref.risk.maxLeverage", "5");
+  testRiskPolicyAuthority.current = TEST_ONLY_SOURCE_RISK_MATH_POLICY;
   const spy=vi.spyOn(sqlite,"getRepo").mockReturnValue(repo);
   const state=vi.spyOn(universe,"universeState").mockReturnValue("READY");
   const member=vi.spyOn(universe,"isOperationalSymbol").mockReturnValue(true);
@@ -79,5 +99,8 @@ it("live risk rejects corrupt server prefs and stale discovery even when metadat
     expect(evaluateLiveRisk("BTCUSDT","long",100,95,110).verdict).toBe("block");
     repo.configSet("pref.risk.equity","10000");state.mockReturnValue("STALE");
     expect(evaluateLiveRisk("BTCUSDT","long",100,95,110).verdict).toBe("block");
-  } finally {spy.mockRestore();state.mockRestore();member.mockRestore();sharedStore.catalog.delete("BTCUSDT");repo.close();}
+  } finally {
+    testRiskPolicyAuthority.current = null;
+    spy.mockRestore();state.mockRestore();member.mockRestore();sharedStore.catalog.delete("BTCUSDT");repo.close();
+  }
 });

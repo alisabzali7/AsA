@@ -136,4 +136,3 @@ export function useWatchlist(): [string[], (symbol: string) => void, (symbols: s
   }, []);
   return [list, toggle, setAll];
 }
-

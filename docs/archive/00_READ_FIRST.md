@@ -1,5 +1,10 @@
 # AsA Agent Execution Package v1
 
+> **Historical package orientation.** The authority order below describes the
+> packaging-time handoff and is superseded by the current source constraints and
+> `docs/roadmap/ASA_100_PERCENT_CONTRACT.md`: supplied raw source bytes are the
+> authority; the canonical pack is a structured derivative with role `INDEX_ONLY`.
+
 This package is the implementation handoff for AsA. The goal is not another audit and not a greenfield rewrite. The agent must continue the included PROJECT and turn it into the production-ready advisory intelligence system described by the included constraints and knowledge.
 
 ## Authority order

@@ -1,0 +1,1513 @@
+{
+  "schema_version": "1.2.0",
+  "purpose": "Field-level source-to-implementation parity audit for the six strategies represented by hand-coded compiled definitions. This is a blocking contract, not a claim of completed formalization or validation.",
+  "authority": "The immutable supplied bytes under knowledge/raw/RAW_1.txt..RAW_5.txt are authoritative; the canonical pack is an index only and never overrides raw-line status.",
+  "default_runtime_status": "RESEARCH_ONLY",
+  "default_live_eligible": false,
+  "strategies": [
+    {
+      "strategy_id": "STR-RAW-2-581",
+      "canonical_name": "PRZ Bounce Strategy",
+      "source_refs": [
+        {
+          "file": "2.txt",
+          "start_line": 581,
+          "end_line": 597
+        }
+      ],
+      "contract_status": "INCOMPLETE",
+      "record_source_status": "SOURCE_VERIFIED",
+      "field_status": {
+        "timeframe": {
+          "status": "SOURCE_VERIFIED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 584,
+              "end_line": 584
+            }
+          ]
+        },
+        "entry_long": {
+          "status": "SOURCE_VERIFIED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 586,
+              "end_line": 586
+            }
+          ]
+        },
+        "entry_short": {
+          "status": "UNKNOWN",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 587,
+              "end_line": 587
+            }
+          ]
+        },
+        "touch_count": {
+          "status": "PARTIAL",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 585,
+              "end_line": 585
+            }
+          ]
+        },
+        "stop": {
+          "status": "INFERRED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 589,
+              "end_line": 589
+            }
+          ]
+        },
+        "target": {
+          "status": "INFERRED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 590,
+              "end_line": 590
+            }
+          ]
+        },
+        "exit": {
+          "status": "SOURCE_VERIFIED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 592,
+              "end_line": 594
+            }
+          ]
+        }
+      },
+      "implementation_refs": [
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "strategy_id: \"STR-RAW-2-581\""
+        },
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "levelReactionLevels"
+        },
+        {
+          "file": "src/lib/strategy/compiled/prz-levels.ts",
+          "symbol": "przBounceSetup"
+        }
+      ],
+      "blockers": [
+        {
+          "id": "PRZ-STOP-INFERRED",
+          "status": "INFERRED",
+          "statement": "The source stop is qualitative ('a little below support'); implementation chooses a 0.25 ATR buffer.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 589,
+              "end_line": 589
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "STOP_BUFFER_ATR"
+            },
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "levelReactionLevels"
+            }
+          ]
+        },
+        {
+          "id": "PRZ-TARGET-MISMATCH",
+          "status": "PARTIAL",
+          "statement": "Source describes prior price highs (example 60,000); implementation chooses computed opposing levels ranked by close-density and applies an engineering distance cap.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 590,
+              "end_line": 590
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "levelReactionLevels"
+            }
+          ]
+        },
+        {
+          "id": "PRZ-TOUCH-RANGE-COLLAPSED",
+          "status": "INFERRED",
+          "statement": "Source requires 5–7 prior reactions; implementation fixes the detector minimum at 5 without a source adjudication of the range.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 585,
+              "end_line": 585
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "strategy_id: \"STR-RAW-2-581\""
+            }
+          ]
+        },
+        {
+          "id": "PRZ-EMERGENCY-FILTER",
+          "status": "PARTIAL",
+          "statement": "Source also excludes urgent/emergency news conditions; the compiled implementation has no source-backed news/emergency input for this rule.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 593,
+              "end_line": 594
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/prz-levels.ts",
+              "symbol": "przBounceSetup"
+            }
+          ]
+        },
+        {
+          "id": "PRZ-EMPIRICAL-VALIDATION",
+          "status": "NOT_PRESENT",
+          "statement": "No strategy-specific source-faithful, version-bound validation evidence is attached to this contract.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 581,
+              "end_line": 597
+            }
+          ],
+          "implementation_refs": []
+        }
+      ],
+      "source_completeness": "PARTIAL",
+      "runtime_status": "RESEARCH_ONLY",
+      "empirical_status": "UNTESTED",
+      "promotion_eligible": false,
+      "live_eligible": false,
+      "semantic_validation": {
+        "status": "NOT_PROVEN",
+        "method": "No semantic parity test currently proves the cited source fields are implemented without deviation. Reference existence is not semantic proof.",
+        "test_ids": []
+      },
+      "compiled_bindings": [
+        {
+          "setup_id": "SET-STR-RAW-2-581",
+          "direction": "long",
+          "timeframe": "1d",
+          "strategy_version": "1.1.0",
+          "rule_versions": [
+            "1.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "strategy_id": "STR-RAW-2-803",
+      "canonical_name": "پرایس اکشن سطوح نامرئی",
+      "source_refs": [
+        {
+          "file": "2.txt",
+          "start_line": 803,
+          "end_line": 822
+        }
+      ],
+      "contract_status": "INCOMPLETE",
+      "record_source_status": "SOURCE_NAMED",
+      "field_status": {
+        "timeframe": {
+          "status": "SOURCE_VERIFIED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 806,
+              "end_line": 806
+            }
+          ]
+        },
+        "entry_long": {
+          "status": "UNKNOWN",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 808,
+              "end_line": 808
+            }
+          ]
+        },
+        "entry_short": {
+          "status": "SOURCE_VERIFIED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 809,
+              "end_line": 809
+            }
+          ]
+        },
+        "touch_count": {
+          "status": "PARTIAL",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 807,
+              "end_line": 807
+            }
+          ]
+        },
+        "confirmation": {
+          "status": "SOURCE_VERIFIED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 809,
+              "end_line": 810
+            }
+          ]
+        },
+        "stop": {
+          "status": "SOURCE_VERIFIED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 811,
+              "end_line": 811
+            }
+          ]
+        },
+        "target": {
+          "status": "SOURCE_VERIFIED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 812,
+              "end_line": 814
+            }
+          ]
+        },
+        "exit": {
+          "status": "SOURCE_VERIFIED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 816,
+              "end_line": 818
+            }
+          ]
+        },
+        "filters": {
+          "status": "SOURCE_VERIFIED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 817,
+              "end_line": 817
+            }
+          ]
+        }
+      },
+      "implementation_refs": [
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "strategy_id: \"STR-RAW-2-803\""
+        },
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "levelReactionLevels"
+        },
+        {
+          "file": "src/lib/strategy/compiled/prz-levels.ts",
+          "symbol": "invisibleLevelsSetup"
+        }
+      ],
+      "blockers": [
+        {
+          "id": "INVISIBLE-LONG-UNKNOWN",
+          "status": "UNKNOWN",
+          "statement": "The source explicitly marks Long entry UNKNOWN and labels the inverse-side rationale as inferred; the code is short-only, which does not resolve the absent long rule.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 808,
+              "end_line": 808
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "strategy_id: \"STR-RAW-2-803\""
+            }
+          ]
+        },
+        {
+          "id": "INVISIBLE-TOUCH-RANGE-COLLAPSED",
+          "status": "INFERRED",
+          "statement": "Source specifies 2–3 prior reactions; implementation fixes the threshold at 2.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 807,
+              "end_line": 807
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "strategy_id: \"STR-RAW-2-803\""
+            }
+          ]
+        },
+        {
+          "id": "INVISIBLE-STOP-ZONE",
+          "status": "PARTIAL",
+          "statement": "Source places the stop above the red resistance zone; implementation uses a 0.25 ATR buffer from a computed touched level, not a sourced zone boundary.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 811,
+              "end_line": 811
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "STOP_BUFFER_ATR"
+            },
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "levelReactionLevels"
+            }
+          ]
+        },
+        {
+          "id": "INVISIBLE-TP2-SEMANTICS",
+          "status": "PARTIAL",
+          "statement": "Source permits PRZ or next lows for TP2; implementation selects two computed opposing levels and does not encode a PRZ-specific target model or source-specified partial sizing.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 813,
+              "end_line": 814
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "levelReactionLevels"
+            },
+            {
+              "file": "src/lib/backtest/strategy-runner.ts",
+              "symbol": "runStrategyBacktest"
+            }
+          ]
+        },
+        {
+          "id": "INVISIBLE-DECISIVE-BREAK",
+          "status": "PARTIAL",
+          "statement": "Source invalidation requires price to break the level strongly/decisively; the implementation compares a close to the level without a sourced strength threshold.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 818,
+              "end_line": 818
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/prz-levels.ts",
+              "symbol": "${o.idPrefix}-INVAL"
+            }
+          ]
+        },
+        {
+          "id": "INVISIBLE-FILTER",
+          "status": "NOT_PRESENT",
+          "statement": "The source zoom/context filter is not wired into a deterministic compiled feature gate.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 817,
+              "end_line": 817
+            }
+          ],
+          "implementation_refs": []
+        },
+        {
+          "id": "INVISIBLE-EMPIRICAL-VALIDATION",
+          "status": "NOT_PRESENT",
+          "statement": "No strategy-specific source-faithful, version-bound validation evidence is attached to this contract.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 803,
+              "end_line": 822
+            }
+          ],
+          "implementation_refs": []
+        }
+      ],
+      "source_completeness": "PARTIAL",
+      "runtime_status": "RESEARCH_ONLY",
+      "empirical_status": "UNTESTED",
+      "promotion_eligible": false,
+      "live_eligible": false,
+      "semantic_validation": {
+        "status": "NOT_PROVEN",
+        "method": "No semantic parity test currently proves the cited source fields are implemented without deviation. Reference existence is not semantic proof.",
+        "test_ids": []
+      },
+      "compiled_bindings": [
+        {
+          "setup_id": "SET-STR-RAW-2-803",
+          "direction": "short",
+          "timeframe": "1h",
+          "strategy_version": "1.1.0",
+          "rule_versions": [
+            "1.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "strategy_id": "STR-RAW-2-926",
+      "canonical_name": "استراتژی ۴-خطی (برگشت از نواحی PRZ)",
+      "source_refs": [
+        {
+          "file": "2.txt",
+          "start_line": 926,
+          "end_line": 944
+        }
+      ],
+      "contract_status": "INCOMPLETE",
+      "record_source_status": "SOURCE_NAMED",
+      "field_status": {
+        "timeframe": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 929,
+              "end_line": 929
+            }
+          ]
+        },
+        "entry_long": {
+          "status": "UNKNOWN",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 931,
+              "end_line": 931
+            }
+          ]
+        },
+        "entry_short": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 932,
+              "end_line": 933
+            }
+          ]
+        },
+        "confirmation": {
+          "status": "SOURCE_VERIFIED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 933,
+              "end_line": 933
+            }
+          ]
+        },
+        "stop": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 934,
+              "end_line": 934
+            }
+          ]
+        },
+        "target": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 935,
+              "end_line": 937
+            }
+          ]
+        },
+        "exit": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 939,
+              "end_line": 941
+            }
+          ]
+        }
+      },
+      "implementation_refs": [
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "strategy_id: \"STR-RAW-2-926\""
+        },
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "levelReactionLevels"
+        },
+        {
+          "file": "src/lib/strategy/compiled/prz-levels.ts",
+          "symbol": "fourLineSetup"
+        }
+      ],
+      "blockers": [
+        {
+          "id": "FOURLINE-ENTRY-LONG-UNKNOWN",
+          "status": "UNKNOWN",
+          "statement": "Long entry is explicitly UNKNOWN; the parentheses suggest an inverse but do not authorize execution.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 931,
+              "end_line": 931
+            }
+          ],
+          "implementation_refs": []
+        },
+        {
+          "id": "FOURLINE-TOUCH-RANGE",
+          "status": "PARTIAL",
+          "statement": "Source specifies two or three prior reactions; implementation fixes the threshold at two.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 930,
+              "end_line": 930
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "strategy_id: \"STR-RAW-2-926\""
+            }
+          ]
+        },
+        {
+          "id": "FOURLINE-STOP-QUALITATIVE",
+          "status": "PARTIAL",
+          "statement": "Source says exactly above the red resistance zone; implementation applies the shared 0.25 ATR buffer rather than a source-defined zone edge.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 934,
+              "end_line": 934
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "STOP_BUFFER_ATR"
+            }
+          ]
+        },
+        {
+          "id": "FOURLINE-TARGETS",
+          "status": "PARTIAL",
+          "statement": "Source specifies distinct TP1 and TP2 structural levels; implementation uses generic computed opposing levels without preserving the shadow/close-density distinctions per target.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 935,
+              "end_line": 937
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "levelReactionLevels"
+            }
+          ]
+        },
+        {
+          "id": "FOURLINE-EXIT-PERSISTENCE",
+          "status": "PARTIAL",
+          "statement": "The source allows holding/following the trend if both supports break; the compiled exit ladder does not encode this persistence option.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 942,
+              "end_line": 942
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/prz-levels.ts",
+              "symbol": "fourLineSetup"
+            }
+          ]
+        },
+        {
+          "id": "FOURLINE-EMPIRICAL-VALIDATION",
+          "status": "NOT_PRESENT",
+          "statement": "No strategy-specific source-faithful, version-bound validation evidence is attached to this contract.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 926,
+              "end_line": 944
+            }
+          ],
+          "implementation_refs": []
+        }
+      ],
+      "source_completeness": "PARTIAL",
+      "runtime_status": "RESEARCH_ONLY",
+      "empirical_status": "UNTESTED",
+      "promotion_eligible": false,
+      "live_eligible": false,
+      "semantic_validation": {
+        "status": "NOT_PROVEN",
+        "method": "No semantic parity test currently proves the cited source fields are implemented without deviation. Reference existence is not semantic proof.",
+        "test_ids": []
+      },
+      "compiled_bindings": [
+        {
+          "setup_id": "SET-STR-RAW-2-926",
+          "direction": "short",
+          "timeframe": "1h",
+          "strategy_version": "1.1.0",
+          "rule_versions": [
+            "1.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "strategy_id": "STR-RAW-2-1258",
+      "canonical_name": "استراتژی معاملاتی دو قله و دو دره بر اساس نواحی PRZ",
+      "source_refs": [
+        {
+          "file": "2.txt",
+          "start_line": 1258,
+          "end_line": 1275
+        },
+        {
+          "file": "2.txt",
+          "start_line": 1277,
+          "end_line": 1287
+        }
+      ],
+      "contract_status": "INCOMPLETE",
+      "record_source_status": "SOURCE_NAMED",
+      "field_status": {
+        "timeframe": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1261,
+              "end_line": 1261
+            }
+          ]
+        },
+        "entry_long": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1263,
+              "end_line": 1263
+            },
+            {
+              "file": "2.txt",
+              "start_line": 1280,
+              "end_line": 1280
+            }
+          ]
+        },
+        "entry_short": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1264,
+              "end_line": 1264
+            },
+            {
+              "file": "2.txt",
+              "start_line": 1279,
+              "end_line": 1279
+            }
+          ]
+        },
+        "stop": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1266,
+              "end_line": 1266
+            }
+          ]
+        },
+        "target": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1267,
+              "end_line": 1267
+            },
+            {
+              "file": "2.txt",
+              "start_line": 1282,
+              "end_line": 1283
+            }
+          ]
+        },
+        "exit": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1269,
+              "end_line": 1269
+            },
+            {
+              "file": "2.txt",
+              "start_line": 1283,
+              "end_line": 1285
+            }
+          ]
+        },
+        "management": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1272,
+              "end_line": 1273
+            },
+            {
+              "file": "2.txt",
+              "start_line": 1284,
+              "end_line": 1287
+            }
+          ]
+        }
+      },
+      "implementation_refs": [
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "setup_id: \"SET-STR-RAW-2-1258-short\""
+        },
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "setup_id: \"SET-STR-RAW-2-1258-long\""
+        },
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "doublePatternSetup"
+        },
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "levelReactionLevels"
+        }
+      ],
+      "blockers": [
+        {
+          "id": "DOUBLE-TIMEFRAME-SCOPE",
+          "status": "PARTIAL",
+          "statement": "Source names 4h, 1h and 15m and higher-timeframe confirmation; compiled variants fix 1h and do not implement the full multi-timeframe requirement.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1261,
+              "end_line": 1270
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "strategy_id: \"STR-RAW-2-1258\""
+            }
+          ]
+        },
+        {
+          "id": "DOUBLE-FIBONACCI-STOP",
+          "status": "PARTIAL",
+          "statement": "Source locates the stop using Fibonacci safe areas (usually above line one for short); implementation uses a shared ATR buffer beyond a computed level, not Fibonacci.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1266,
+              "end_line": 1266
+            },
+            {
+              "file": "2.txt",
+              "start_line": 1277,
+              "end_line": 1277
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "levelReactionLevels"
+            },
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "STOP_BUFFER_ATR"
+            }
+          ]
+        },
+        {
+          "id": "DOUBLE-PRZ-TARGETS",
+          "status": "PARTIAL",
+          "statement": "Source allows opposing PRZ or key structural levels; implementation uses generic opposing close-density levels and does not model PRZ provenance per target.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1267,
+              "end_line": 1269
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "levelReactionLevels"
+            }
+          ]
+        },
+        {
+          "id": "DOUBLE-RISK-FREE",
+          "status": "PARTIAL",
+          "statement": "Source requires principal extraction/risk-free management around the second PRZ point; current runner uses an engineering equal-target ladder and does not move the stop to break-even.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1256,
+              "end_line": 1256
+            },
+            {
+              "file": "2.txt",
+              "start_line": 1272,
+              "end_line": 1287
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/backtest/strategy-runner.ts",
+              "symbol": "runStrategyBacktest"
+            }
+          ]
+        },
+        {
+          "id": "DOUBLE-EMPIRICAL-VALIDATION",
+          "status": "NOT_PRESENT",
+          "statement": "No strategy-specific source-faithful, version-bound validation evidence is attached to this contract.",
+          "source_refs": [
+            {
+              "file": "2.txt",
+              "start_line": 1258,
+              "end_line": 1287
+            }
+          ],
+          "implementation_refs": []
+        }
+      ],
+      "source_completeness": "PARTIAL",
+      "runtime_status": "RESEARCH_ONLY",
+      "empirical_status": "UNTESTED",
+      "promotion_eligible": false,
+      "live_eligible": false,
+      "semantic_validation": {
+        "status": "NOT_PROVEN",
+        "method": "No semantic parity test currently proves the cited source fields are implemented without deviation. Reference existence is not semantic proof.",
+        "test_ids": []
+      },
+      "compiled_bindings": [
+        {
+          "setup_id": "SET-STR-RAW-2-1258-long",
+          "direction": "long",
+          "timeframe": "1h",
+          "strategy_version": "1.1.1",
+          "rule_versions": [
+            "1.0.0"
+          ]
+        },
+        {
+          "setup_id": "SET-STR-RAW-2-1258-short",
+          "direction": "short",
+          "timeframe": "1h",
+          "strategy_version": "1.1.1",
+          "rule_versions": [
+            "1.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "strategy_id": "STR-RAW-4-2425",
+      "canonical_name": "هارمونیک پایه (AB=CD)",
+      "source_refs": [
+        {
+          "file": "4.txt",
+          "start_line": 2425,
+          "end_line": 2448
+        },
+        {
+          "file": "4.txt",
+          "start_line": 2465,
+          "end_line": 2470
+        }
+      ],
+      "contract_status": "INCOMPLETE",
+      "record_source_status": "SOURCE_NAMED",
+      "field_status": {
+        "timeframe": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2428,
+              "end_line": 2428
+            }
+          ]
+        },
+        "generic_entry": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2434,
+              "end_line": 2434
+            }
+          ]
+        },
+        "direction_adjudication": {
+          "status": "ADJUDICATED_FROM_EXPLICIT_SOURCE_ACTION",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2434,
+              "end_line": 2434
+            }
+          ],
+          "decision": "short",
+          "note": "The source line explicitly says entry into a SELL trade; this is an explicit, documented mapping, not a direction inferred from the field label."
+        },
+        "stop": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2436,
+              "end_line": 2436
+            }
+          ]
+        },
+        "targets": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2437,
+              "end_line": 2440
+            }
+          ]
+        },
+        "exit": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2442,
+              "end_line": 2445
+            }
+          ]
+        },
+        "filters": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2443,
+              "end_line": 2444
+            }
+          ]
+        }
+      },
+      "implementation_refs": [
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "strategy_id: \"STR-RAW-4-2425\""
+        },
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "harmonicLevels"
+        },
+        {
+          "file": "src/lib/strategy/compiled/harmonic-abcd.ts",
+          "symbol": "abcdBaseSetup"
+        }
+      ],
+      "blockers": [
+        {
+          "id": "HARMONIC-BASE-TIMEFRAME",
+          "status": "PARTIAL",
+          "statement": "The source permits multiple technical timeframes; implementation fixes 1h.",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2428,
+              "end_line": 2428
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "strategy_id: \"STR-RAW-4-2425\""
+            }
+          ]
+        },
+        {
+          "id": "HARMONIC-BASE-STOP",
+          "status": "PARTIAL",
+          "statement": "Source stop is a prior minor/high/low; implementation selects point C and adds an unsourced 0.25 ATR buffer.",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2436,
+              "end_line": 2436
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "harmonicLevels"
+            },
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "STOP_BUFFER_ATR"
+            }
+          ]
+        },
+        {
+          "id": "HARMONIC-BASE-TARGET-LADDER",
+          "status": "PARTIAL",
+          "statement": "Source defines TP1, TP2 and TP3, partial exits, risk-free and trailing management; implementation currently derives only TP1 and the generic equal-target runner does not encode the full source ladder/stop movement.",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2437,
+              "end_line": 2445
+            },
+            {
+              "file": "4.txt",
+              "start_line": 2468,
+              "end_line": 2470
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "harmonicLevels"
+            },
+            {
+              "file": "src/lib/backtest/strategy-runner.ts",
+              "symbol": "runStrategyBacktest"
+            }
+          ]
+        },
+        {
+          "id": "HARMONIC-BASE-FILTERS",
+          "status": "PARTIAL",
+          "statement": "The slope, structure-strength and no-range filters are not all explicitly represented as source-derived gates in the compiled setup.",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2443,
+              "end_line": 2447
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/harmonic-abcd.ts",
+              "symbol": "abcdBaseSetup"
+            }
+          ]
+        },
+        {
+          "id": "HARMONIC-BASE-EMPIRICAL-VALIDATION",
+          "status": "NOT_PRESENT",
+          "statement": "No strategy-specific source-faithful, version-bound validation evidence is attached to this contract.",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2425,
+              "end_line": 2448
+            }
+          ],
+          "implementation_refs": []
+        }
+      ],
+      "source_completeness": "PARTIAL",
+      "runtime_status": "RESEARCH_ONLY",
+      "empirical_status": "UNTESTED",
+      "promotion_eligible": false,
+      "live_eligible": false,
+      "semantic_validation": {
+        "status": "NOT_PROVEN",
+        "method": "No semantic parity test currently proves the cited source fields are implemented without deviation. Reference existence is not semantic proof.",
+        "test_ids": []
+      },
+      "compiled_bindings": [
+        {
+          "setup_id": "SET-STR-RAW-4-2425",
+          "direction": "short",
+          "timeframe": "1h",
+          "strategy_version": "1.1.0",
+          "rule_versions": [
+            "1.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "strategy_id": "STR-RAW-4-2449",
+      "canonical_name": "هارمونیک پایه معکوس",
+      "source_refs": [
+        {
+          "file": "4.txt",
+          "start_line": 2449,
+          "end_line": 2462
+        },
+        {
+          "file": "4.txt",
+          "start_line": 2465,
+          "end_line": 2470
+        }
+      ],
+      "contract_status": "INCOMPLETE",
+      "record_source_status": "SOURCE_NAMED",
+      "field_status": {
+        "timeframe": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2452,
+              "end_line": 2452
+            }
+          ]
+        },
+        "entry_directions": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2456,
+              "end_line": 2456
+            }
+          ],
+          "directions": [
+            "long",
+            "short"
+          ]
+        },
+        "stop": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2457,
+              "end_line": 2457
+            }
+          ]
+        },
+        "target": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2458,
+              "end_line": 2458
+            }
+          ]
+        },
+        "exit": {
+          "status": "SOURCE_NAMED",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2460,
+              "end_line": 2462
+            }
+          ]
+        }
+      },
+      "implementation_refs": [
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "strategy_id: \"STR-RAW-4-2449\""
+        },
+        {
+          "file": "src/lib/strategy/compiled/index.ts",
+          "symbol": "harmonicLevels"
+        },
+        {
+          "file": "src/lib/strategy/compiled/harmonic-abcd.ts",
+          "symbol": "abcdInverseSetup"
+        }
+      ],
+      "blockers": [
+        {
+          "id": "HARMONIC-INVERSE-TIMEFRAME",
+          "status": "PARTIAL",
+          "statement": "The source says timeframe is free; implementation fixes 1h.",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2452,
+              "end_line": 2452
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "strategy_id: \"STR-RAW-4-2449\""
+            }
+          ]
+        },
+        {
+          "id": "HARMONIC-INVERSE-DIRECTION",
+          "status": "PARTIAL",
+          "statement": "The source names Long/Short entries; implementation registers only the long variant.",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2456,
+              "end_line": 2456
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "strategy_id: \"STR-RAW-4-2449\""
+            }
+          ]
+        },
+        {
+          "id": "HARMONIC-INVERSE-SHALLOW-RETRACE",
+          "status": "PARTIAL",
+          "statement": "The source requires a non-deep correction at or below 50%; parity of the detector/compiled rule with this bound must be explicitly proven before execution.",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2454,
+              "end_line": 2456
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/harmonic-abcd.ts",
+              "symbol": "abcdInverseSetup"
+            }
+          ]
+        },
+        {
+          "id": "HARMONIC-INVERSE-STOP-TARGET",
+          "status": "PARTIAL",
+          "statement": "Source uses prior legs and prior-wave dimensions; implementation uses point C plus a 0.25 ATR buffer and one AB projection.",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2457,
+              "end_line": 2459
+            }
+          ],
+          "implementation_refs": [
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "harmonicLevels"
+            },
+            {
+              "file": "src/lib/strategy/compiled/index.ts",
+              "symbol": "STOP_BUFFER_ATR"
+            }
+          ]
+        },
+        {
+          "id": "HARMONIC-INVERSE-EMPIRICAL-VALIDATION",
+          "status": "NOT_PRESENT",
+          "statement": "No strategy-specific source-faithful, version-bound validation evidence is attached to this contract.",
+          "source_refs": [
+            {
+              "file": "4.txt",
+              "start_line": 2449,
+              "end_line": 2470
+            }
+          ],
+          "implementation_refs": []
+        }
+      ],
+      "source_completeness": "PARTIAL",
+      "runtime_status": "RESEARCH_ONLY",
+      "empirical_status": "UNTESTED",
+      "promotion_eligible": false,
+      "live_eligible": false,
+      "semantic_validation": {
+        "status": "NOT_PROVEN",
+        "method": "No semantic parity test currently proves the cited source fields are implemented without deviation. Reference existence is not semantic proof.",
+        "test_ids": []
+      },
+      "compiled_bindings": [
+        {
+          "setup_id": "SET-STR-RAW-4-2449",
+          "direction": "long",
+          "timeframe": "1h",
+          "strategy_version": "1.1.0",
+          "rule_versions": [
+            "1.0.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "unsupported_areas": [
+    {
+      "area": "strategy semantic adjudication beyond explicitly recorded line-level decisions",
+      "status": "UNKNOWN",
+      "reason": "Within this checkout, reachable Git trees and the inspected object database contain the five raw transcript files and source metadata, but not the original `my stratgist.zip` bytes or full superseded prompt bodies. All 24 repository pull requests, visible GitHub branch-tip trees, and the release list (none published) were checked. The pinned Master Build Bible (pp. 2, 48–49) says the personal strategy is not fully source-defined and lists prior research/archive artifacts whose named bodies were not found in the inspected workspace or repository history. The canonical index and retained psychology patch are derivatives; the patch's added source bodies match the current files and provide no continuation. The psychology sources appear in PR #6, and PR #19 restored this contract path as a completion-unit notice, not the original denominator-bearing contract. Identity-only prompt manifests do not recover prompt content. No external copies outside this repository were searched, so no global-unrecoverability claim is made."
+    },
+    {
+      "area": "strategy performance/validation evidence for the six compiled implementations",
+      "status": "NOT_PRESENT",
+      "reason": "No source-faithful, version-bound promotion evidence was established in this audit."
+    }
+  ],
+  "contract_version": "1.2.0",
+  "semantic_proof_policy": "Reference existence is not semantic equivalence. A contract can become SOURCE_FAITHFUL only with complete source fields, deterministic implementation mapping, current source/implementation identities, and passing named semantic tests.",
+  "source_bindings": [
+    {
+      "file_id": "1.txt",
+      "path": "knowledge/raw/RAW_1.txt",
+      "source_version": "v1-as-supplied",
+      "sha256": "b430f52e191c763e7c8752359ddc21820cbe8f79ea58b212f14ca0107d3a7244",
+      "bytes": 617254,
+      "lines": 2450,
+      "chars": 349998,
+      "completeness": "TRUNCATED"
+    },
+    {
+      "file_id": "2.txt",
+      "path": "knowledge/raw/RAW_2.txt",
+      "source_version": "v1-as-supplied",
+      "sha256": "0177294c7f5b14b758efab3cd8a3b39e3ed8444766c6bdba318978a3e872fbb1",
+      "bytes": 598290,
+      "lines": 1987,
+      "chars": 350000,
+      "completeness": "TRUNCATED"
+    },
+    {
+      "file_id": "3.txt",
+      "path": "knowledge/raw/RAW_3.txt",
+      "source_version": "v1-as-supplied",
+      "sha256": "bf0ae22b7fdbde3959c5563338058d378f030d5506ca5b15cf92f59a2be06cee",
+      "bytes": 424438,
+      "lines": 1100,
+      "chars": 253714,
+      "completeness": "UNKNOWN"
+    },
+    {
+      "file_id": "4.txt",
+      "path": "knowledge/raw/RAW_4.txt",
+      "source_version": "v1-as-supplied",
+      "sha256": "bc050e2aefbb9a0bf0894114d791a7e93dfa01afe263e25ade0b04b1b560db8a",
+      "bytes": 600086,
+      "lines": 2901,
+      "chars": 350000,
+      "completeness": "TRUNCATED"
+    },
+    {
+      "file_id": "5.txt",
+      "path": "knowledge/raw/RAW_5.txt",
+      "source_version": "v1-as-supplied",
+      "sha256": "1c73c915fe90d7bd5c49f2b93ceab47b15850b795f53989914fa1f53d208baaf",
+      "bytes": 184218,
+      "lines": 960,
+      "chars": 109216,
+      "completeness": "UNKNOWN"
+    },
+    {
+      "file_id": "USER-PSY-1",
+      "path": "knowledge/psychology/USER_PSYCHOLOGY_1.txt",
+      "source_version": "user-supplied-v1",
+      "sha256": "31e52de9d6f6aa0c2ddd072b3986cbc4bb0fe64365ccc3dba852fbe0816eab25",
+      "bytes": 624394,
+      "lines": 2423,
+      "chars": 349991,
+      "completeness": "TRUNCATED"
+    },
+    {
+      "file_id": "USER-PSY-2",
+      "path": "knowledge/psychology/USER_PSYCHOLOGY_2.txt",
+      "source_version": "user-supplied-v1",
+      "sha256": "485fa4f9afb49b43ba5fbe4a9b76fba72b157d1ab7a10c721638d5e18ec41e7a",
+      "bytes": 160655,
+      "lines": 640,
+      "chars": 90370,
+      "completeness": "TRUNCATED"
+    }
+  ],
+  "canonical_index": {
+    "path": "knowledge/canonical/ASA_CANONICAL_KNOWLEDGE_PACK_v1_1.json",
+    "source_version": "v1.1",
+    "sha256": "eecb67c9e21af7563068255f1316f08bee508fd6941e4771a537e6dd7782a891",
+    "bytes": 1330269,
+    "lines": 17890,
+    "role": "INDEX_ONLY"
+  },
+  "implementation_bindings": [
+    {
+      "file": "src/lib/backtest/strategy-runner.ts",
+      "sha256": "68b0b8c7b9ac7ebf684655afde7b3aebef506b6e6f8348e7ba68a212888e1512"
+    },
+    {
+      "file": "src/lib/strategy/compiled/harmonic-abcd.ts",
+      "sha256": "f5b5468d3c906a9ce8fea7f7f2614732610d7bb0e10668fc34db20c0886febcd"
+    },
+    {
+      "file": "src/lib/strategy/compiled/index.ts",
+      "sha256": "956dfd3c31f34cc4579cf909d16544d8f9d607048832b94a8e3587706a16bdfc"
+    },
+    {
+      "file": "src/lib/strategy/compiled/prz-levels.ts",
+      "sha256": "64ca4b1c01c7115bb8f4b6c06045b25ef7aa37045bfc24475d489511b6fe485b"
+    }
+  ],
+  "validator_binding": {
+    "file": "src/lib/strategy/compiled/source-contract.ts",
+    "sha256": "9b59de10a32b62f73b4ab9ad5e8a5e4ee4aa3151b81d33ebddd7ad89127c997b"
+  }
+}

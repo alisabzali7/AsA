@@ -17,6 +17,8 @@ export interface ScoreContext {
   /** false when the risk engine was not run (missing entry/stop) — not a measured block */
   riskEvaluated?: boolean;
   psychReady: boolean;
+  psychUnknown?: boolean;
+  psychologyUnknownReasons?: string[];
   psychPenalty: number;
   bars: number;
   stale: boolean;
@@ -72,7 +74,9 @@ export function scoreFromEvaluation(ev: CompiledEvaluation, ctx: ScoreContext): 
         reason: ctx.stale ? "market data is stale" : `${ctx.bars} closed bars available`,
         evidence_kind: "MEASURED",
       },
-      psychology_gate: { achieved: ctx.psychReady ? 1 : 0, reason: ctx.psychReady ? "psychology ready" : "psychology blocked", evidence_kind: "MEASURED" },
+      psychology_gate: ctx.psychUnknown
+        ? { achieved: null, reason: `psychology constraints UNKNOWN${ctx.psychologyUnknownReasons?.length ? `: ${ctx.psychologyUnknownReasons.join("; ")}` : ""}`, evidence_kind: "UNKNOWN" }
+        : { achieved: ctx.psychReady ? 1 : 0, reason: ctx.psychReady ? "source-backed psychology constraints evaluated" : "source-backed psychology constraint blocked", evidence_kind: "MEASURED" },
     },
     penalties,
     contradictions: ctx.contradictions,

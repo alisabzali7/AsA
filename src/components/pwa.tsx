@@ -54,16 +54,30 @@ function getInstallServer() {
   return false;
 }
 
+function getStandaloneSnapshot() {
+  return (typeof window !== "undefined" && typeof window.matchMedia === "function" &&
+    window.matchMedia("(display-mode: standalone)").matches) ||
+    (typeof navigator !== "undefined" && (navigator as Navigator & { standalone?: boolean }).standalone === true);
+}
+
+function getStandaloneServerSnapshot() {
+  return false;
+}
+
+function subscribeStandalone(cb: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const media = typeof window.matchMedia === "function" ? window.matchMedia("(display-mode: standalone)") : null;
+  media?.addEventListener("change", cb);
+  window.addEventListener("appinstalled", cb);
+  return () => {
+    media?.removeEventListener("change", cb);
+    window.removeEventListener("appinstalled", cb);
+  };
+}
+
 export function usePwaInstall() {
   const isInstallable = useSyncExternalStore(subscribeInstall, getInstallSnapshot, getInstallServer);
-  const [isStandalone, setIsStandalone] = useState(false);
-
-  useEffect(() => {
-    const isStandaloneMode =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (navigator as any).standalone === true;
-    setIsStandalone(isStandaloneMode);
-  }, []);
+  const isStandalone = useSyncExternalStore(subscribeStandalone, getStandaloneSnapshot, getStandaloneServerSnapshot);
 
   const triggerInstall = async () => {
     if (!deferredPrompt) return false;

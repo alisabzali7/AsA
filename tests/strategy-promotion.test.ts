@@ -66,7 +66,13 @@ let REL: ReleaseMod;
 let COMPILED: CompiledMod;
 
 const STRATEGY_ID = "STR-RAW-2-803";
+const SOURCE_TREE_SHA256 = "a".repeat(64);
+const SOURCE_CONTRACT_SHA256 = "b".repeat(64);
 const SETUP_ID = "SET-STR-RAW-2-803";
+const TEST_COMPILED_BINDING = {
+  setup_id: SETUP_ID, direction: "short" as const, timeframe: "1h", strategy_version: "v-current",
+  rule_bindings: [{ rule_id: "R-1", rule_version: "1.0.0" }], source_contract_sha256: SOURCE_CONTRACT_SHA256,
+};
 
 beforeAll(async () => {
   P = await import("../src/lib/backtest/promotion");
@@ -167,8 +173,10 @@ function evidence(over: Partial<ExperimentEvidence> = {}): ExperimentEvidence {
       code_version: "abc1234",
       app_version: "6.0.1",
       build_id: "6.0.1+abc1234",
+      source_tree_sha256: SOURCE_TREE_SHA256,
+      source_tree_digest_status: "COMPLETE",
     },
-    params: { methodology: V.VALIDATION_METHODOLOGY },
+    params: { methodology: V.VALIDATION_METHODOLOGY, compiled_binding: TEST_COMPILED_BINDING },
     in_sample: metrics(),
     oos: metrics({ trade_count: 40, expectancy_r: 0.4, profit_factor: 1.8, max_drawdown_r: 5, win_rate: 52 }),
     walk_forward: walkForward(),
@@ -226,6 +234,8 @@ function gateInput(over: {
       source_refs: rec.source_refs,
       name: rec.canonical_name,
       family: rec.family,
+      source_contract_status: "SOURCE_FAITHFUL",
+      source_contract_blockers: [],
       ...over.runtime,
     },
     governance: {
@@ -241,9 +251,13 @@ function gateInput(over: {
     evidence: over.evidence ?? [evidence()],
     versions: {
       code_version: "abc1234",
+      source_tree_sha256: SOURCE_TREE_SHA256,
+      source_tree_digest_status: "COMPLETE",
       detector_version: "1.0.0",
       strategy_versions: ["v-current"],
       rule_versions: ["1.0.0"],
+      compiled_bindings: [{ setup_id: SETUP_ID, direction: "short", timeframe: "1h", strategy_version: "v-current", rule_bindings: [{ rule_id: "R-1", rule_version: "1.0.0" }] }],
+      source_contract_sha256: SOURCE_CONTRACT_SHA256,
       ...over.versions,
     },
     decided_at_ms: 1_788_000_500_000,
@@ -418,7 +432,7 @@ describe("Test 4 — a blocking UNKNOWN in a required condition is NOT_ELIGIBLE"
 
   it("no evidence whatsoever keeps every evidence check UNKNOWN (never PASS)", () => {
     const d = decide({ evidence: [] });
-    for (const id of ["validation_evidence_exists", "evidence_dataset_provenance", "evidence_versions_current", "evidence_methodology_declared", "required_metrics_computed", "evidence_verdict_reproducible", "oos_evidence_exists", "evidence_quality_gate"]) {
+    for (const id of ["validation_evidence_exists", "evidence_dataset_provenance", "evidence_versions_current", "evidence_compiled_binding_current", "evidence_methodology_declared", "required_metrics_computed", "evidence_verdict_reproducible", "oos_evidence_exists", "evidence_quality_gate"]) {
       expect(checkOf(d, id).verdict, id).toBe("UNKNOWN");
     }
   });
@@ -461,6 +475,16 @@ describe("evidence must describe the CURRENT build", () => {
     expect(checkOf(d, "evidence_versions_current").detail).toMatch(/stale/);
   });
 
+  it("incomplete source-tree identity is UNKNOWN for both recorded and current evidence", () => {
+    const recordedPartial = decide({ evidence: [evidence({ versions: { ...evidence().versions, source_tree_digest_status: "PARTIAL" } })] });
+    expect(recordedPartial.eligible).toBe(false);
+    expect(checkOf(recordedPartial, "evidence_versions_current").verdict).toBe("UNKNOWN");
+
+    const currentPartial = decide({ versions: { source_tree_digest_status: "INVALID" } });
+    expect(currentPartial.eligible).toBe(false);
+    expect(checkOf(currentPartial, "evidence_versions_current").verdict).toBe("UNKNOWN");
+  });
+
   it("a detector, strategy or rule version drift invalidates the evidence", () => {
     for (const over of [{ detector_version: "0.9.0" }, { strategy_version: "v-old" }, { rule_version: "0.9.9" }]) {
       const d = decide({ evidence: [evidence({ versions: { ...evidence().versions, ...over } })] });
@@ -474,6 +498,32 @@ describe("evidence must describe the CURRENT build", () => {
     expect(ok.eligible).toBe(true);
     const bad = decide({ evidence: [evidence({ versions: { ...evidence().versions, rule_version: "1.0.0+0.9.0" } })] });
     expect(bad.eligible).toBe(false);
+  });
+
+  it("exact setup binding detects stale setup IDs and rule mappings even when aggregate versions look current", () => {
+    const wrongSetup = decide({ evidence: [evidence({ params: {
+      ...evidence().params,
+      compiled_binding: { ...TEST_COMPILED_BINDING, setup_id: "SET-OLD" },
+    } })] });
+    expect(checkOf(wrongSetup, "evidence_compiled_binding_current").verdict).toBe("FAIL");
+
+    const wrongRules = decide({ evidence: [evidence({ params: {
+      ...evidence().params,
+      compiled_binding: { ...TEST_COMPILED_BINDING, rule_bindings: [{ rule_id: "R-OTHER", rule_version: "1.0.0" }] },
+    } })] });
+    expect(checkOf(wrongRules, "evidence_compiled_binding_current").verdict).toBe("FAIL");
+
+    const staleContract = decide({ evidence: [evidence({ params: {
+      ...evidence().params,
+      compiled_binding: { ...TEST_COMPILED_BINDING, source_contract_sha256: "c".repeat(64) },
+    } })] });
+    expect(checkOf(staleContract, "evidence_compiled_binding_current").verdict).toBe("FAIL");
+  });
+
+  it("missing exact binding metadata is UNKNOWN, never inferred from aggregate version fields", () => {
+    const d = decide({ evidence: [evidence({ params: { methodology: V.VALIDATION_METHODOLOGY } })] });
+    expect(checkOf(d, "evidence_compiled_binding_current").verdict).toBe("UNKNOWN");
+    expect(d.eligible).toBe(false);
   });
 
   it("an undeclared methodology is UNKNOWN, a different one is a FAIL", () => {
@@ -543,6 +593,10 @@ describe("store round-trip: provenance is verifiable, not decorative", () => {
       promotion: { to: "ROBUST" },
       empirical_status: "ROBUST",
       code_version: ev.versions.code_version,
+      app_version: ev.versions.app_version,
+      build_id: ev.versions.build_id,
+      source_tree_sha256: ev.versions.source_tree_sha256,
+      source_tree_digest_status: ev.versions.source_tree_digest_status,
       dataset_identity: ev.dataset_identity,
       split: ev.split,
     });
@@ -571,7 +625,9 @@ describe("store round-trip: provenance is verifiable, not decorative", () => {
     const [read] = store.evidenceFor(STRATEGY_ID);
     expect(read.dataset_identity).toBeNull();
     expect(read.split).toBeNull();
+    expect(read.versions.source_tree_digest_status).toBe("UNKNOWN");
     expect(read.parse_notes.join(" ")).toMatch(/dataset_identity: absent/);
+    expect(read.parse_notes.join(" ")).toMatch(/source_tree_digest_status: UNKNOWN/);
     const prov = P.validateDatasetProvenance(read);
     expect(prov.ok).toBe(false);
     expect(prov.verdict).toBe("UNKNOWN");
@@ -607,7 +663,9 @@ describe("store round-trip: provenance is verifiable, not decorative", () => {
     const rows = store.allFor(STRATEGY_ID);
     expect(rows).toHaveLength(1);
     expect(rows[0].dataset_identity_json ?? null).toBeNull();
+    expect(rows[0].source_tree_digest_status).toBe("UNKNOWN");
     const [read] = store.evidenceFor(STRATEGY_ID);
+    expect(read.versions.source_tree_digest_status).toBe("UNKNOWN");
     expect(read.parse_notes.join(" ")).toMatch(/dataset_identity: absent/);
     expect(store.statusByStrategy()[STRATEGY_ID].status).toBe("BACKTESTED");
     store.close();
@@ -681,7 +739,8 @@ describe("the CURRENT repository state cannot promote anything", () => {
     const historical = evidence({
       versions: {
         strategy_version: "1.1.0", detector_version: DET.DETECTOR_VERSION, rule_version: "1.0.0",
-        code_version: `${releases.git_commit}-older`, app_version: "6.0.1", build_id: "old",
+        code_version: `${releases.git_commit}-older`, app_version: "6.0.1", build_id: "old", source_tree_sha256: SOURCE_TREE_SHA256,
+      source_tree_digest_status: "COMPLETE",
       },
     });
 
@@ -704,12 +763,13 @@ describe("the CURRENT repository state cannot promote anything", () => {
     store.close();
   });
 
-  it("every compiled strategy is executable-or-explainable, and none is live eligible", async () => {
+  it("compiled strategies remain research-computable but neither executable nor live eligible while source contracts are incomplete", async () => {
     const { listStrategiesSummary } = await import("../src/lib/pipeline/orchestrator");
     const summary = listStrategiesSummary();
     expect(summary.length).toBeGreaterThan(0);
     for (const s of summary) {
-      expect(s.executable).toBe(true);
+      expect(s.executable).toBe(false);
+      expect(s.research_computable).toBe(true);
       expect(s.live_eligible).toBe(false);
     }
   });

@@ -10,6 +10,7 @@
       "sha256": "31e52de9d6f6aa0c2ddd072b3986cbc4bb0fe64365ccc3dba852fbe0816eab25",
       "total_lines": 2423,
       "total_chars": 349991,
+      "total_bytes": 624394,
       "truncated": true
     },
     {
@@ -19,6 +20,7 @@
       "sha256": "485fa4f9afb49b43ba5fbe4a9b76fba72b157d1ab7a10c721638d5e18ec41e7a",
       "total_lines": 640,
       "total_chars": 90370,
+      "total_bytes": 160655,
       "truncated": true
     }
   ],

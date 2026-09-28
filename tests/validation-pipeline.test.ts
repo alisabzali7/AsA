@@ -11,7 +11,7 @@
  *   D: UNKNOWN propagation, E: Governance conflict, F: Fully evidenced,
  *   G: Stale code/version drift, H: TTT replay pipeline run)
  */
-import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { describe, expect, it, beforeAll, afterAll, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,6 +28,20 @@ process.env.ASA_HISTORY_DB_PATH = path.join(TMP, "history.db");
 process.env.ASA_BRAIN_DB_PATH = path.join(TMP, "brain.db");
 delete process.env.ASA_API_TOKEN;
 
+vi.mock("../src/lib/risk/policy", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/lib/risk/policy")>();
+  const source = mod.selectableRiskPolicies().find((policy) => policy.policy_id === "RISK-DAILY-5PCT")!;
+  const testOnlyPolicy = {
+    ...source,
+    selection_status: "SELECTED" as const,
+    selected_by: "operator_pref" as const,
+    selection_reason: "TEST ONLY: production source-completeness gate bypassed for replay validation mechanics",
+    policy_version: mod.RISK_POLICY_VERSION,
+    source_completeness: mod.riskPolicyEligibility(source).source_completeness,
+  };
+  return { ...mod, getProductionRiskPolicy: () => testOnlyPolicy };
+});
+
 type PromotionMod = typeof import("../src/lib/backtest/promotion");
 type StoreMod = typeof import("../src/lib/backtest/experiments");
 type RunnerMod = typeof import("../src/lib/backtest/strategy-runner");
@@ -43,7 +57,13 @@ let PIPE: PipeMod;
 let COMPILED: CompiledMod;
 
 const STRATEGY_ID = "STR-RAW-2-803";
+const SOURCE_TREE_SHA256 = "a".repeat(64);
+const SOURCE_CONTRACT_SHA256 = "b".repeat(64);
 const SETUP_ID = "SET-STR-RAW-2-803";
+const TEST_COMPILED_BINDING = {
+  setup_id: SETUP_ID, direction: "short" as const, timeframe: "1h", strategy_version: "v-curr",
+  rule_bindings: [{ rule_id: "R-1", rule_version: "1.0.0" }], source_contract_sha256: SOURCE_CONTRACT_SHA256,
+};
 const SHA = createHash("sha256").update("pipe-test-artifact").digest("hex");
 
 beforeAll(async () => {
@@ -55,7 +75,8 @@ beforeAll(async () => {
   COMPILED = await import("../src/lib/strategy/compiled");
 });
 
-afterAll(() => {
+afterAll(async () => {
+  try { (await import("../src/db/sqlite")).closeRepo(); } catch { /* not opened */ }
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -108,8 +129,10 @@ function mockEvidence(over: Partial<ExperimentEvidence> = {}): ExperimentEvidenc
       code_version: "pipe1234",
       app_version: "6.0.1",
       build_id: "6.0.1+pipe1234",
+      source_tree_sha256: SOURCE_TREE_SHA256,
+      source_tree_digest_status: "COMPLETE",
     },
-    params: { methodology: V.VALIDATION_METHODOLOGY },
+    params: { methodology: V.VALIDATION_METHODOLOGY, compiled_binding: TEST_COMPILED_BINDING },
     in_sample: mockMetrics(),
     oos: mockMetrics({ trade_count: 35, expectancy_r: 0.4, profit_factor: 1.7, max_drawdown_r: 4 }),
     walk_forward: {
@@ -158,6 +181,8 @@ function mockGateInput(over: {
       source_refs: [{ file: "2.txt", start_line: 1, end_line: 10 }],
       name: "Test Strategy",
       family: "level-reaction",
+      source_contract_status: "SOURCE_FAITHFUL",
+      source_contract_blockers: [],
       ...over.runtime,
     },
     governance: {
@@ -173,9 +198,13 @@ function mockGateInput(over: {
     evidence: over.evidence ?? [mockEvidence()],
     versions: {
       code_version: "pipe1234",
+      source_tree_sha256: SOURCE_TREE_SHA256,
+      source_tree_digest_status: "COMPLETE",
       detector_version: "1.0.0",
       strategy_versions: ["v-curr"],
       rule_versions: ["1.0.0"],
+      compiled_bindings: [{ setup_id: SETUP_ID, direction: "short", timeframe: "1h", strategy_version: "v-curr", rule_bindings: [{ rule_id: "R-1", rule_version: "1.0.0" }] }],
+      source_contract_sha256: SOURCE_CONTRACT_SHA256,
       ...over.versions,
     },
     decided_at_ms: 1_788_000_500_000,
@@ -389,13 +418,21 @@ describe("Scenarios A through H (Promotion & Lifecycle Invariants)", () => {
     expect(decision.runtime_status).not.toBe("LIVE_ADVISORY_ONLY");
   });
 
-  it("Scenario H: Validation Pipeline execution over TTT replay fixture generates typed outputs", () => {
-    // Run pipeline for STR-RAW-2-803 over BTCUSDT replay fixture
+  it("Scenario H: TTT replay pipeline runs only with explicit test risk, cost, ambiguity, and hold inputs", async () => {
+    // Test-only explicit policy selection and parameters; this is not a product default.
+    const repo = (await import("../src/db/sqlite")).getRepo();
+    repo.configSet("pref.risk.policyId", "RISK-DAILY-5PCT");
     const summary = PIPE.runValidationPipeline({
       strategyId: "STR-RAW-2-803",
       sourceKind: "TTT_UDF_REPLAY",
       symbols: ["BTCUSDT"],
       persist: false,
+      equity: 10_000,
+      riskPerTradePct: 1,
+      maxLeverage: 5,
+      costs: { fee_rate: 0.0002, slippage_rate: 0.0001 },
+      sameBarPolicy: "stop_first",
+      maxHoldBars: 120,
     });
 
     expect(summary.ok).toBe(true);

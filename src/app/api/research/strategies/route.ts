@@ -44,7 +44,12 @@ export async function GET(): Promise<NextResponse> {
       name: s.name,
       family: s.family,
       status: s.availability,
-      version: s.version,
+      version: s.strategy_version,
+      strategy_version: s.strategy_version,
+      rule_versions: s.rule_versions,
+      research_computable: s.impl !== null && (s.availability === "EXECUTABLE" || s.availability === "RESEARCH_ONLY"),
+      source_contract_status: s.source_contract_status,
+      source_contract_blockers: s.source_contract_blockers,
       // AUDIT FIX (P1-9): executability is NOT live eligibility. The old
       // `liveEligible: EXECUTABLE` field could expose executable-but-
       // unvalidated strategies as live to any API consumer.

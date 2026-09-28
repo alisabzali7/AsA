@@ -43,7 +43,7 @@ export interface ScanCandidate {
   level_assumptions: string[];
   risk: { verdict: string; reasons: string[]; numbers: Record<string, unknown> } | null;
   portfolio: { verdict: string; reasons: string[] } | null;
-  psychology: { verdict: string; blocks: string[]; penalty: number } | null;
+  psychology: { verdict: string; blocks: string[]; penalty: number; not_evaluated: string[]; active_policy_ids: string[] } | null;
   data_quality: { bars: number; stale: boolean; age_ms: number | null };
   empirical_status: EmpiricalStatus;
   runtime_status: string;
@@ -172,7 +172,9 @@ export function scanForOpportunities(input: ScanInput): ScanResult {
       const score = scoreFromEvaluation(ev, {
         riskPass,
         riskEvaluated: riskOut != null,
-        psychReady: psych.verdict !== "block",
+        psychReady: psych.verdict === "pass" || psych.verdict === "flag",
+        psychUnknown: psych.verdict === "unknown",
+        psychologyUnknownReasons: psych.not_evaluated.map((item) => item.reason),
         psychPenalty: psych.score_penalty,
         bars: candles.length,
         stale,
@@ -214,7 +216,13 @@ export function scanForOpportunities(input: ScanInput): ScanResult {
         level_assumptions: ev.levels.level_assumptions,
         risk: riskOut,
         portfolio: { verdict: portfolio.verdict, reasons: portfolio.reasons },
-        psychology: { verdict: psych.verdict, blocks: psych.blocks.map((b) => b.reason), penalty: psych.score_penalty },
+        psychology: {
+          verdict: psych.verdict,
+          blocks: psych.blocks.map((b) => b.reason),
+          penalty: psych.score_penalty,
+          not_evaluated: psych.not_evaluated.map((item) => `${item.policy_id}: ${item.reason}`),
+          active_policy_ids: psych.active_policy_ids,
+        },
         data_quality: { bars: candles.length, stale, age_ms: ageMs },
         empirical_status: empirical,
         runtime_status: runtimeStatus,

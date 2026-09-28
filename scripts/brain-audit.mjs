@@ -12,6 +12,7 @@ loadDotenv({ path: ".env.local", override: true, quiet: true });
 
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 
 const BRAIN = process.env.ASA_BRAIN_DB_PATH || "./asa-data/brain.db";
@@ -37,6 +38,32 @@ const psych = all("SELECT * FROM psychology_policies");
 const conflicts = all("SELECT * FROM conflict_groups");
 const primitives = all("SELECT * FROM primitives");
 const features = all("SELECT * FROM features");
+const sourceContractPath = "src/lib/strategy/compiled/source-contracts.json";
+const sourceContractLockPath = "src/lib/strategy/compiled/source-contracts.lock.json";
+const sourceContractBytes = fs.readFileSync(sourceContractPath);
+const sourceContract = JSON.parse(sourceContractBytes.toString("utf8"));
+const sourceContractLock = JSON.parse(fs.readFileSync(sourceContractLockPath, "utf8"));
+const sourceContractDigest = createHash("sha256").update(sourceContractBytes).digest("hex");
+const sourceContractIdentityValid = sourceContract.schema_version === "1.2.0" &&
+  sourceContract.contract_version === "1.2.0" &&
+  sourceContractLock.contract_path === sourceContractPath &&
+  sourceContractLock.contract_sha256 === sourceContractDigest &&
+  JSON.stringify(sourceContractLock.source_bindings) === JSON.stringify(sourceContract.source_bindings) &&
+  JSON.stringify(sourceContractLock.canonical_index) === JSON.stringify(sourceContract.canonical_index) &&
+  JSON.stringify(sourceContractLock.implementation_bindings) === JSON.stringify(sourceContract.implementation_bindings) &&
+  JSON.stringify(sourceContractLock.validator_binding) === JSON.stringify(sourceContract.validator_binding);
+const sourceBindings = new Map((sourceContract.source_bindings ?? []).map((row) => [row.file_id, row]));
+const sourceContracts = Array.isArray(sourceContract.strategies) ? sourceContract.strategies : [];
+const contractStatusCounts = Object.fromEntries(
+  [...new Set(sourceContracts.map((row) => row.contract_status))].sort()
+    .map((state) => [state, sourceContracts.filter((row) => row.contract_status === state).length]),
+);
+const sourceCompletenessOf = (doc) => sourceBindings.get(doc.file_id)?.completeness ?? (doc.truncated ? "TRUNCATED" : "UNKNOWN");
+const sourceFaithfulExecutableContracts = sourceContracts.filter((row) =>
+  row.contract_status === "SOURCE_FAITHFUL" && row.source_completeness === "COMPLETE" &&
+  row.semantic_validation?.status === "PASS" && row.runtime_status === "EXECUTABLE");
+const sourceContractLiveEligible = sourceContracts.filter((row) => row.live_eligible === true && row.promotion_eligible === true);
+const getMeta = (key) => one("SELECT v FROM brain_meta WHERE k=?", key)?.v ?? null;
 
 const byRuntime = {};
 const byFamily = {};
@@ -55,14 +82,84 @@ const fragClasses = Object.fromEntries(
 
 const unavailableFeatures = features.filter((f) => f.availability === "UNAVAILABLE");
 const proxyFeatures = features.filter((f) => f.availability === "PROXY");
-const executable = strategies.filter((s) => s.implementation);
-const truncated = docs.filter((d) => d.truncated);
+const implementationBoundStrategies = strategies.filter((s) => s.implementation);
+const sourceFaithfulExecutable = sourceFaithfulExecutableContracts;
+const inventoryDocs = docs.map((doc) => ({ ...doc, completeness: sourceCompletenessOf(doc) }));
+const truncated = inventoryDocs.filter((doc) => doc.completeness === "TRUNCATED");
+const unknownCompleteness = inventoryDocs.filter((doc) => doc.completeness === "UNKNOWN");
+
+function auditRiskPolicyEligibility(row) {
+  const reasons = [];
+  const sourceCompleteness = {};
+  let refs = [];
+  try { refs = JSON.parse(String(row.source_refs ?? "[]")); }
+  catch { reasons.push("source references are invalid JSON"); }
+  if (!Array.isArray(refs)) { reasons.push("source references are not an array"); refs = []; }
+  if (!sourceContractIdentityValid) reasons.push("source-contract identity is invalid");
+  if (row.source_status !== "SOURCE_VERIFIED") reasons.push(`source status is ${String(row.source_status)}, not SOURCE_VERIFIED`);
+  if (refs.length === 0) reasons.push("no exact source references");
+  if (row.conflict_group_id !== null && row.conflict_group_id !== undefined) reasons.push(`linked to unresolved source conflict ${String(row.conflict_group_id)}`);
+  if (row.runtime_status === "DISABLED") reasons.push("runtime status is DISABLED");
+
+  for (const ref of refs) {
+    if (!ref || typeof ref !== "object" || Array.isArray(ref)) {
+      reasons.push("malformed source reference");
+      continue;
+    }
+    const binding = sourceBindings.get(ref.file);
+    if (!binding) {
+      sourceCompleteness[String(ref.file ?? "UNKNOWN")] = "NOT_PRESENT";
+      reasons.push(`source ${String(ref.file ?? "UNKNOWN")} has no exact identity binding`);
+      continue;
+    }
+    let completeness = binding.completeness;
+    const fullPath = path.resolve(process.cwd(), binding.path);
+    if (!fullPath.startsWith(`${path.resolve(process.cwd())}${path.sep}`)) {
+      completeness = "INVALID";
+      sourceCompleteness[String(ref.file)] = completeness;
+      reasons.push(`identity-bound source path escapes the repository: ${String(binding.path)}`);
+    } else {
+      try {
+        const bytes = fs.readFileSync(fullPath);
+        const text = bytes.toString("utf8");
+        const lines = text.length === 0 ? [] : text.split("\n");
+        const lineCount = text.length === 0 ? 0 : lines.length - (text.endsWith("\n") ? 1 : 0);
+        const digest = createHash("sha256").update(bytes).digest("hex");
+        if (digest !== binding.sha256 || bytes.byteLength !== binding.bytes || lineCount !== binding.lines || text.length !== binding.chars) {
+          completeness = "INVALID";
+          reasons.push(`identity-bound source bytes do not match ${String(ref.file)}`);
+        }
+        sourceCompleteness[String(ref.file)] = completeness;
+        if (completeness !== "COMPLETE") reasons.push(`source ${String(ref.file)} completeness is ${completeness}; production selection requires COMPLETE`);
+        if (!Number.isSafeInteger(ref.start_line) || !Number.isSafeInteger(ref.end_line) || ref.start_line < 1 || ref.end_line < ref.start_line || ref.end_line > binding.lines) {
+          reasons.push(`source range is outside identity-bound lines: ${String(ref.file)}:${String(ref.start_line)}-${String(ref.end_line)}`);
+        } else if (typeof ref.quote !== "string" || ref.quote.length === 0 || !lines.slice(ref.start_line - 1, ref.end_line).join("\n").includes(ref.quote)) {
+          reasons.push(`quoted evidence is not an exact excerpt from ${String(ref.file)}:${String(ref.start_line)}-${String(ref.end_line)}`);
+        }
+      } catch {
+        sourceCompleteness[String(ref.file)] = "INVALID";
+        reasons.push(`identity-bound source bytes are unavailable for ${String(ref.file)}`);
+      }
+    }
+  }
+  return { selectable: reasons.length === 0, source_completeness: sourceCompleteness, reasons: [...new Set(reasons)] };
+}
+const riskPolicyAudits = risk.map((row) => ({ ...row, ...auditRiskPolicyEligibility(row) }));
+const psychologyPolicyAudits = psych.map((row) => {
+  const eligibility = auditRiskPolicyEligibility({ ...row, conflict_group_id: null });
+  return {
+    ...row,
+    source_completeness: eligibility.source_completeness,
+    runtime_status: eligibility.selectable ? row.runtime_status : "DISABLED",
+    eligibility_reasons: eligibility.reasons,
+  };
+});
 
 // Disabled reasons, aggregated
 const disabledReasons = {};
 for (const s of strategies.filter((x) => x.runtime_status === "DISABLED")) {
   for (const part of String(s.disabled_reason ?? "").split(";")) {
-    const k = part.trim().split("—")[0].trim().slice(0, 90);
+    const k = part.trim().split("—")[0].trim().slice(0, 90).trimEnd();
     if (k) disabledReasons[k] = (disabledReasons[k] ?? 0) + 1;
   }
 }
@@ -70,15 +167,33 @@ for (const s of strategies.filter((x) => x.runtime_status === "DISABLED")) {
 const status = {
   generated_at: new Date().toISOString(),
   brain_db: BRAIN,
+  source_recovery: {
+    manifest_status: getMeta("source_recovery_manifest_status") ?? "UNKNOWN",
+    manifest_sha256: getMeta("source_recovery_manifest_sha256"),
+    source_manifest_sha256: getMeta("source_manifest_sha256"),
+  },
+  source_contract: {
+    contract_path: sourceContractPath,
+    contract_version: sourceContract.contract_version ?? sourceContract.schema_version ?? "UNKNOWN",
+    contract_sha256: sourceContractLock.contract_sha256 ?? null,
+    identity_status: sourceContractIdentityValid ? "VALID" : "INVALID",
+    strategy_count: sourceContracts.length,
+    status_counts: contractStatusCounts,
+    source_faithful_executable_count: sourceFaithfulExecutable.length,
+    live_eligible_count: sourceContractLiveEligible.length,
+  },
   corpus: {
     files: docs.length,
     total_lines: docs.reduce((a, d) => a + d.total_lines, 0),
     total_chars: docs.reduce((a, d) => a + d.total_chars, 0),
-    documents: docs.map((d) => ({
+    documents: inventoryDocs.map((d) => ({
       file_id: d.file_id, filename: d.filename, lines: d.total_lines, chars: d.total_chars,
-      sha256: d.source_hash, truncated: !!d.truncated, truncation_note: d.truncation_note,
+      bytes: d.total_bytes, sha256: d.source_hash, truncated: d.completeness === "TRUNCATED",
+      completeness: d.completeness, truncation_note: d.truncation_note,
     })),
+    completeness_counts: Object.fromEntries(["COMPLETE", "TRUNCATED", "UNKNOWN"].map((state) => [state, inventoryDocs.filter((doc) => doc.completeness === state).length])),
     truncated_files: truncated.map((d) => d.file_id),
+    unknown_completeness_files: unknownCompleteness.map((d) => d.file_id),
     coverage: {
       fragments: count("source_fragments"),
       lines_expected: docs.reduce((a, d) => a + d.total_lines, 0),
@@ -112,11 +227,25 @@ const status = {
   strategies: {
     by_runtime: byRuntime, by_family: byFamily,
     by_source_status: bySource, by_empirical_status: byEmpirical,
-    executable_specs: executable.length,
-    executable_list: executable.map((s) => ({
-      id: s.strategy_id, name: s.canonical_name, family: s.family, runtime: s.runtime_status,
+    implementation_bound_record_count: implementationBoundStrategies.length,
+    compiled_definition_count: sourceContracts.length,
+    executable_specs: sourceFaithfulExecutable.length,
+    executable_list: sourceFaithfulExecutable.map((row) => ({
+      id: row.strategy_id, name: row.canonical_name, runtime: row.runtime_status,
     })),
+    compiled_definition_list: sourceContracts.map((row) => ({
+      id: row.strategy_id,
+      name: row.canonical_name,
+      contract_status: row.contract_status,
+      source_completeness: row.source_completeness,
+      runtime_status: row.runtime_status,
+      promotion_eligible: row.promotion_eligible,
+      live_eligible: row.live_eligible,
+      blocker_count: row.blockers.length,
+    })),
+    source_contract_status_counts: contractStatusCounts,
     live_count: byRuntime.LIVE_ADVISORY_ONLY ?? 0,
+    source_contract_live_eligible_count: sourceContractLiveEligible.length,
     disabled_reasons: disabledReasons,
   },
   empirical_validation: {
@@ -181,14 +310,23 @@ const status = {
     proxy: proxyFeatures.map((f) => ({ id: f.feature_id, reason: f.unavailable_reason })),
     unavailable: unavailableFeatures.map((f) => ({ id: f.feature_id, reason: f.unavailable_reason })),
   },
-  risk_policy_matrix: risk.map((r) => ({
+  risk_policy_matrix: riskPolicyAudits.map((r) => ({
     id: r.policy_id, name: r.canonical_name, per_trade: r.risk_per_trade_pct,
     daily: r.daily_loss_limit_pct, account: r.max_account_risk_pct, period: r.period_loss_limit_pct,
-    source_status: r.source_status, conflict_group: r.conflict_group_id, runtime: r.runtime_status,
+    source_status: r.source_status, source_completeness: r.source_completeness,
+    conflict_group: r.conflict_group_id, runtime: r.runtime_status,
+    production_selectable: r.selectable, eligibility_reasons: r.reasons,
   })),
-  psychology_policy_matrix: psych.map((p) => ({
+  risk_policy_eligibility: {
+    production_selectable: riskPolicyAudits.filter((row) => row.selectable).length,
+    blocked: riskPolicyAudits.filter((row) => !row.selectable).length,
+    source_contract_identity_valid: sourceContractIdentityValid,
+  },
+  psychology_policy_matrix: psychologyPolicyAudits.map((p) => ({
     id: p.policy_id, name: p.canonical_name, effect: p.effect, penalty: p.score_penalty,
+    source_status: p.source_status, source_completeness: p.source_completeness,
     runtime: p.runtime_status, overridable: !!p.user_overridable,
+    eligibility_reasons: p.eligibility_reasons,
   })),
   conflicts: conflicts.map((c) => ({
     id: c.conflict_group_id, topic: c.topic, resolution: c.resolution,
@@ -234,11 +372,13 @@ const status = {
     note: "empirical status per strategy is the WEAKEST across all symbols tested",
   },
   missing_implementation: [
-    executable.length < strategies.length
-      ? `${strategies.length - executable.length} strategies have no executable spec because the corpus left critical fields UNKNOWN (see disabled_reasons)`
+    sourceContracts.length && sourceFaithfulExecutable.length < sourceContracts.length
+      ? `${sourceContracts.length - sourceFaithfulExecutable.length} compiled strategy contract(s) are not source-faithful executable; see source_contracts.json blockers. A TypeScript implementation binding alone is not source parity.`
       : null,
-    "No OOS/walk-forward validation has been run yet, so no strategy can leave CANDIDATE.",
-    truncated.length ? `${truncated.length} source files are truncated upstream; content beyond 350k chars is unavailable.` : null,
+    sourceContractLiveEligible.length === 0 ? "No compiled source contract is currently promotion- and live-eligible." : null,
+    unknownCompleteness.length ? `${unknownCompleteness.length} supplied source file(s) have UNKNOWN completeness; below-cap byte counts do not prove completion.` : null,
+    truncated.length ? `${truncated.length} supplied source file(s) are explicitly TRUNCATED; missing continuation is not reconstructed.` : null,
+    experiments.length === 0 ? "No experiment rows are persisted in this Brain DB; empirical status remains UNTESTED." : null,
   ].filter(Boolean),
 };
 
@@ -250,16 +390,21 @@ const md = `# AsA Brain — Self Audit
 Generated ${status.generated_at} from \`${BRAIN}\`. Every number below is read from
 stored evidence; nothing is asserted without a record behind it.
 
-## 1. Corpus coverage
-| file | lines | chars | sha256 (12) | truncated upstream |
-|---|---|---|---|---|
-${docs.map((d) => `| ${d.file_id} (${d.filename}) | ${d.total_lines} | ${d.total_chars} | \`${d.source_hash.slice(0, 12)}\` | ${d.truncated ? "**YES**" : "no"} |`).join("\n")}
+## 1. Source recovery and supplied-text inventory
 
-Total ${status.corpus.total_lines} lines / ${status.corpus.total_chars} chars.
-One fragment per source line: **${status.corpus.coverage.one_fragment_per_line ? "VERIFIED" : "FAILED"}**
+Source recovery manifest: **${status.source_recovery.manifest_status}**; sha256=${status.source_recovery.manifest_sha256 ?? "UNKNOWN"}.
+The canonical knowledge pack is an index/acceleration artifact, not authority over the raw source bytes.
+
+| file id | filename | lines | chars | bytes | sha256 (12) | completeness |
+|---|---|---:|---:|---:|---|---|
+${inventoryDocs.map((d) => `| ${d.file_id} | ${d.filename} | ${d.total_lines} | ${d.total_chars} | ${d.total_bytes ?? "UNKNOWN"} | \`${d.source_hash.slice(0, 12)}\` | **${d.completeness}** |`).join("\n")}
+
+Total ${status.corpus.total_lines} lines / ${status.corpus.total_chars} chars across ${status.corpus.files} ingested text sources.
+One fragment per supplied source line: **${status.corpus.coverage.one_fragment_per_line ? "VERIFIED" : "FAILED"}**
 (${status.counts.fragments} fragments for ${status.corpus.coverage.lines_expected} lines).
 
-${truncated.length ? `> **Honest limitation.** ${truncated.length} files (${truncated.map((t) => t.file_id).join(", ")}) end mid-sentence at the upstream 350,000-character cap. That content is absent from the supplied package and has **not** been reconstructed from model knowledge.` : ""}
+${truncated.length ? `> **TRUNCATED:** ${truncated.length} source file(s) are explicitly marked incomplete (${truncated.map((t) => t.file_id).join(", ")}); missing continuation is not reconstructed.` : ""}
+${unknownCompleteness.length ? `> **UNKNOWN:** ${unknownCompleteness.length} source file(s) have unknown original completeness (${unknownCompleteness.map((d) => d.file_id).join(", ")}); below-cap size is not treated as proof of completeness.` : ""}
 
 ## 2-3. Fragments and knowledge items
 ${Object.entries(fragClasses).map(([k, v]) => `- ${k}: ${v}`).join("\n")}
@@ -280,11 +425,17 @@ Closure: \`verifyRuleRegistryClosure\` (src/lib/strategy/rule-graph.ts) checks t
 registry against the runtime in BOTH directions — a drifted predicate, a missing
 row, an orphan machine row or a promoted text rule is a machine-detectable violation.
 
-## 5. Strategies
-By runtime status: ${JSON.stringify(byRuntime)}
-By family: ${JSON.stringify(byFamily)}
-Executable specs (all five critical fields present in source): **${executable.length}**
-${executable.map((s) => `- \`${s.strategy_id}\` ${s.canonical_name} (${s.family}) → ${s.runtime_status}`).join("\n")}
+## 5. Compiled strategy contracts and runtime status
+
+Brain registry status: ${JSON.stringify(byRuntime)}. Implementation-bound records: ${implementationBoundStrategies.length}.
+Source contract version: ${sourceContract.contract_version}; status counts: ${JSON.stringify(contractStatusCounts)}.
+**Source-faithful executable contracts:** ${sourceFaithfulExecutable.length}. A code binding or formalized record is not source parity.
+
+| strategy | contract | source completeness | runtime ceiling | promotion | live | blockers |
+|---|---|---|---|---|---|---:|
+${sourceContracts.map((row) => `| \`${row.strategy_id}\` | ${row.contract_status} | ${row.source_completeness} | ${row.runtime_status} | ${row.promotion_eligible ? "YES" : "NO"} | ${row.live_eligible ? "YES" : "NO"} | ${row.blockers.length} |`).join("\n")}
+
+Compiled definitions may remain research-computable only. Incomplete/unknown source contracts are not live executable or promotion eligible; see the field-level source-contracts.json blockers.
 
 ## 6-8. Unknowns, conflicts, claims
 - UNKNOWN-marked source lines: ${status.counts.unknown_fragments}
@@ -325,23 +476,27 @@ ${status.missing_implementation.map((m) => `- ${m}`).join("\n")}
 ${unavailableFeatures.map((f) => `  - ${f.feature_id}: ${f.unavailable_reason}`).join("\n")}
 
 ## 14. Risk policy matrix
-| policy | per-trade | daily | account | period | source | conflict | runtime |
-|---|---|---|---|---|---|---|---|
-${risk.map((r) => `| ${r.policy_id} | ${r.risk_per_trade_pct ?? "—"} | ${r.daily_loss_limit_pct ?? "—"} | ${r.max_account_risk_pct ?? "—"} | ${r.period_loss_limit_pct ?? "—"} | ${r.source_status} | ${r.conflict_group_id ?? "—"} | ${r.runtime_status} |`).join("\n")}
+| policy | per-trade | daily | account | period | source status | source completeness | conflict | runtime | production selectable |
+|---|---|---|---|---|---|---|---|---|---|
+${riskPolicyAudits.map((r) => `| ${r.policy_id} | ${r.risk_per_trade_pct ?? "—"} | ${r.daily_loss_limit_pct ?? "—"} | ${r.max_account_risk_pct ?? "—"} | ${r.period_loss_limit_pct ?? "—"} | ${r.source_status} | ${JSON.stringify(r.source_completeness)} | ${r.conflict_group_id ?? "—"} | ${r.runtime_status} | ${r.selectable ? "YES" : "NO"} |`).join("\n")}
 
-The competing per-trade percentages are preserved as separate policies. No average was taken.
+Production-selectable policies: **${riskPolicyAudits.filter((r) => r.selectable).length} / ${riskPolicyAudits.length}**. Eligibility requires valid source-contract identity, identity-bound byte/hash/line/character matches, exact quoted excerpts and in-range references, COMPLETE cited documents, no unresolved conflict, source status SOURCE_VERIFIED, and non-disabled runtime status. Explicit operator selection is a separate requirement. Eligibility blockers by policy:
+${riskPolicyAudits.filter((r) => !r.selectable).map((r) => `- ${r.policy_id}: ${r.reasons.join("; ")}`).join("\n")}
+
+The competing per-trade percentages are preserved as separate policies. No average was taken. A CLAIM or SOURCE_INFERRED row is not promoted into a numeric limit.
 
 ## 15. Psychology policy matrix
-| policy | effect | penalty | runtime | overridable |
-|---|---|---|---|---|
-${psych.map((p) => `| ${p.policy_id} | ${p.effect} | ${p.score_penalty} | ${p.runtime_status} | ${p.user_overridable ? "yes" : "no"} |`).join("\n")}
+| policy | effect | penalty | source status | source completeness | effective runtime | overridable | eligibility |
+|---|---|---|---|---|---|---|---|
+${psychologyPolicyAudits.map((p) => `| ${p.policy_id} | ${p.effect} | ${p.score_penalty} | ${p.source_status} | ${JSON.stringify(p.source_completeness)} | ${p.runtime_status} | ${p.user_overridable ? "yes" : "no"} | ${p.eligibility_reasons.join("; ") || "source references verified"} |`).join("\n")}
 
-## 16. AI inputs/outputs
-AI consumes deterministic context only (candles, features, structure, strategy
-evaluations, risk output, psychology output, capability matrix, source refs) and must
-label every assertion MEASURED / SOURCE / INFERRED / CLAIM / UNKNOWN / UNAVAILABLE /
-CONFLICT. AI can never override risk limits, psychology blocks, data availability, or
-runtime status.
+## 16. AI Clone boundary (route-level audit)
+
+A provider request (only when the selected provider is configured and online) contains exactly two chat messages: the deterministic system prompt and a user message containing the bounded question, deterministic facts and serialized structured context. There is no prior chat history; transport includes the selected model, temperature 0.2 and stream=false. The route returns facts and the same context separately from the explanation. The actual mock-provider request is compared with the returned context in tests/ai-clone.test.ts.
+
+Always-sent context includes validated-symbol market stats/provenance/freshness or board sweep truth, release/build and source-contract identity, all compiled contracts and runtime consumer paths, promotion status, selected-or-blocked risk-policy state/source completeness, configured risk inputs, measured advisory-signal exposure or UNKNOWN, realized-loss availability/reason, and market-psychology context for a valid symbol. The request-scoped personal-psychology branch adds only explicit/journal-derived state, its deterministic gate result, manifest/source descriptors and source-only principle paraphrases; otherwise those archives are marked NOT_SHARED and omitted. Raw source transcript bytes, free-text journal notes, reconstructed historical psychology, inferred traits/diagnoses and provider credentials are excluded.
+
+The response includes ok, bounded question, validated symbol, provider_mode, facts, ai_context, explanation, explanation_authority, explanation_validation, tags, llm_online, provider/model/status/error/latency metadata, and ts. Provider prose can only populate candidate explanation text and influence its token/authority validation findings and model-output-related status/tag. It cannot mutate the facts, context, risk/promotion/admission state or runtime decisions. A narrow numeric/symbol/authority-token check may withhold it; **semantic truth is NOT_PROVEN**. The explanation is rendered separately and is never consumed by strategy, risk, promotion, persistence, live gates or order code. Deterministic evidence remains authoritative; AI Clone has no execution capability.
 
 ## 17. Safety invariants
 ${JSON.stringify(status.safety_invariants, null, 2)}
@@ -349,4 +504,4 @@ ${JSON.stringify(status.safety_invariants, null, 2)}
 
 fs.writeFileSync(path.join("docs/brain", "AUDIT.md"), md);
 console.log("wrote MACHINE_READABLE_STATUS.json and docs/brain/AUDIT.md");
-console.log(`strategies=${strategies.length} executable=${executable.length} live=${byRuntime.LIVE_ADVISORY_ONLY ?? 0} conflicts=${conflicts.length} claims=${status.counts.claims}`);
+console.log(`strategies=${strategies.length} compiled-contracts=${sourceContracts.length} source-faithful=${sourceFaithfulExecutable.length} live=${byRuntime.LIVE_ADVISORY_ONLY ?? 0} conflicts=${conflicts.length} claims=${status.counts.claims}`);

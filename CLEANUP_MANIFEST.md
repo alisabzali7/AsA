@@ -1,5 +1,7 @@
 > **HISTORICAL RECORD** of prior cleanup runs. Retained as an audit trail.
-> Superseded by `docs/audit/WORKSPACE_SURGERY.md` for the current run.
+> Superseded by `docs/audit/WORKSPACE_SURGERY.md` for the cleanup run. Its
+> `authority #2` label for the canonical pack is superseded by the current
+> source contract, which assigns the pack the derivative role `INDEX_ONLY`.
 
 # CLEANUP MANIFEST — Backend Closure & Freeze
 

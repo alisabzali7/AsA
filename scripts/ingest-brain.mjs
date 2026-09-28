@@ -1,105 +1,98 @@
 #!/usr/bin/env node
 /**
- * Stage 1+2 runner — ingest the immutable corpus into the AsA brain.
+ * Atomic ingestion of the supplied trading corpus AND user psychology sources.
  *
  * Usage:
- *   node scripts/ingest-brain.mjs            # ingest + human report
+ *   node scripts/ingest-brain.mjs            # human report
  *   node scripts/ingest-brain.mjs --json     # machine-readable report
  *
- * Reads ONLY from the corpus dir (never writes there). Writes the brain DB at
- * ASA_BRAIN_DB_PATH. Safe to re-run: knowledge tables are rebuilt from source.
- *
- * TypeScript is compiled on the fly with esbuild (already a Next.js dependency)
- * so no extra runtime loader is required.
+ * Writes only the configured Brain database. Source files are read-only. Any
+ * corpus, psychology, conflict-history, or manifest failure rolls back the
+ * complete refresh and returns a non-zero process status.
  */
 import { config as loadDotenv } from "dotenv";
 loadDotenv({ path: ".env", quiet: true });
 loadDotenv({ path: ".env.local", override: true, quiet: true });
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { build } from "esbuild";
 
 const JSON_OUT = process.argv.includes("--json");
-
 const entry = `
 import { BrainStore } from "./src/lib/brain/store";
-import { ingestCorpus } from "./src/lib/brain/ingest";
-import { ingestUserPsychologySources } from "./src/lib/psychology/user-source";
+import { ingestAllSources } from "./src/lib/brain/ingest";
 const store = new BrainStore();
-const report = ingestCorpus(store);
-const userPsychology = ingestUserPsychologySources(store);
-const stats = store.stats();
-store.close();
-process.stdout.write("\\n__ASA_JSON__" + JSON.stringify({ report, stats, user_psychology: userPsychology }));
+let result;
+try {
+  result = ingestAllSources(store);
+} catch (error) {
+  result = { ok: false, rolled_back: true, source_manifest_sha256: null, completeness: "UNKNOWN", corpus: null, psychology: null, errors: [error instanceof Error ? error.message : String(error)] };
+} finally {
+  const stats = store.stats();
+  store.close();
+  process.stdout.write("\\n__ASA_JSON__" + JSON.stringify({ result, stats }));
+}
+if (!result?.ok) process.exitCode = 1;
 `;
 
-// entry must live inside the project so relative imports resolve
-const tmpEntry = path.join(process.cwd(), `.asa-ingest-${Date.now()}.ts`);
-const tmpOut = path.join(process.cwd(), `.asa-ingest-${Date.now()}.cjs`);
-fs.writeFileSync(tmpEntry, entry);
-
-await build({
-  entryPoints: [tmpEntry],
-  bundle: true,
-  platform: "node",
-  target: "node20",
-  format: "cjs",
-  outfile: tmpOut,
-  absWorkingDir: process.cwd(),
-  external: ["better-sqlite3", "dotenv"],
-  logLevel: "error",
-});
-
-const { execFileSync } = await import("node:child_process");
-let raw;
+const suffix = `${process.pid}-${Date.now()}`;
+const tmpEntry = path.join(process.cwd(), `.asa-ingest-${suffix}.ts`);
+const tmpOut = path.join(process.cwd(), `.asa-ingest-${suffix}.cjs`);
+let stdout = "";
+let stderr = "";
+let status = 1;
 try {
-  raw = execFileSync(process.execPath, [tmpOut], {
-    encoding: "utf8",
-    cwd: process.cwd(),
-    maxBuffer: 64 * 1024 * 1024,
+  fs.writeFileSync(tmpEntry, entry);
+  await build({
+    entryPoints: [tmpEntry], bundle: true, platform: "node", target: "node20", format: "cjs",
+    outfile: tmpOut, absWorkingDir: process.cwd(), external: ["better-sqlite3", "dotenv"], logLevel: "error",
   });
+  const execution = spawnSync(process.execPath, [tmpOut], {
+    encoding: "utf8", cwd: process.cwd(), maxBuffer: 64 * 1024 * 1024,
+  });
+  stdout = execution.stdout ?? "";
+  stderr = execution.stderr ?? "";
+  status = execution.status ?? 1;
+  if (execution.error) stderr += `${stderr ? "\n" : ""}${execution.error.message}`;
 } finally {
-  // always clean up, even if the ingest throws, so no build artifact is left behind
   fs.rmSync(tmpEntry, { force: true });
   fs.rmSync(tmpOut, { force: true });
 }
 
-const marker = raw.indexOf("__ASA_JSON__");
-if (marker < 0) {
-  console.error(raw);
-  throw new Error("ingest produced no report");
+const marker = stdout.indexOf("__ASA_JSON__");
+let payload;
+if (marker >= 0) {
+  try { payload = JSON.parse(stdout.slice(marker + "__ASA_JSON__".length)); }
+  catch (error) { stderr += `\ninvalid ingestion report JSON: ${error instanceof Error ? error.message : String(error)}`; }
 }
-const { report, stats, user_psychology: userPsychology } = JSON.parse(raw.slice(marker + "__ASA_JSON__".length));
-
-if (JSON_OUT) {
-  console.log(JSON.stringify({ report, stats, user_psychology: userPsychology }, null, 2));
+if (!payload) {
+  if (stdout) process.stdout.write(stdout);
+  if (stderr) process.stderr.write(`${stderr}\n`);
+  console.error("ingest produced no valid report");
+  process.exitCode = status || 1;
 } else {
-  console.log("=== AsA Brain ingestion ===");
-  for (const d of report.documents) {
-    console.log(`  ${d.file_id}: ${String(d.lines).padStart(5)} lines, ${String(d.chars).padStart(7)} chars, sha256=${d.sha256.slice(0, 12)}…${d.truncated ? "  [TRUNCATED UPSTREAM]" : ""}`);
+  const { result, stats } = payload;
+  if (JSON_OUT) {
+    console.log(JSON.stringify({ ...result, stats }, null, 2));
+  } else {
+    console.log("=== AsA atomic source ingestion ===");
+    console.log(`ok                : ${result.ok}`);
+    console.log(`rolled back       : ${result.rolled_back}`);
+    console.log(`manifest status   : ${result.completeness}`);
+    console.log(`manifest sha256   : ${result.source_manifest_sha256 ?? "UNKNOWN"}`);
+    if (result.corpus) {
+      for (const d of result.corpus.documents) {
+        console.log(`  ${d.file_id}: ${String(d.lines).padStart(5)} lines, ${String(d.chars).padStart(7)} chars, ${d.bytes} bytes, sha256=${d.sha256}${d.truncated ? " [TRUNCATED]" : ""}`);
+      }
+      console.log(`corpus coverage   : ${result.corpus.coverage_ok} (${result.corpus.fragments_written} fragments / ${result.corpus.lines_seen} lines)`);
+      console.log(`machine rules     : ${result.corpus.machine_rules}`);
+    }
+    if (result.psychology) console.log(`psychology        : ${result.psychology.documents.length} files / ${result.psychology.fragments_written} fragments / ${result.psychology.principles_written} source-only principles`);
+    for (const error of result.errors ?? []) console.error(`ERROR: ${error}`);
+    console.log("stats:", JSON.stringify(stats));
   }
-  console.log(`\nlines seen        : ${report.lines_seen}`);
-  console.log(`fragments written : ${report.fragments_written}`);
-  console.log(`coverage_ok       : ${report.coverage_ok}`);
-  console.log(`strategies        : ${report.strategies}`);
-  console.log(`rules             : ${report.rules} (source text)`);
-  console.log(`machine rules     : ${report.machine_rules} (registered executable)`);
-  console.log(`claims            : ${report.claims}`);
-  console.log(`conflicts         : ${report.conflicts}`);
-  console.log(`unknown fragments : ${report.unknown_fragments}`);
-  console.log(`quarantined       : ${report.quarantined}`);
-  console.log(`primitives        : ${report.primitives}`);
-  console.log(`features          : ${report.features}`);
-  console.log(`risk policies     : ${report.risk_policies}`);
-  console.log(`psych policies    : ${report.psychology_policies}`);
-  console.log(`user psych source : ${userPsychology.documents.length} files / ${userPsychology.fragments_written} fragments`);
-  console.log(`duration          : ${report.duration_ms} ms`);
-  if (report.errors.length) {
-    console.log("\nERRORS:");
-    for (const e of report.errors) console.log("  -", e);
-  }
-  console.log("\nuser psychology:", JSON.stringify(userPsychology));
-  console.log("stats:", JSON.stringify(stats));
+  if (stderr) process.stderr.write(stderr);
+  process.exitCode = result.ok && status === 0 ? 0 : 1;
 }

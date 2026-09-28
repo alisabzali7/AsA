@@ -163,8 +163,10 @@ export interface AdmissionInput {
   data_quality_ok: boolean;
   stale: boolean;
   risk_verdict: "pass" | "block" | "unavailable";
-  portfolio_verdict: "pass" | "block";
-  psychology_verdict: "pass" | "block" | "flag";
+  portfolio_verdict: "pass" | "block" | "unknown";
+  psychology_verdict: "pass" | "block" | "flag" | "unknown" | "not_applicable";
+  /** Historical research cannot reconstruct a user's past declared state. */
+  psychology_mode?: "live" | "research";
   strategy_runtime_status: string;
   unresolved_contradiction: boolean;
   unknown_required_fields: string[];
@@ -186,10 +188,12 @@ export interface AdmissionInput {
 export interface AdmissionResult {
   admitted: boolean;
   reasons: string[];
+  warnings: string[];
 }
 
 export function admitOpportunity(a: AdmissionInput): AdmissionResult {
   const reasons: string[] = [];
+  const warnings: string[] = [];
   // SETUP HARD GATE — first and unconditional. The setup verdict names itself
   // in the reason so UNKNOWN stays explainably distinct from FAIL and BLOCKED.
   if (a.setup_verdict !== "PASS") {
@@ -199,13 +203,22 @@ export function admitOpportunity(a: AdmissionInput): AdmissionResult {
   if (a.stale !== false) reasons.push("market data is stale or freshness UNKNOWN");
   if (!["pass", "block", "unavailable"].includes(a.risk_verdict)) reasons.push("risk result UNKNOWN — not approval");
   if (!["pass", "block"].includes(a.portfolio_verdict)) reasons.push("portfolio result UNKNOWN — not approval");
-  if (!["pass", "block", "flag"].includes(a.psychology_verdict)) reasons.push("psychology result UNKNOWN — not approval");
+  const psychologyUnavailableOnlyForResearch = a.psychology_verdict === "not_applicable" && a.psychology_mode === "research";
+  if (!["pass", "block", "flag"].includes(a.psychology_verdict) && !psychologyUnavailableOnlyForResearch) {
+    reasons.push("psychology result UNKNOWN — not approval");
+  }
   if (!Number.isFinite(a.score) || !Number.isFinite(a.threshold)) reasons.push("score/threshold UNKNOWN or invalid");
   if (a.risk_verdict === "block") reasons.push("risk engine BLOCK");
   if (a.risk_verdict === "unavailable") reasons.push("risk result UNAVAILABLE — not treated as pass");
   if (a.derived_market_truth) reasons.push("derived series cannot be admitted as native market truth");
   if (a.portfolio_verdict === "block") reasons.push("portfolio risk BLOCK");
+  if (a.portfolio_verdict === "unknown") reasons.push("portfolio constraints not evaluated; required risk evidence is unknown");
   if (a.psychology_verdict === "block") reasons.push("psychology hard block");
+  if (a.psychology_verdict === "unknown") reasons.push("psychology constraints not evaluated; required state is unknown");
+  if (a.psychology_verdict === "not_applicable") {
+    if (a.psychology_mode === "research") warnings.push("user psychology state is not reconstructed for historical research; no claim about psychology-gated performance");
+    else reasons.push("psychology state is not evaluated outside explicitly separated research mode");
+  }
   if (a.unresolved_contradiction !== false) reasons.push("unresolved contradiction in evidence or conflict state UNKNOWN");
   if (!Array.isArray(a.unknown_required_fields)) reasons.push("required-field evidence UNKNOWN");
   else if (a.unknown_required_fields.length > 0) {
@@ -218,5 +231,5 @@ export function admitOpportunity(a: AdmissionInput): AdmissionResult {
     );
   }
   if (a.score < a.threshold) reasons.push(`score ${a.score} below threshold ${a.threshold}`);
-  return { admitted: reasons.length === 0, reasons };
+  return { admitted: reasons.length === 0, reasons, warnings };
 }
