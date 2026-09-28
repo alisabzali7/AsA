@@ -84,3 +84,55 @@ export const motionPref = makePref<"full" | "reduced">("asa-motion", "full", (v)
 export const railPref = makePref<"expanded" | "compact">("asa-rail", "expanded", (v) => {
   document.documentElement.dataset.rail = v === "compact" ? "compact" : "expanded";
 });
+export const themePref = makePref<"dark" | "light">("asa-theme", "dark", (v) => {
+  document.documentElement.dataset.theme = v;
+  document.documentElement.classList.toggle("light", v === "light");
+  document.documentElement.classList.toggle("dark", v !== "light");
+});
+
+/* -------------------------------------------------------- watchlist store */
+const WATCHLIST_KEY = "asa-watchlist";
+let watchlistCached: string[] | null = null;
+const watchlistListeners = new Set<() => void>();
+
+function readWatchlist(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(WATCHLIST_KEY);
+    if (!raw) return ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
+  } catch {
+    return ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
+  }
+}
+
+function getWatchlistSnapshot(): string[] {
+  const next = readWatchlist();
+  if (!watchlistCached || watchlistCached.length !== next.length || watchlistCached.some((v, i) => v !== next[i])) {
+    watchlistCached = next;
+  }
+  return watchlistCached;
+}
+
+function subscribeWatchlist(cb: () => void): () => void {
+  watchlistListeners.add(cb);
+  return () => { watchlistListeners.delete(cb); };
+}
+
+export function useWatchlist(): [string[], (symbol: string) => void, (symbols: string[]) => void] {
+  const list = useSyncExternalStore(subscribeWatchlist, getWatchlistSnapshot, () => ["BTCUSDT", "ETHUSDT", "SOLUSDT"]);
+  const toggle = useCallback((sym: string) => {
+    const cur = readWatchlist();
+    const next = cur.includes(sym) ? cur.filter((s) => s !== sym) : [...cur, sym];
+    try { window.localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    watchlistCached = next;
+    watchlistListeners.forEach((l) => l());
+  }, []);
+  const setAll = useCallback((symbols: string[]) => {
+    try { window.localStorage.setItem(WATCHLIST_KEY, JSON.stringify(symbols)); } catch { /* ignore */ }
+    watchlistCached = symbols;
+    watchlistListeners.forEach((l) => l());
+  }, []);
+  return [list, toggle, setAll];
+}

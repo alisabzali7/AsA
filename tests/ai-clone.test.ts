@@ -433,15 +433,16 @@ describe("AI Clone frontend (presentation contract — source-level, no DOM)", (
     const s = page();
     expect(s).toContain('t("ai", "context")');
     expect(s).toContain('t("ai", "explanation")');
-    expect(s).toContain("item.facts.map");
-    expect(s).toContain("item.explanation !== null");
+    expect(s).toContain("h.facts.map");
+    expect(s).toContain("h.explanation !== null");
     // facts block renders facts; explanation block renders explanation — different fields
-    expect(s).toMatch(/explanation[^]*?item\.explanation/);
-    expect(s).toMatch(/facts[^]*?item\.facts\.map/);
+    expect(s).toMatch(/explanation[^]*?h\.explanation/);
+    expect(s).toMatch(/facts[^]*?h\.facts\.map/);
+    expect(s).toContain("h.explanation_validation?.semantic_status");
   });
 
   it("the LLM badge is shown only when the LLM actually produced the answer", () => {
-    expect(page()).toContain('item.llm.status === "ok"');
+    expect(page()).toContain('h.llm.status === "ok" && h.explanation !== null');
     // the old conflation (badge from provider probe state) must be gone
     expect(page()).not.toContain("llmOnline && <Badge");
   });

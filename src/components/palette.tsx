@@ -14,9 +14,9 @@ import { useRouter } from "next/navigation";
 import { NAV, readRecents, recordRecent } from "./nav";
 import { useLang } from "./lang";
 import { usePoll, stateColor } from "./hooks";
-import { densityPref, motionPref } from "./selection";
+import { densityPref, motionPref, themePref } from "./selection";
 import { Dialog } from "./overlay";
-import { IconAi, IconChart, IconChevron, IconDensity, IconLang, IconRefresh, IconSearch, IconSettings, IconZap } from "./icons";
+import { IconAi, IconChart, IconChevron, IconDensity, IconLang, IconMoon, IconRefresh, IconSearch, IconSettings, IconSun, IconZap } from "./icons";
 
 type Group = "recent" | "pages" | "symbols" | "actions";
 interface Entry {
@@ -78,6 +78,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const [idx, setIdx] = useState(0);
   const [density, setDensity] = densityPref.use();
   const [motion, setMotion] = motionPref.use();
+  const [theme, setTheme] = themePref.use();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // fetched when mounted (mounted == open): no background hammering
@@ -119,6 +120,27 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         run: () => { setLang(lang === "en" ? "fa" : "en"); onClose(); },
       },
       {
+        id: "a:theme",
+        label: theme === "dark" ? "Light theme" : "Dark theme",
+        hint: "switch between obsidian dark and clean light mode",
+        group: "actions",
+        keywords: "theme dark light mode color",
+        run: () => { setTheme(theme === "dark" ? "light" : "dark"); onClose(); },
+      },
+      {
+        id: "a:intro",
+        label: "Replay Cinematic Intro",
+        hint: "watch 3D money tearing intro & Persian welcome",
+        group: "actions",
+        keywords: "intro animation welcome money 3d replay",
+        run: () => {
+          sessionStorage.removeItem("asa-intro-seen");
+          window.dispatchEvent(new Event("asa:replay-intro"));
+          onClose();
+          router.push("/");
+        },
+      },
+      {
         id: "a:density",
         label: density === "compact" ? "Comfortable density" : "Compact density",
         hint: "row rhythm across every table and panel",
@@ -156,7 +178,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       },
     ];
     return [...recents, ...pages, ...symbols, ...actions];
-  }, [universe, lang, density, motion, t, setLang, setDensity, setMotion, router, onClose]);
+  }, [universe, lang, density, motion, theme, t, setLang, setDensity, setMotion, setTheme, router, onClose]);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase().replace(/^!/, "");

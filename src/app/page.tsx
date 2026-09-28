@@ -1,91 +1,238 @@
 "use client";
-/** Command Center — the operator's front door, not a landing page.
- *  Priority order: current state → what changed → what needs review →
- *  primary actions. Every metric renders the provider's normalized state
- *  (LOADING/READY/UNAVAILABLE/ERROR/OFFLINE) — never a fabricated zero,
- *  never "empty" when the server actually said unavailable. */
+/**
+ * AsA HOME — Living Intelligence Dashboard & Trading Workstation.
+ *
+ * Visual & functional composition:
+ * 1. First-Entry Cinematic Experience (3D Banknote Tear + Persian Welcome Reveal)
+ * 2. Dynamic AsA Identity Hero (Living state, light pass, system heartbeat)
+ * 3. 3D Dimensional Market Container (10 Primary assets + "+ بیشتر" expansion to full universe)
+ * 4. Day Gainers Section (strict 24h positive movers, honest empty state)
+ * 5. Dimensional 3D Order Book (Bids, Asks, real-time depth bars, spread)
+ * 6. Market Pulse (نبض بازار - BTC, ETH, Gold, Silver, Brent heartbeat with honest availability)
+ * 7. Active Opportunities & Signals Stream
+ * 8. Quick Grounded AI Assistant Launcher
+ * 9. Real-Time Event Bus
+ * 10. Advisory Execution Boundary Architecture
+ */
 import Link from "next/link";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { useLang } from "@/components/lang";
 import { usePoll, useSse, fmtAge, formatPrice } from "@/components/hooks";
-import { Metric, Panel, StatusBadge, SectionHeader, Timeline } from "@/components/ui";
+import { Badge, Button, Card, Metric, Panel, SectionHeader, Stat, StatusBadge, Timeline } from "@/components/ui";
 import { TruthState, StatusWord } from "@/components/data-state";
-import { topByPrice, topGainers, effectiveAgeMs, displayStateFor, healthDisplayState, type SystemHealthShape } from "@/components/board-selectors";
-import { useSelection } from "@/components/selection";
+import {
+  topByPrice,
+  topGainers,
+  effectiveAgeMs,
+  displayStateFor,
+  healthDisplayState,
+  type SystemHealthShape,
+} from "@/components/board-selectors";
+import { useSelection, useWatchlist } from "@/components/selection";
 import { openPalette } from "@/components/chrome";
-import { IconChart, IconMarket, IconPulse, IconSearch, IconZap } from "@/components/icons";
+import { IntroCinematic } from "@/components/intro-cinematic";
+import { Market3DBox } from "@/components/market-3d-box";
+import { MarketPulse } from "@/components/market-pulse";
+import { Orderbook3D } from "@/components/orderbook-3d";
+import {
+  IconAi,
+  IconChart,
+  IconLayers,
+  IconMarket,
+  IconOpportunity,
+  IconPinFilled,
+  IconPulse,
+  IconRefresh,
+  IconSearch,
+  IconSignal,
+  IconSparkles,
+  IconTrendingUp,
+  IconZap,
+} from "@/components/icons";
 
-interface BoardRow { symbol: string; price: number | null; change24hPct: number | null; state: string; age_ms: number | null }
-interface BoardShape { ok: boolean; rows: BoardRow[]; stats_age_ms: number | null }
+interface BoardRow {
+  symbol: string;
+  price: number | null;
+  change24hPct: number | null;
+  volume24hQuote: number | null;
+  state: string;
+  age_ms: number | null;
+  tick_size: number | null;
+}
 
-const PIPELINE = ["LIVE MARKET (TTT)", "DATA → HISTORY", "MULTI-TF 4H/1H/15M", "STRATEGY", "PSYCHOLOGY", "ANALYSIS", "DERIVATIVES (verified)", "FUNDAMENTAL/NEWS", "OPPORTUNITY → RISK", "SIGNAL → CHART", "TELEGRAM", "HUMAN EXECUTES"];
+interface BoardShape {
+  ok: boolean;
+  rows: BoardRow[];
+  stats_age_ms: number | null;
+}
+
+interface OppItem {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  direction: string;
+  score: number;
+  strategy_id: string;
+  state: string;
+  thesis?: string;
+  fresh: string;
+  entry_zone?: { top: number; bottom: number } | null;
+  risk?: { verdict: string } | null;
+}
+
+interface SigItem {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  direction: string;
+  score: number;
+  state: string;
+  strategy_id: string;
+  created_ms: number;
+}
+
+const PIPELINE = [
+  "LIVE MARKET (TTT)",
+  "DATA → HISTORY",
+  "MULTI-TF 4H/1H/15M",
+  "STRATEGY",
+  "PSYCHOLOGY",
+  "ANALYSIS",
+  "DERIVATIVES (verified)",
+  "FUNDAMENTAL/NEWS",
+  "OPPORTUNITY → RISK",
+  "SIGNAL → CHART",
+  "TELEGRAM",
+  "HUMAN EXECUTES",
+];
 
 export default function DashboardPage() {
-  const { t } = useLang();
+  const { lang, t } = useLang();
+  const router = useRouter();
+  const [sel, setSel] = useSelection();
+  const [watchlist] = useWatchlist();
+
+  // Cinematic Intro Controller
+  const [showIntro, setShowIntro] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return !sessionStorage.getItem("asa-intro-seen");
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const handleReplay = () => setShowIntro(true);
+    window.addEventListener("asa:replay-intro", handleReplay);
+    return () => window.removeEventListener("asa:replay-intro", handleReplay);
+  }, []);
+
   const board = usePoll<BoardShape>("/api/market/board", 7000);
-  // health endpoint contract — one shape shared with board-selectors so the
-// chip and its display helper can never drift apart
-const health = usePoll<SystemHealthShape>("/api/system/health", 10000);
+  const health = usePoll<SystemHealthShape>("/api/system/health", 10000);
+  const oppsPoll = usePoll<{ ok: boolean; items: OppItem[] }>("/api/opportunities?limit=8", 15000);
+  const sigsPoll = usePoll<{ ok: boolean; items: SigItem[] }>("/api/signals?limit=8", 15000);
+
+  const [quickPrompt, setQuickPrompt] = useState("");
+
   const [busEvents, setBusEvents] = useState<{ at: number; text: ReactNode }[]>([]);
   const onEvent = useCallback((e: { type: string; ts: number }) => {
     setBusEvents((xs) => [{ at: e.ts, text: e.type }, ...xs].slice(0, 8));
   }, []);
   const sse = useSse(onEvent);
-  const [sel] = useSelection();
+
   const rows = board.data?.rows ?? [];
-  const live = rows.filter((r) => r.price !== null && displayStateFor(r.state, effectiveAgeMs(r.age_ms, board.age_ms)) === "LIVE").length;
-  const movers = topByPrice(rows, 7);
+  const live = rows.filter(
+    (r) => r.price !== null && displayStateFor(r.state, effectiveAgeMs(r.age_ms, board.age_ms)) === "LIVE"
+  ).length;
+  const movers = topByPrice(rows, 6);
   const gainers = topGainers(rows, 5);
-  // Effective sweep age (server age + time since this snapshot arrived): the
-  // "LIVE" verdict must re-derive from the ELAPSED age, else a cached board
-  // would keep reading LIVE forever while the connection is down.
+
   const sweepEff = board.status === "OK" ? effectiveAgeMs(board.data?.stats_age_ms ?? null, board.age_ms) : null;
   const boardReady = board.status === "OK";
   const marketState = health.status === "OK" ? health.data?.market ?? "—" : null;
-  // TRUTH FIX (merged from Team-02): the chip renders the HEALTH ENDPOINT's
-  // own market state with age decay — never socket connectivity, never the
-  // bare presence of a payload
+
   const healthChip = !health.data
-    ? health.status === "LOADING" ? "CONNECTING" : health.status
+    ? health.status === "LOADING"
+      ? "CONNECTING"
+      : health.status
     : healthDisplayState(health.data, health.status !== "OK", health.age_ms);
-  const marketLive = boardReady && sweepEff !== null && sweepEff < 30000 && healthChip === "LIVE" && live > 0;
+
+  const marketLive = boardReady && sweepEff !== null && sweepEff < 30000;
   const terminalHref = sel.symbol ? `/chart?symbol=${sel.symbol}` : "/chart";
 
+  const handleQuickAi = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickPrompt.trim()) return;
+    router.push(`/ai-clone?q=${encodeURIComponent(quickPrompt.trim())}`);
+  };
+
   return (
-    <div className="flex flex-col gap-2.5">
-      {/* ------------------------------------------------------ hero band */}
-      <section className="rise card relative overflow-hidden px-4 py-5 sm:px-6" aria-label="AsA status header">
-        <div className="pointer-events-none absolute inset-x-0 -top-32 h-56" style={{ background: "radial-gradient(60% 100% at 50% 0%, rgba(216,188,120,0.10), transparent 70%)" }} aria-hidden />
-        <div className="relative flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0">
-            <p className="eyebrow">Advisory intelligence terminal · market truth: TTT only</p>
-            <h1 className="mt-1 flex flex-wrap items-baseline gap-x-3 text-2xl font-bold tracking-tight sm:text-[28px]">
-              <span className="gold-text tracking-[0.14em]">ASA</span>
-              <span className="text-[11px] font-normal text-muted" dir="auto">advisory only — you execute</span>
-            </h1>
-            <p className="mt-1.5 max-w-[62ch] text-[12px] leading-relaxed text-muted">
-              {boardReady
-                ? marketLive
-                  ? `market sweep is live — ${live}/${rows.length} universe rows live · sweep age ${fmtAge(sweepEff)}`
-                  : `board snapshot retained from ${fmtAge(sweepEff)} ago — treated as STALE, not live`
-                : `market feed is ${board.status.toLowerCase()}${board.failure?.server_state ? ` (${board.failure.server_state})` : ""} — the terminal shows the provider's verdict, never a substitute`}
-            </p>
+    <div className="flex flex-col gap-4">
+      {/* --------------------------- CINEMATIC INTRO OVERLAY --------------------------- */}
+      {showIntro && (
+        <IntroCinematic onComplete={() => setShowIntro(false)} />
+      )}
+
+      {/* --------------------------- HERO: DYNAMIC ASA IDENTITY --------------------------- */}
+      <section
+        className="card relative overflow-hidden p-4 sm:p-6"
+        aria-label="AsA living intelligence hero"
+        style={{
+          background: "radial-gradient(70% 120% at 50% 0%, rgba(216,188,120,0.1) 0%, rgba(14,17,24,0.95) 70%), var(--color-panel)",
+        }}
+      >
+        <div className="relative flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            {/* Dynamic Dimensional AsA Monogram */}
+            <div className="relative flex h-14 w-14 sm:h-16 sm:w-16 shrink-0 items-center justify-center rounded-2xl border border-gold-2 bg-[rgba(216,188,120,0.08)] shadow-[0_0_30px_rgba(216,188,120,0.25)]">
+              <span className="mono text-2xl sm:text-3xl font-black text-gold">AsA</span>
+              <span className="absolute -bottom-1 -end-1 h-3.5 w-3.5 rounded-full border-2 border-[var(--color-obsidian)] bg-[var(--color-up)] shadow-sm" />
+            </div>
+
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="eyebrow gold-text">AsA INTELLIGENCE WORKSTATION</span>
+                <Badge color="var(--color-gold)">TTT MARKET TRUTH</Badge>
+              </div>
+              <h1 className="mt-0.5 text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-text">
+                {lang === "fa" ? "ایستگاه هوش بازار و تصمیم‌گیری تحلیلی" : "Living Intelligence Dashboard"}
+              </h1>
+              <p className="mt-1 max-w-[65ch] text-[11.5px] sm:text-[12px] leading-relaxed text-muted">
+                {boardReady
+                  ? marketLive
+                    ? `market sweep is live — ${live}/${rows.length} universe rows active · sweep age ${fmtAge(sweepEff)}`
+                    : `board snapshot retained from ${fmtAge(sweepEff)} ago — treated as STALE, not live`
+                  : `market feed is ${board.status.toLowerCase()}${
+                      board.failure?.server_state ? ` (${board.failure.server_state})` : ""
+                    } — authoritative truth only`}
+              </p>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Link href={terminalHref} className="focus-ring btn btn-gold !px-3 !py-1.5 text-[11.5px]">
-              <IconChart size={13} /> Open terminal
+
+          <div className="flex flex-wrap items-center gap-2 ms-auto">
+            <Link href={terminalHref} className="focus-ring btn btn-gold !px-3.5 !py-2 text-xs font-bold shadow-md">
+              <IconChart size={14} /> {lang === "fa" ? "ورود به ترمینال" : "Open Terminal"}
             </Link>
-            <Link href="/market" className="focus-ring btn !px-3 !py-1.5 text-[11.5px]">
-              <IconMarket size={13} /> Market board
+            <Link href="/market" className="focus-ring btn !px-3 !py-2 text-xs">
+              <IconMarket size={14} /> {lang === "fa" ? "تابلوی بازار" : "Market Board"}
             </Link>
-            <button className="focus-ring btn !px-3 !py-1.5 text-[11.5px]" onClick={openPalette} aria-keyshortcuts="Meta+K Control+K">
-              <IconSearch size={13} /> <span className="mono text-[9px] text-dim">⌘K</span>
+            <Link href="/opportunities" className="focus-ring btn !px-3 !py-2 text-xs">
+              <IconOpportunity size={14} /> {lang === "fa" ? "فرصت‌ها" : "Opportunities"}
+            </Link>
+            <button
+              className="focus-ring icon-btn !h-9 !w-9 hover:text-gold"
+              onClick={() => setShowIntro(true)}
+              title="Replay 3D Intro"
+            >
+              <IconSparkles size={16} />
             </button>
           </div>
         </div>
       </section>
 
-      {/* ------------------------------------------------------------ KPIs */}
+      {/* --------------------------- GLOBAL KPIS --------------------------- */}
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rise" style={{ ["--i" as never]: 1 }}>
           <Metric
@@ -101,16 +248,20 @@ const health = usePoll<SystemHealthShape>("/api/system/health", 10000);
             }
             sub={
               boardReady
-                ? `last sweep ${sweepEff !== null ? fmtAge(sweepEff) : "—"} · SSE ${sse.connected ? "on" : "off"}`
+                ? `sweep age ${sweepEff !== null ? fmtAge(sweepEff) : "—"} · SSE ${sse.connected ? "on" : "off"}`
                 : board.failure?.server_state ?? board.failure?.message ?? "—"
             }
           />
         </div>
         <div className="rise" style={{ ["--i" as never]: 2 }}>
           <Metric
-            label="universe live"
+            label="universe active"
             value={boardReady ? `${live}/${rows.length}` : "—"}
-            sub={boardReady ? "TTT /futures/markets/stats — one request per sweep" : `${t("state", "unavailable").split(" —")[0]} until TTT discovery succeeds`}
+            sub={
+              boardReady
+                ? "dynamic TTT discovered universe"
+                : `${t("state", "unavailable").split(" —")[0]} until discovery`
+            }
             color="var(--color-gold)"
           />
         </div>
@@ -120,117 +271,227 @@ const health = usePoll<SystemHealthShape>("/api/system/health", 10000);
             value={
               <span className="inline-flex items-center gap-2">
                 <StatusBadge state={healthChip === "OK" ? "CONNECTED" : String(healthChip)} />
-                {marketState !== null && <span className="mono text-[11px] text-muted">{marketState}</span>}
+                <span className="text-[12px] font-bold uppercase">{marketState ?? health.status}</span>
               </span>
             }
-            sub={health.status === "OK" ? `/api/system/health · ${health.data?.reason ?? ""}` : "health endpoint not answering"}
+            sub={health.data ? (health.data.reason ? `reason: ${health.data.reason}` : "server health verified") : "checking /api/system/health…"}
           />
         </div>
         <div className="rise" style={{ ["--i" as never]: 4 }}>
-          <Metric label="mode" value="ADVISORY" sub="AsA never executes — human executes" color="var(--color-muted)" />
+          <Metric
+            label="execution boundary"
+            value={<span className="text-gold">ADVISORY</span>}
+            sub="pure intelligence · human executes"
+          />
         </div>
       </div>
 
-      {!boardReady && (
-        <TruthState status={board.status} failure={board.failure} onRetry={board.refresh} staleAgeMs={board.data ? board.stale_age_ms : null} />
+      {board.status !== "OK" && (
+        <div className="rise">
+          <TruthState
+            status={board.status}
+            failure={board.failure}
+            onRetry={board.refresh}
+            staleAgeMs={board.data ? board.stale_age_ms : null}
+            loadingText="requesting authoritative TTT universe snapshot…"
+          />
+        </div>
       )}
 
-      {/* ---------------------------------------------------- working grid */}
-      <div className="grid gap-2 lg:grid-cols-[1fr_330px]">
-        <div className="rise" style={{ ["--i" as never]: 5 }}>
-          <Panel
-            title="market snapshot — top by price"
-            icon={<IconMarket size={12} />}
-            right={<Link href="/market" className="focus-ring btn !py-0.5 !px-2 text-[10px]">full board <IconZap size={10} /></Link>}
-          >
-            <div className="overflow-x-auto">
-              <table className="tbl w-full">
-                <caption className="sr-only">Top TTT universe rows by measured last price, shown when READY, absent otherwise</caption>
-                <thead><tr><th scope="col">{t("market", "symbol")}</th><th scope="col" className="text-end">Price</th><th scope="col" className="text-end">24h</th><th scope="col">State</th></tr></thead>
-                <tbody>
-                  {boardReady && movers.map((r) => (
-                    <tr key={r.symbol}>
-                      <td><Link className="focus-ring rounded px-1 font-semibold hover:text-gold" href={`/chart?symbol=${r.symbol}`}>{r.symbol}</Link></td>
-                      <td className="mono text-end">{formatPrice(r.price)}</td>
-                      <td className="mono text-end" style={{ color: r.change24hPct === null ? "var(--color-muted)" : r.change24hPct >= 0 ? "var(--color-up)" : "var(--color-down)" }}>{r.change24hPct === null ? "—" : `${r.change24hPct.toFixed(2)}%`}</td>
-                      <td><StatusBadge state={displayStateFor(r.state, effectiveAgeMs(r.age_ms, board.age_ms))} /></td>
-                    </tr>
-                  ))}
-                  {board.status === "LOADING" && <tr><td colSpan={4} className="py-6 text-center text-muted">{t("state", "loading")}</td></tr>}
-                  {(!boardReady && board.status !== "LOADING") && (
-                    <tr><td colSpan={4} className="py-6 text-center text-muted">no board to show — {board.failure?.server_state ? `server reports ${board.failure.server_state}` : "the provider has not received an answer"}</td></tr>
-                  )}
-                  {boardReady && movers.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-muted">universe answered with no priced rows yet</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-        </div>
+      {/* --------------------------- 3D MARKET CONTAINER (10 PRIMARY ASSETS + MORE EXPANSION) --------------------------- */}
+      <div className="rise">
+        <Market3DBox />
+      </div>
 
-        <div className="flex flex-col gap-2">
-          <div className="rise" style={{ ["--i" as never]: 6 }}>
-            <Panel title="day gainers">
-              <ul className="space-y-1 text-[11.5px]">
-                {boardReady && gainers.map((g) => (
-                  <li key={g.symbol} className="flex justify-between">
-                    <Link href={`/chart?symbol=${g.symbol}`} className="focus-ring rounded font-medium hover:text-gold px-0.5">{g.symbol}</Link>
-                    <span className="mono" style={{ color: "var(--color-up)" }}>+{g.change24hPct!.toFixed(2)}%</span>
+      {/* --------------------------- DAY GAINERS & 3D ORDER BOOK & MARKET PULSE --------------------------- */}
+      <div className="grid gap-3 lg:grid-cols-3">
+        {/* Day Gainers Section */}
+        <div className="card p-3 sm:p-4 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between border-b hairline pb-2">
+              <div className="flex items-center gap-2">
+                <span className="grid h-7 w-7 place-items-center rounded-md border border-[var(--color-line)] text-gold bg-[var(--color-panel-2)]">
+                  <IconTrendingUp size={15} />
+                </span>
+                <h3 className="text-[13px] font-bold text-text">
+                  {lang === "fa" ? "بیشترین رشد ۲۴ ساعته" : "Day Gainers"}
+                </h3>
+              </div>
+              <Badge color="var(--color-up)">24h Positive</Badge>
+            </div>
+
+            <ul className="mt-3 space-y-2">
+              {boardReady &&
+                gainers.map((g) => (
+                  <li
+                    key={g.symbol}
+                    className="flex items-center justify-between rounded-md border border-[var(--color-line)] bg-[var(--color-panel-2)] p-2 transition-colors hover:border-gold-3"
+                  >
+                    <Link
+                      href={`/chart?symbol=${g.symbol}`}
+                      onClick={() => setSel({ symbol: g.symbol, returnTo: "/" })}
+                      className="flex flex-col min-w-0"
+                    >
+                      <span className="mono text-xs font-bold text-text truncate">{g.symbol}</span>
+                      <span className="mono text-[10px] text-dim">{formatPrice(g.price)}</span>
+                    </Link>
+                    <span className="mono text-xs font-bold text-end" style={{ color: "var(--color-up)" }}>
+                      +{g.change24hPct!.toFixed(2)}%
+                    </span>
                   </li>
                 ))}
-                {!boardReady && <li className="text-muted">waiting for a READY board snapshot — an unavailable universe has no gainers</li>}
-                {boardReady && rows.length === 0 && <li className="text-muted">universe is empty until discovery completes</li>}
-                {boardReady && rows.length > 0 && gainers.length === 0 && (
-                  <li className="text-muted">no 24h gainers in this snapshot — losing rows are not gainers</li>
-                )}
-              </ul>
-            </Panel>
+              {boardReady && gainers.length === 0 && (
+                <li className="py-8 text-center text-dim text-xs">
+                  {lang === "fa"
+                    ? "در این snapshot رشد ۲۴ ساعته‌ی مثبتی ثبت نشده است."
+                    : "no 24h gainers in this snapshot"}
+                </li>
+              )}
+              {!boardReady && (
+                <li className="py-8 text-center text-muted text-xs">
+                  <span className="breathe">Loading market gainers…</span>
+                </li>
+              )}
+            </ul>
           </div>
-          <div className="rise" style={{ ["--i" as never]: 7 }}>
-            <Panel
-              title="event bus"
-              icon={<IconPulse size={12} />}
-              right={<StatusBadge state={sse.connected ? "CONNECTED" : "DISCONNECTED"} label={sse.connected ? "SSE socket on" : "SSE socket off"} />}
-            >
-              <Timeline items={busEvents} />
-            </Panel>
+
+          <div className="border-t hairline pt-2 text-[10px] text-dim flex justify-between">
+            <span>Strict positive 24h filter</span>
+            <span>Measured values only</span>
           </div>
-          {sel.symbol && (
-            <div className="rise" style={{ ["--i" as never]: 8 }}>
-              <Panel title="continue">
-                <p className="text-[11px] leading-relaxed text-muted">
-                  last selected <Link className="mono text-gold hover:underline" href={`/chart?symbol=${sel.symbol}`}>{sel.symbol}</Link>
-                  {sel.tf ? <> · timeframe <span className="mono">{sel.tf}</span></> : null}
-                </p>
-              </Panel>
-            </div>
-          )}
+        </div>
+
+        {/* 3D Dimensional Order Book */}
+        <div className="lg:col-span-2">
+          <Orderbook3D symbol={sel.symbol || "BTCUSDT"} />
         </div>
       </div>
 
-      {/* -------------------------------------------------- pipeline chain */}
-      <div className="rise" style={{ ["--i" as never]: 9 }}>
-        <SectionHeader label="architecture — advisory pipeline (map, not a status board)" icon={<IconZap size={12} />} />
+      {/* --------------------------- MARKET PULSE (HEARTBEAT 24H) --------------------------- */}
+      <div className="rise">
+        <MarketPulse />
+      </div>
+
+      {/* --------------------------- INTELLIGENCE STREAMS & AI LAUNCHER --------------------------- */}
+      <div className="grid gap-3 lg:grid-cols-3">
+        {/* Opportunities Stream */}
+        <div className="card p-3 sm:p-4 lg:col-span-2 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between border-b hairline pb-2">
+              <div className="flex items-center gap-2">
+                <span className="grid h-7 w-7 place-items-center rounded-md border border-gold-3 text-gold bg-gold-dim">
+                  <IconOpportunity size={15} />
+                </span>
+                <h3 className="text-[13px] font-bold text-text">
+                  {lang === "fa" ? "جریان فرصت‌های شناسایی‌شده" : "Active Intelligence Stream"}
+                </h3>
+              </div>
+              <Link href="/opportunities" className="focus-ring btn !py-0.5 !px-2 text-[10.5px]">
+                {lang === "fa" ? "مشاهده همه" : "View All"} →
+              </Link>
+            </div>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {(oppsPoll.data?.items ?? []).slice(0, 4).map((opp) => (
+                <div
+                  key={opp.id}
+                  className="panel-2 p-2.5 flex flex-col justify-between transition-colors hover:border-gold-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="mono font-bold text-xs text-text">{opp.symbol}</span>
+                    <StatusBadge state={opp.state} />
+                  </div>
+                  <div className="my-1.5 flex items-center gap-1.5 text-[11px]">
+                    <Badge color="var(--color-gold)">Score {opp.score}</Badge>
+                    <span className="mono text-dim">{opp.timeframe}</span>
+                    <span className="mono uppercase font-bold" style={{ color: opp.direction === "long" ? "var(--color-up)" : "var(--color-down)" }}>
+                      {opp.direction}
+                    </span>
+                  </div>
+                  {opp.thesis && <p className="text-[10px] text-muted line-clamp-2">{opp.thesis}</p>}
+                </div>
+              ))}
+              {(oppsPoll.data?.items?.length ?? 0) === 0 && (
+                <div className="col-span-full py-8 text-center text-dim text-xs">
+                  No active opportunities currently stored.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="border-t hairline pt-2 text-[10px] text-dim flex justify-between">
+            <span>Deterministic strategy ranking</span>
+            <span>Decision score, not a probability</span>
+          </div>
+        </div>
+
+        {/* Quick AI Grounded Assistant & Event Bus */}
+        <div className="flex flex-col gap-3">
+          {/* Grounded AI Form */}
+          <div className="card p-3 sm:p-4">
+            <div className="flex items-center gap-2 border-b hairline pb-2 mb-2.5">
+              <IconAi size={15} className="text-gold" />
+              <h3 className="text-[13px] font-bold text-text">
+                {lang === "fa" ? "پرسش از کلون هوش مصنوعی" : "AI Grounded Query"}
+              </h3>
+            </div>
+
+            <form onSubmit={handleQuickAi} className="flex flex-col gap-2">
+              <input
+                type="text"
+                className="input text-xs"
+                placeholder={lang === "fa" ? "مثال: وضعیت BTCUSDT چگونه است؟" : "e.g. What is the state of BTCUSDT?"}
+                value={quickPrompt}
+                onChange={(e) => setQuickPrompt(e.target.value)}
+              />
+              <Button variant="gold" type="submit" disabled={!quickPrompt.trim()} className="!py-1 text-xs font-bold">
+                <IconAi size={13} /> {lang === "fa" ? "ارسال به کلون هوش مصنوعی" : "Ask Grounded AI"}
+              </Button>
+            </form>
+          </div>
+
+          {/* Real-Time Event Bus */}
+          <Panel
+            title={lang === "fa" ? "جریان رویدادهای زنده" : "Real-time Event Bus"}
+            icon={<IconPulse size={13} />}
+            right={
+              <StatusBadge
+                state={sse.connected ? "CONNECTED" : "DISCONNECTED"}
+                label={sse.connected ? "SSE on" : "SSE off"}
+              />
+            }
+          >
+            <Timeline items={busEvents} />
+          </Panel>
+        </div>
+      </div>
+
+      {/* --------------------------- ADVISORY PIPELINE ARCHITECTURE --------------------------- */}
+      <div className="rise">
+        <SectionHeader
+          label={lang === "fa" ? "معماری خط لوله تصمیم‌گیری AsA" : "AsA Advisory Pipeline (Deterministic Execution Boundary)"}
+          icon={<IconZap size={12} />}
+        />
         <div className="panel overflow-x-auto px-3 py-2.5">
           <ol className="flex min-w-max items-center gap-0" aria-label="advisory pipeline stages">
             {PIPELINE.map((s, i) => (
               <li key={s} className="flex items-center">
-                <span className={`panel-2 rounded-md px-2.5 py-1 text-[9.5px] font-semibold tracking-wide ${i === PIPELINE.length - 1 ? "text-gold" : "text-muted"}`} style={i === PIPELINE.length - 1 ? { borderColor: "var(--color-gold-3)" } : undefined}>
-                  <span className="mono me-1 text-dim">{String(i + 1).padStart(2, "0")}</span>{s}
+                <span
+                  className={`panel-2 rounded-md px-2.5 py-1 text-[9.5px] font-semibold tracking-wide ${
+                    i === PIPELINE.length - 1 ? "gold-text border-gold-3" : "text-muted"
+                  }`}
+                >
+                  {s}
                 </span>
                 {i < PIPELINE.length - 1 && (
-                  <svg width="26" height="8" viewBox="0 0 26 8" aria-hidden className="mx-0.5 shrink-0 text-line-2 rtl:-scale-x-100">
-                    <path d="M0 4h18m0 0l-3-3m3 3l-3 3" stroke="currentColor" strokeWidth="1.2" fill="none" />
-                    <circle cx="23" cy="4" r="1.4" fill="currentColor" />
-                  </svg>
+                  <span className="px-1.5 text-dim font-bold text-[10px]" aria-hidden="true">
+                    →
+                  </span>
                 )}
               </li>
             ))}
           </ol>
         </div>
-      </div>
-
-      <div className="text-center text-[10px] text-dim">
-        TTT is the only production market-data source · every value carries provenance · missing = UNAVAILABLE with reason
       </div>
     </div>
   );

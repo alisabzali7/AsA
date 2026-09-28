@@ -1,6 +1,6 @@
-/** LOCAL TEST ONLY. Compiled by prepare-team05-local.mjs with two explicit
- * upstream seams: a synthetic promotion and measured synthetic account losses.
- * Real scan/risk/portfolio/admission/publication/SQLite/chart/Telegram adapter.
+/** LOCAL TEST ONLY. Compiled by prepare-team05-local.mjs with isolated test-only
+ * risk-policy, psychology, promotion, runtime, source-admission, and account seams.
+ * Exercises persistence/delivery lifecycle; it is not source, policy, or live-eligibility proof.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -44,6 +44,11 @@ async function main() {
     return realFetch(`http://127.0.0.1:${port}/${url.split("/").pop()}`,init);
   };
   const repo=getRepo();
+  // Explicit LOCAL TEST preferences; the production policy remains blocked by source completeness.
+  repo.configSet("pref.risk.policyId","RISK-DAILY-5PCT");
+  repo.configSet("pref.risk.equity","10000");
+  repo.configSet("pref.risk.perTradePct","1");
+  repo.configSet("pref.risk.maxLeverage","5");
   const history=getHistoryStore();
   candleManager.ensureSeries=async(symbol)=>{
     sharedStore.catalog.set(symbol,syntheticMarket(symbol));
@@ -55,10 +60,11 @@ async function main() {
   };
   const strategy=(name:string,block=false):StrategyRuntimeDefinition=>{
     const id=`SET-LOCAL-TEST-${name}`;
-    const refs=[{file:"LOCAL_TEST_ONLY",start_line:1,end_line:1,quote:"SYNTHETIC — not a corpus strategy"}];
+    const refs=[{file:"LOCAL_TEST_ONLY.txt",start_line:1,end_line:1,quote:"SYNTHETIC market/strategy/account. Local HTTP Telegram stub, never real delivery."}];
+    const sourceBlocker="LOCAL TEST ONLY: no authoritative corpus source or semantic-parity validation";
     const definition={setup_id:id,strategy_id:"STR-LOCAL-TEST",name:`LOCAL TEST ${name}`,family:"test",timeframe:"1h",direction:"long" as const,min_bars:120};
-    return {...definition,availability:"EXECUTABLE",blocked_reason:null,version:"LOCAL-TEST",strategy_version:"LOCAL-TEST",
-      rule_ids:[],rule_versions:[],source_contract_status:"SOURCE_FAITHFUL",source_contract_blockers:[],source_refs:refs,
+    return {...definition,availability:"EXECUTABLE",blocked_reason:"LOCAL TEST ONLY",version:"LOCAL-TEST",strategy_version:"LOCAL-TEST",
+      rule_ids:[],rule_versions:[],source_contract_status:"UNKNOWN",source_contract_blockers:[sourceBlocker],source_refs:refs,
       impl:{...definition,
         build:(c,tf)=>MapFeatureBag.from([["FTR-LOCAL-TEST",okFeature("FTR-LOCAL-TEST",tf,1,c.at(-1)?.t??0,c.length,"LOCAL-TEST",["SYNTHETIC"] )]]),
         setup:()=>({...definition,version:"LOCAL-TEST",source_refs:refs,rules:(["context","location","structure","trigger","confirmation"] as const).map(kind=>({
@@ -94,7 +100,7 @@ async function main() {
       const unknown=await scanSymbol("XRPUSDT",strategy("UNKNOWN-LOSS"),"live");
       assert.equal(unknown.opportunity?.state,"REJECTED");
       assert.equal(repo.signalByOpp(unknown.opportunity!.id),null);
-      fs.writeFileSync(file,JSON.stringify({label:"LOCAL TEST / SYNTHETIC — never live provider/promotion proof",partial_signal:sig.id,sent_signal:sent.id,terminal_signal:terminal.publish!.id,
+      fs.writeFileSync(file,JSON.stringify({label:"LOCAL TEST ONLY / synthetic; source status UNKNOWN; not source, policy, promotion, or production-live proof",synthetic_source_status:"UNKNOWN",synthetic_source_blocker:"LOCAL TEST ONLY: no authoritative corpus source or semantic-parity validation",partial_signal:sig.id,sent_signal:sent.id,terminal_signal:terminal.publish!.id,
         blocked_opportunity:blocked.opportunity!.id,unknown_opportunity:unknown.opportunity!.id,calls,delivery,signal_count:repo.signalList(100).length,outbox_count:repo.outboxList("ALL",100).length},null,2));
     } else {
       const old=JSON.parse(fs.readFileSync(file,"utf8"));
