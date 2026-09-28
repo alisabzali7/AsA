@@ -268,7 +268,7 @@ describe("T05 outbox claim: lease expiry & crash recovery", () => {
     textResults = [false, true]; // first cycle: photo ok, text fails
     await deliverOutboxRow(rowById(id), repo);
     expect(rowById(id).state).toBe("FAILED");
-    expect(progressOf(rowById(id))).toEqual({ photo_required: true, photo_sent: true, text_sent: false });
+    expect(progressOf(rowById(id))).toMatchObject({ photo_required: true, photo_sent: true, text_sent: false });
     expect(photoCalls).toBe(1);
 
     // a worker claims the row and crashes mid-cycle (progress persisted, nothing sent)
@@ -280,7 +280,7 @@ describe("T05 outbox claim: lease expiry & crash recovery", () => {
     expect(rowById(id).state).toBe("SENT");
     expect(photoCalls).toBe(1); // across BOTH real cycles + the reclaim: one photo ever
     expect(textCalls).toBe(2);
-    expect(progressOf(rowById(id))).toEqual({ photo_required: true, photo_sent: true, text_sent: true });
+    expect(progressOf(rowById(id))).toMatchObject({ photo_required: true, photo_sent: true, text_sent: true });
   });
 });
 

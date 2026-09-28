@@ -3,6 +3,7 @@
 import { useLang } from "@/components/lang";
 import { usePoll } from "@/components/hooks";
 import { Badge, Panel } from "@/components/ui";
+import { TruthState } from "@/components/data-state";
 
 interface ResearchShape {
   ok: boolean;
@@ -24,7 +25,7 @@ interface ResearchShape {
 }
 interface AiCallsShape { ok: boolean; items: { id: number; created_ms: number; provider: string; model: string; latency_ms: number | null; verdict: string }[] }
 
-const H_COLORS: Record<string, string> = { UNTESTED: "#8b8f99", RESEARCH_CANDIDATE: "#d6a24a", DATA_LIMITED: "#d6a24a", EXPERIMENTAL: "#d4b874", VALIDATED: "#3fb68b", REJECTED: "#d9605e", REFERENCE: "#8b8f99" };
+const H_COLORS: Record<string, string> = { UNTESTED: "var(--color-muted)", RESEARCH_CANDIDATE: "var(--color-warn)", DATA_LIMITED: "var(--color-warn)", EXPERIMENTAL: "var(--color-gold)", VALIDATED: "var(--color-up)", REJECTED: "var(--color-down)", REFERENCE: "var(--color-muted)" };
 
 export default function ResearchPage() {
   const { t } = useLang();
@@ -33,13 +34,15 @@ export default function ResearchPage() {
   return (
     <div className="flex flex-col gap-2">
       <h1 className="text-[15px] font-semibold">{t("nav", "research")}</h1>
+      {r.status !== "OK" && <TruthState dense status={r.status} failure={r.failure} onRetry={r.refresh} staleAgeMs={r.data ? r.stale_age_ms : null} />}
+      {r.status === "OK" && (r.data?.hypotheses.length ?? 0) === 0 && <p className="text-[11px] text-muted">EMPTY — the registry answered and lists no hypotheses.</p>}
       <div className="grid gap-2 lg:grid-cols-2">
         <Panel title="hypotheses (registry — claims carry evidence state)">
           {r.data?.hypotheses.map((h) => (
             <div key={h.id} className="panel-2 mb-1.5 px-2 py-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[12px] font-medium">{h.title}</span>
-                <Badge color={H_COLORS[h.status] ?? "#8b8f99"}>{h.status}</Badge>
+                <Badge color={H_COLORS[h.status] ?? "var(--color-muted)"}>{h.status}</Badge>
               </div>
               <p className="mt-0.5 text-[10.5px] text-muted">{h.evidence}</p>
             </div>
@@ -51,16 +54,16 @@ export default function ResearchPage() {
             <details key={s.id} className="panel-2 mb-1.5 px-2 py-1.5">
               <summary className="cursor-pointer text-[12px] flex flex-wrap items-center gap-1">
                 <span>{s.name}</span>
-                <Badge color={H_COLORS[s.status] ?? "#8b8f99"}>{s.status}</Badge>
-                {s.promotion_stage && <Badge color="#d4b874">STAGE {s.promotion_stage.split("_")[0]}</Badge>}
+                <Badge color={H_COLORS[s.status] ?? "var(--color-muted)"}>{s.status}</Badge>
+                {s.promotion_stage && <Badge color="var(--color-gold)">STAGE {s.promotion_stage.split("_")[0]}</Badge>}
                 {s.executable && <Badge color="#d6b04a">EXECUTABLE</Badge>}
-                {s.live_eligible ? <Badge color="#3fb68b">LIVE ELIGIBLE</Badge> : <Badge color="#8b8f98">NOT LIVE</Badge>}
+                {s.live_eligible ? <Badge color="var(--color-up)">LIVE ELIGIBLE</Badge> : <Badge color="var(--color-muted)">NOT LIVE</Badge>}
               </summary>
               <div className="mt-1 grid gap-1 sm:grid-cols-2">
                 {Object.entries(s.rules).map(([cat, rules]) => (
                   <div key={cat} className="text-[10px]">
                     <div className="eyebrow">{cat}</div>
-                    <ul className="list-disc pl-3.5 text-muted">{rules.map((r2, i) => <li key={i}>{r2}</li>)}</ul>
+                    <ul className="list-disc ps-3.5 text-muted">{rules.map((r2, i) => <li key={i}>{r2}</li>)}</ul>
                   </div>
                 ))}
               </div>
@@ -80,7 +83,7 @@ export default function ResearchPage() {
                   <td>{c.provider}</td>
                   <td className="mono text-dim">{c.model}</td>
                   <td className="mono">{c.latency_ms === null ? "—" : `${c.latency_ms}ms`}</td>
-                  <td style={{ color: c.verdict === "reject" ? "#d9605e" : c.verdict === "neutral" ? "#8b8f99" : "#3fb68b" }}>{c.verdict}</td>
+                  <td style={{ color: c.verdict === "reject" ? "var(--color-down)" : c.verdict === "neutral" ? "var(--color-muted)" : "var(--color-up)" }}>{c.verdict}</td>
                 </tr>
               ))}
               {calls.data?.items.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted">no AI calls yet</td></tr>}

@@ -196,3 +196,11 @@ describe("§L Telegram advisory payload", () => {
     expect(t).toContain("daily loss limit reached");
   });
 });
+
+it.runIf(hasReplay)("PNG identity is readable/deterministic and not merely a direction colour bar", () => {
+  const {evidence,candles}=evidenceFixture();
+  const first=renderEvidencePng(evidence,candles);
+  const renamed=renderEvidencePng({...evidence,symbol:"ETHUSDT"},candles);
+  expect(first).not.toEqual(renamed); // identity changes actual raster bytes
+  expect(renderEvidencePng(evidence,candles)).toEqual(first);
+});

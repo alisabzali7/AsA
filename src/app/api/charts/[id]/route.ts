@@ -19,7 +19,8 @@ import { isOperationalSymbol } from "@/lib/market/operational-universe";
 import { renderEvidenceSvg, renderEvidencePng } from "@/lib/chart/render";
 import { getHistoryStore } from "@/lib/market/history-store";
 import type { ChartEvidence } from "@/lib/chart/evidence";
-import { chartEvidenceMatches } from "@/lib/chart/evidence";
+import { chartEvidenceMatches, decisionCandles, verifyDecisionSnapshot } from "@/lib/chart/evidence";
+import { verifiedChartCandles, type ChartSource } from "@/lib/chart/source";
 import type { TimeframeId } from "@/lib/domain/timeframes";
 
 export const dynamic = "force-dynamic";
@@ -36,14 +37,18 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id, format } = splitFormat(rawId);
 
   const repo = getRepo();
-  const opp = repo.opportunityGet(id) ?? (id.startsWith("sig-") ? repo.opportunityGet(id.slice(4)) : null);
+  const signal = repo.signalGet(id);
+  const opp = signal ?? repo.opportunityGet(id) ?? (id.startsWith("sig-") ? repo.opportunityGet(id.slice(4)) : null);
   if (!opp) {
     return NextResponse.json(
       { ok: false, error: "opportunity not found", note: "charts render decision evidence; there is no decorative chart mode" },
       { status: 404 },
     );
   }
-  if (!isOperationalSymbol(opp.symbol)) {
+  // An immutable historical signal remains inspectable during discovery
+  // outages/restarts. Its exact dataset is verified below; this is not a new
+  // live-market admission or an alternative market source.
+  if (!signal && !isOperationalSymbol(opp.symbol)) {
     return NextResponse.json({ ok: false, error: "symbol not in the canonical universe" }, { status: 400 });
   }
 
@@ -53,7 +58,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   } catch {
     /* payload stays empty */
   }
-  const evidence = (payload.chart_evidence as ChartEvidence | undefined) ?? null;
+  const evidence = (payload?.chart_evidence as ChartEvidence | undefined) ?? null;
   if (!evidence) {
     return NextResponse.json(
       {
@@ -94,31 +99,43 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     renderWindow,
   );
   let series: { native: boolean; fetched_at_ms: number } | null = null;
+  const fit = (bars: typeof candles) => {
+    if (!signal) return bars;
+    const anchored = decisionCandles(evidence, bars);
+    return payload.chart_source ? verifiedChartCandles(anchored, payload.chart_source as ChartSource) : anchored;
+  };
+  candles = fit(candles);
   if (candles.length === 0) {
     const live = await candleManager.ensureSeries(opp.symbol, tf, true);
-    candles = live?.candles ?? [];
+    candles = fit(live?.candles ?? []);
     series = live ? { native: live.native, fetched_at_ms: live.fetched_at_ms } : null;
   }
+  if (signal) {
+    if (!candles.length) return NextResponse.json({ ok: false, error: "decision-anchor candles unavailable or dataset fingerprint mismatch" }, { status: 409 });
+  }
   const bounds = store.bounds(opp.symbol, tf);
+  // Task 10: prove (or fail to prove) that these candles contain the decision window
+  const snapshot_check = verifyDecisionSnapshot(evidence, candles);
 
   if (format === "svg") {
-    const svg = renderEvidenceSvg(evidence, candles, { title: opp.id });
+    const svg = renderEvidenceSvg(evidence, candles, { title: opp.id, snapshotState: snapshot_check.state });
     return new NextResponse(svg, {
       status: 200,
-      headers: { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "no-store" },
+      headers: { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "no-store", "X-Snapshot-Check": snapshot_check.state },
     });
   }
   if (format === "png") {
-    const png = renderEvidencePng(evidence, candles);
+    // Verification state is also available to HTTP consumers via the response header.
+    const png = renderEvidencePng(evidence, candles, { snapshotState: snapshot_check.state });
     return new NextResponse(Buffer.from(png), {
       status: 200,
-      headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
+      headers: { "Content-Type": "image/png", "Cache-Control": "no-store", "X-Snapshot-Check": snapshot_check.state },
     });
   }
 
   return NextResponse.json({
     ok: true,
-    kind: "opportunity",
+    kind: signal ? "signal" : "opportunity",
     id: opp.id,
     symbol: evidence.symbol,
     timeframe: evidence.timeframe,
@@ -132,8 +149,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     rules: evidence.rules,
     assumptions: evidence.assumptions,
     lineage_complete: evidence.lineage_complete,
+    // Task 10: decision-window identity + whether the candles below reproduce it.
+    // Renderers (svg/png) never draw bars after snapshot.as_of_t / bar_time.
+    snapshot: evidence.snapshot ?? null,
+    snapshot_check,
+    decision_bar_t: evidence.snapshot?.as_of_t ?? evidence.bar_time,
     candles,
     candles_provenance: {
+      decision_dataset: signal ? payload.chart_source ?? null : null,
+      decision_dataset_verified: !!signal && !!payload.chart_source,
       native: series?.native ?? true,
       fetched_at_ms: series?.fetched_at_ms ?? null,
       source: "ttt",

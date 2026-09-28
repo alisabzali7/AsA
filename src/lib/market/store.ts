@@ -32,6 +32,12 @@ export interface SymbolMeta {
   makerFeeCoefficient: number | null;
   takerFeeCoefficient: number | null;
   isActive: boolean;
+  /** Not exposed by today's verified TTT public contract. Production ingestion
+   * leaves these unavailable; do not infer from step size or tier notional.
+   * A future verified adapter (or a labeled test fixture) may supply them. */
+  minQty?: number | null;
+  minNotional?: number | null;
+
 }
 
 /** STATIC freshness thresholds (data cadence derived from engine loops). */

@@ -63,11 +63,16 @@ export async function GET(req: Request): Promise<NextResponse> {
           available_to: bounds.latest,
           bar_count: barCount,
           data_quality: barCount === 0 ? "NOT_SYNCED" : (row?.gap_count ?? 0) > 0 ? "GAPPED" : "OK",
-          completion_state: row?.completion_state ?? "NOT_SYNCED",
-          gap_count: row?.gap_count ?? 0,
-          last_sync: row?.last_sync_ms ?? null,
-          source: "ttt",
-          fingerprint: row?.dataset_fingerprint ?? null,
+        completion_state: row?.completion_state ?? "NOT_SYNCED",
+        gap_count: row?.gap_count ?? 0,
+        last_sync: row?.last_sync_ms ?? null,
+        source: "ttt",
+        fingerprint: row?.dataset_fingerprint ?? null,
+        // boundary evidence type — 'TTT_NO_DATA' only when the stored extent
+        // was proven by an explicit upstream answer; null = never proven/legacy
+        boundary_proof: row?.boundary_proof ?? null,
+        last_successful_sync_ms: row && row.last_successful_sync_ms > 0 ? row.last_successful_sync_ms : null,
+        last_error: row?.last_error ?? null,
         };
       });
       return {

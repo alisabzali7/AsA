@@ -12,9 +12,14 @@ function ChartInner() {
   const urlSymbol = sp.get("symbol");
   return (
     <div>
-      <PageHead title={t("nav", "chart")} sub="real TTT candles · 10 timeframes · native 1D · annotations from deterministic analysis" />
-      {/* key = URL symbol: navigating to a different symbol remounts with that default */}
-      <ChartView key={urlSymbol ?? "focus"} urlSymbol={urlSymbol} />
+      <PageHead
+        title={t("nav", "chart")}
+        sub="AsA evidence canvas — real TTT candles, 10 timeframes, native 1D; structure annotations drawn only from deterministic analysis"
+        eyebrow="terminal"
+      />
+      {/* No remount on symbol navigation: the chart engine persists and swaps
+          series data — selection state is derived from the shared store. */}
+      <ChartView urlSymbol={urlSymbol} />
     </div>
   );
 }

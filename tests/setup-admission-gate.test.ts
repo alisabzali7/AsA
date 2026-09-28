@@ -207,3 +207,45 @@ describe("Case F — orchestrator and scanner obey the SAME setup admission inva
     expect(score).toMatch(/setup_verdict: RuleOutcome/); // required by type, not optional
   });
 });
+
+describe("T05 shared-boundary recovery: unknown is not approval", () => {
+  it.each([
+    { risk_verdict: "UNKNOWN" }, { portfolio_verdict: "UNKNOWN" },
+    { psychology_verdict: "UNKNOWN" }, { unresolved_contradiction: undefined },
+    { stale: undefined }, { score: NaN }, { threshold: NaN },
+  ])("rejects malformed gate input %j", (patch) => {
+    const result = admitOpportunity(perfect(patch as never));
+    expect(result.admitted).toBe(false);
+    expect(result.reasons.length).toBeGreaterThan(0);
+  });
+
+  it("allows explicitly NOT_APPLICABLE psychology only in separated historical research", () => {
+    const research = admitOpportunity(perfect({
+      psychology_verdict: "not_applicable",
+      psychology_mode: "research",
+    }));
+    expect(research.admitted).toBe(true);
+    expect(research.reasons).toEqual([]);
+    expect(research.warnings).toContain(
+      "user psychology state is not reconstructed for historical research; no claim about psychology-gated performance",
+    );
+
+    for (const psychology_mode of ["live", undefined] as const) {
+      const notSeparated = admitOpportunity(perfect({
+        psychology_verdict: "not_applicable",
+        psychology_mode,
+      }));
+      expect(notSeparated.admitted).toBe(false);
+      expect(notSeparated.reasons.join(" ")).toContain("psychology result UNKNOWN — not approval");
+    }
+  });
+
+  it("research mode does not convert current psychology UNKNOWN into approval", () => {
+    const result = admitOpportunity(perfect({
+      psychology_verdict: "unknown",
+      psychology_mode: "research",
+    }));
+    expect(result.admitted).toBe(false);
+    expect(result.reasons.join(" ")).toContain("psychology result UNKNOWN — not approval");
+  });
+});

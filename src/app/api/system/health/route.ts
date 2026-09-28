@@ -14,6 +14,7 @@ export async function GET(): Promise<NextResponse> {
   return NextResponse.json({
     ok,
     booted: isBooted(),
+    evidence_mode: process.env.ASA_LOCAL_EVIDENCE === "1" ? "LOCAL_TEST_SYNTHETIC" : null,
     market: health.market,
     reason: health.reason,
     ts: Date.now(),

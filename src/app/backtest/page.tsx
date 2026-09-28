@@ -11,8 +11,11 @@
  */
 import { useState } from "react";
 import { useLang } from "@/components/lang";
-import { usePoll } from "@/components/hooks";
+import { usePoll, postJson, formatPrice } from "@/components/hooks";
 import { Badge, Empty, Panel } from "@/components/ui";
+import { TruthState } from "@/components/data-state";
+import { useToast } from "@/components/toast";
+import { PageHead } from "@/components/chrome";
 
 interface StrategyList {
   strategies: { id: string; name: string; status: string; version: string; executable: boolean; timeframe: string; direction: string }[];
@@ -47,6 +50,7 @@ interface SymList { symbols: string[] }
 
 export default function BacktestPage() {
   const { t } = useLang();
+  const toast = useToast();
   const strats = usePoll<StrategyList>("/api/research/strategies", 120_000);
   const syms = usePoll<SymList>("/api/market/symbols", 600_000);
   const [symbol, setSymbol] = useState("BTCUSDT");
@@ -69,27 +73,37 @@ export default function BacktestPage() {
       setErr("select a same-bar policy and provide fee, slippage, and maximum holding bars; no defaults are substituted"); return;
     }
     setBusy(true); setErr(null); setJob(null);
-    try {
-      const res = await fetch("/api/research/backtest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ strategyId: chosen, symbol, sameBarPolicy: policy, feeRoundTripPct: Number(fee), slippagePct: Number(slip), maxHoldBars: Number(maxHoldBars), days }),
-      });
-      const j = (await res.json()) as BTResult & { error?: string };
-      if (!res.ok || j.error) { setErr(j.error ?? `HTTP ${res.status}`); return; }
-      setJob(j);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
+    // postJson attaches the operator token for the guarded route; explicit
+    // cost, ambiguity, and holding-horizon inputs remain required.
+    const result = await postJson<BTResult & { error?: string }>("/api/research/backtest", {
+      strategyId: chosen,
+      symbol,
+      sameBarPolicy: policy,
+      feeRoundTripPct: fee,
+      slippagePct: slip,
+      maxHoldBars,
+      days,
+    });
+    if (!result.ok || result.error || result.data?.error) {
+      const message = result.error ?? result.data?.error ?? `HTTP ${result.status}`;
+      setErr(message);
       setBusy(false);
+      toast.push({ title: "backtest not completed", body: message, tone: "error" });
+      return;
     }
+    if (result.data) setJob(result.data);
+    setBusy(false);
+    toast.push({ title: "backtest finished", body: `${chosen} over ${days}d of real candles — verdict below`, tone: "success" });
   };
 
   const r = job?.result;
   const fresh = job?.data_freshness;
   return (
     <div className="flex flex-col gap-2">
-      <h1 className="text-[15px] font-semibold">{t("nav", "backtest")}</h1>
+      <PageHead
+        title={t("nav", "backtest")}
+        sub="deterministic replay over stored TTT candles — full lineage, no synthetic fills, no equity theater"
+      />
       <Panel title="run a deterministic backtest">
         <div className="flex flex-wrap items-end gap-2 text-[11px]">
           <label className="flex flex-col gap-1"><span className="eyebrow">strategy</span>
@@ -120,15 +134,17 @@ export default function BacktestPage() {
           Research-only: source-backed risk policy and saved sizing inputs are required. Fee, slippage, same-bar policy, and holding horizon must be explicitly entered; unknown daily/period loss blocks affected candidates. Historical user psychology is not reconstructed; funding is not modelled.
         </p>
       </Panel>
-      {err && <div className="text-[11px]" style={{ color: "#d9605e" }}>{err}</div>}
+      {strats.status !== "OK" && <TruthState dense status={strats.status} failure={strats.failure} onRetry={strats.refresh} />}
+      {syms.status !== "OK" && <TruthState dense status={syms.status} failure={syms.failure} onRetry={syms.refresh} loadingText="loading the TTT universe for the symbol picker…" />}
+      {err && <div role="alert" className="text-[11px]" style={{ color: "var(--color-down)" }}>{err}</div>}
       {job?.status === "error" && <Empty text={r?.error ?? "backtest errored"} />}
       {r?.ok && (
         <>
           {fresh && (
             <Panel title="data freshness (honesty statement)">
               <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                <Badge color={fresh.fresh_sync_status === "failed" ? "#d9605e" : "#3fb68b"}>{`fresh sync: ${fresh.fresh_sync_status}`}</Badge>
-                {fresh.used_stored_data_after_failed_sync && <span style={{ color: "#d9605e" }}>ran on PREVIOUSLY STORED TTT data after a failed fresh sync</span>}
+                <Badge color={fresh.fresh_sync_status === "failed" ? "var(--color-down)" : "var(--color-up)"}>{`fresh sync: ${fresh.fresh_sync_status}`}</Badge>
+                {fresh.used_stored_data_after_failed_sync && <span style={{ color: "var(--color-down)" }}>ran on PREVIOUSLY STORED TTT data after a failed fresh sync</span>}
                 <span className="text-dim">
                   last successful sync: {fresh.last_successful_sync_ms ? new Date(fresh.last_successful_sync_ms).toISOString() : "never"}
                 </span>
@@ -139,10 +155,10 @@ export default function BacktestPage() {
             <div className="grid grid-cols-3 gap-1.5 text-center sm:grid-cols-6">
               <StatBox l="trades" v={r.metrics.trade_count} />
               <StatBox l="win rate" v={r.metrics.win_rate === null ? "—" : `${r.metrics.win_rate.toFixed(1)}%`} />
-              <StatBox l="expectancy R" v={r.metrics.expectancy_r === null ? "—" : r.metrics.expectancy_r} color={(r.metrics.expectancy_r ?? 0) >= 0 ? "#3fb68b" : "#d9605e"} />
+              <StatBox l="expectancy R" v={r.metrics.expectancy_r === null ? "—" : r.metrics.expectancy_r} color={(r.metrics.expectancy_r ?? 0) >= 0 ? "var(--color-up)" : "var(--color-down)"} />
               <StatBox l="profit factor" v={r.metrics.profit_factor === null ? "—" : r.metrics.profit_factor} />
-              <StatBox l="max DD % (equity)" v={r.metrics.max_drawdown_pct === null ? "—" : `-${r.metrics.max_drawdown_pct}`} color="#d9605e" />
-              <StatBox l="return % (of equity)" v={r.metrics.return_pct === null ? "—" : r.metrics.return_pct} color={(r.metrics.return_pct ?? 0) >= 0 ? "#3fb68b" : "#d9605e"} />
+              <StatBox l="max DD % (equity)" v={r.metrics.max_drawdown_pct === null ? "—" : `-${r.metrics.max_drawdown_pct}`} color="var(--color-down)" />
+              <StatBox l="return % (of equity)" v={r.metrics.return_pct === null ? "—" : r.metrics.return_pct} color={(r.metrics.return_pct ?? 0) >= 0 ? "var(--color-up)" : "var(--color-down)"} />
             </div>
             <p className="mt-1 text-[10px] text-dim">
               sample sufficiency (≥30 positions): {r.metrics.sufficient_sample ? "yes" : "NO — treat as anecdote"} · win rate {r.metrics.wins}/{r.metrics.trade_count} · longest loss streak {r.metrics.longest_loss_streak}
@@ -156,7 +172,7 @@ export default function BacktestPage() {
             <p className="mt-1 text-[10px] text-dim">{r.psychology_context.note}</p>
           </Panel>
           <Panel title="warnings (read these)">
-            <ul className="list-disc pl-5 text-[11px] text-warn">{r.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+            <ul className="list-disc ps-5 text-[11px] text-warn">{r.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
           </Panel>
           <Panel title="position log (absolute timestamps)" className="overflow-x-auto">
             {r.positions.length === 0 && <p className="text-[11px] text-muted">no positions — parameters produced no qualifying setups</p>}
@@ -166,13 +182,13 @@ export default function BacktestPage() {
                 {r.positions.slice(-60).map((tr, i) => (
                   <tr key={i}>
                     <td className="text-dim">{i + 1}</td>
-                    <td style={{ color: tr.direction === "long" ? "#3fb68b" : "#d9605e" }}>{tr.direction}</td>
+                    <td style={{ color: tr.direction === "long" ? "var(--color-up)" : "var(--color-down)" }}>{tr.direction}</td>
                     <td className="mono text-dim">{new Date(tr.signal_ts * 1000).toISOString().slice(0, 16)}</td>
                     <td className="mono text-dim">{new Date(tr.entry_ts * 1000).toISOString().slice(0, 16)}</td>
                     <td className="mono text-dim">{new Date(tr.exit_ts * 1000).toISOString().slice(0, 16)}</td>
-                    <td className="mono">{tr.entry_price.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
-                    <td className="mono">{tr.avg_exit_price.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
-                    <td className="mono" style={{ color: tr.r_multiple >= 0 ? "#3fb68b" : "#d9605e" }}>{tr.r_multiple}</td>
+                    <td className="mono">{formatPrice(tr.entry_price)}</td>
+                    <td className="mono">{formatPrice(tr.avg_exit_price)}</td>
+                    <td className="mono" style={{ color: tr.r_multiple >= 0 ? "var(--color-up)" : "var(--color-down)" }}>{tr.r_multiple}</td>
                     <td className="mono">{tr.pnl_quote.toFixed(2)}</td>
                     <td className="text-muted">{tr.outcome}</td>
                   </tr>

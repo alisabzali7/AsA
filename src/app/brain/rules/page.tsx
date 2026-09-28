@@ -17,10 +17,10 @@ interface Rule {
 interface Shape { ok: boolean; executable_rules: number; stored_source_rules: number; note: string; rules: Rule[] }
 
 const C: Record<string, string> = {
-  SOURCE_VERIFIED: "#3fb68b", SOURCE_INFERRED: "#d6a24a", UNKNOWN: "#8b8f98",
-  CONFLICT: "#d05f5f", CLAIM: "#d6a24a", UNTESTED: "#8b8f98",
-  context: "#7bc47f", location: "#3fb68b", structure: "#3fb68b",
-  trigger: "#d6a24a", confirmation: "#7bc47f", invalidation: "#d05f5f", filter: "#8b8f98",
+  SOURCE_VERIFIED: "var(--color-up)", SOURCE_INFERRED: "var(--color-warn)", UNKNOWN: "var(--color-muted)",
+  CONFLICT: "#d05f5f", CLAIM: "var(--color-warn)", UNTESTED: "var(--color-muted)",
+  context: "#7bc47f", location: "var(--color-up)", structure: "var(--color-up)",
+  trigger: "var(--color-warn)", confirmation: "#7bc47f", invalidation: "#d05f5f", filter: "var(--color-muted)",
 };
 
 export default function RulesPage() {
@@ -45,7 +45,7 @@ export default function RulesPage() {
       </div>
       {rows.map((r) => (
         <Panel key={r.rule_id} title={r.rule_id}
-          right={<div className="flex gap-1"><Badge color={C[r.kind]}>{r.kind}</Badge><Badge color={C[r.source_status]}>{r.source_status.replace("SOURCE_", "")}</Badge><Badge color={r.executable ? "#3fb68b" : "#d05f5f"}>{r.executable ? "EXECUTABLE" : "NON_COMPUTABLE"}</Badge></div>}>
+          right={<div className="flex gap-1"><Badge color={C[r.kind]}>{r.kind}</Badge><Badge color={C[r.source_status]}>{r.source_status.replace("SOURCE_", "")}</Badge><Badge color={r.executable ? "var(--color-up)" : "#d05f5f"}>{r.executable ? "EXECUTABLE" : "NON_COMPUTABLE"}</Badge></div>}>
           <div className="text-[11.5px]">{r.description}</div>
           {r.source_text && (
             <div dir="auto" className="mt-1.5 rounded px-2 py-1 text-[11px] leading-relaxed" style={{ background: "rgba(255,255,255,0.03)" }}>

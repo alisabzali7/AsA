@@ -25,7 +25,7 @@ export const OPEN_BOOK_SIGNAL_QUERY_LIMIT = OPEN_BOOK_MAX_SIGNAL_ROWS + 1;
 
 export interface LiveGateContext {
   psychology: PsychologyState;
-  /** null means active-signal coverage exceeded the bounded query; never a partial list */
+  /** null means the bounded active-signal inventory is incomplete or cannot be represented; never a partial/fabricated book */
   open_risks: OpenRisk[] | null;
   /**
    * Account-currency realized loss today. `null` = UNAVAILABLE (the journal
@@ -225,4 +225,18 @@ function safeConfig(repo: Repo, key: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Live-only fail-closed requirements. Null policy means no specified limit;
+ * null measurement for a specified limit is NOT permission to skip that limit.
+ * Research evaluation may still expose its explicit `unenforced` accounting.
+ */
+export function liveMeasurementBlocks(ctx: LiveGateContext, policy: import("../brain/types").RiskPolicy): string[] {
+  const blocks: string[] = [];
+  if (ctx.open_risks === null) blocks.push("advisory open book UNAVAILABLE");
+  if (policy.daily_loss_limit_pct !== null && (ctx.daily_realized_loss === null || !Number.isFinite(ctx.daily_realized_loss) || ctx.daily_realized_loss < 0))
+    blocks.push("daily realized loss UNAVAILABLE for configured hard limit");
+  if (policy.period_loss_limit_pct !== null && (ctx.period_realized_loss === null || !Number.isFinite(ctx.period_realized_loss) || ctx.period_realized_loss < 0))
+    blocks.push("period realized loss UNAVAILABLE for configured hard limit");
+  return blocks;
 }

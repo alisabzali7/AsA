@@ -93,11 +93,11 @@ interface ValidationDossierShape {
 }
 
 const C: Record<string, string> = {
-  SOURCE_VERIFIED: "#3fb68b", VERIFIED: "#3fb68b", SOURCE_INFERRED: "#d6a24a", INFERRED: "#d6a24a",
-  UNKNOWN: "#8b8f98", CONFLICT: "#d05f5f", CLAIM: "#d6a24a", PLAIN: "#8b8f98",
-  DISABLED: "#8b8f98", CANDIDATE: "#d6a24a", PAPER: "#7bc47f", LIVE_ADVISORY_ONLY: "#3fb68b",
-  UNTESTED: "#8b8f98", BACKTESTED: "#d6a24a", OOS_TESTED: "#7bc47f", WALK_FORWARD: "#3fb68b", ROBUST: "#3fb68b",
-  ELIGIBLE: "#3fb68b", NOT_ELIGIBLE: "#d05f5f", BLOCKED: "#d05f5f",
+  SOURCE_VERIFIED: "var(--color-up)", VERIFIED: "var(--color-up)", SOURCE_INFERRED: "var(--color-warn)", INFERRED: "var(--color-warn)",
+  UNKNOWN: "var(--color-muted)", CONFLICT: "#d05f5f", CLAIM: "var(--color-warn)", PLAIN: "var(--color-muted)",
+  DISABLED: "var(--color-muted)", CANDIDATE: "var(--color-warn)", PAPER: "#7bc47f", LIVE_ADVISORY_ONLY: "var(--color-up)",
+  UNTESTED: "var(--color-muted)", BACKTESTED: "var(--color-warn)", OOS_TESTED: "#7bc47f", WALK_FORWARD: "var(--color-up)", ROBUST: "var(--color-up)",
+  ELIGIBLE: "var(--color-up)", NOT_ELIGIBLE: "#d05f5f", BLOCKED: "#d05f5f",
 };
 
 function Dossier({ id }: { id: string }) {
@@ -123,7 +123,7 @@ function Dossier({ id }: { id: string }) {
         title={s.canonical_name}
         right={
           <div className="flex flex-wrap gap-1">
-            {val && <Badge color={C[val.promotion_status] ?? "#8b8f98"}>PROMOTION: {val.promotion_status}</Badge>}
+            {val && <Badge color={C[val.promotion_status] ?? "var(--color-muted)"}>PROMOTION: {val.promotion_status}</Badge>}
             <Badge color={C[s.runtime_status]}>{s.runtime_status}</Badge>
             <Badge color={C[val?.evidenced_status ?? s.empirical_status]}>{val?.evidenced_status ?? s.empirical_status}</Badge>
           </div>
@@ -140,12 +140,12 @@ function Dossier({ id }: { id: string }) {
                 key={st.key}
                 className="flex flex-col gap-0.5 rounded border p-1.5"
                 style={{
-                  borderColor: st.pass ? "#3fb68b44" : "var(--color-line)",
-                  background: st.pass ? "#3fb68b0d" : "transparent",
+                  borderColor: st.pass ? "var(--color-up)44" : "var(--color-line)",
+                  background: st.pass ? "var(--color-up)0d" : "transparent",
                 }}
               >
                 <span className="text-[10px] font-medium text-muted">{st.label}</span>
-                <span className="mono text-[11px] font-semibold" style={{ color: st.pass ? "#3fb68b" : "#8b8f98" }}>
+                <span className="mono text-[11px] font-semibold" style={{ color: st.pass ? "var(--color-up)" : "var(--color-muted)" }}>
                   {st.pass ? "PASS" : "BLOCKED"}
                 </span>
               </div>
@@ -229,10 +229,10 @@ function Dossier({ id }: { id: string }) {
           <table className="w-full text-[11px]">
             <thead>
               <tr className="text-muted">
-                <th className="text-left font-medium">check</th>
-                <th className="text-left font-medium">description</th>
-                <th className="text-left font-medium">verdict</th>
-                <th className="text-left font-medium pl-2">audit detail</th>
+                <th className="text-start font-medium">check</th>
+                <th className="text-start font-medium">description</th>
+                <th className="text-start font-medium">verdict</th>
+                <th className="text-start font-medium ps-2">audit detail</th>
               </tr>
             </thead>
             <tbody>
@@ -241,11 +241,11 @@ function Dossier({ id }: { id: string }) {
                   <td className="py-1 mono text-[10px]">{chk.code}</td>
                   <td className="text-muted">{chk.name}</td>
                   <td>
-                    <Badge color={chk.pass ? "#3fb68b" : chk.unknown_blocking ? "#d6a24a" : "#d05f5f"}>
+                    <Badge color={chk.pass ? "var(--color-up)" : chk.unknown_blocking ? "var(--color-warn)" : "#d05f5f"}>
                       {chk.pass ? "PASS" : chk.unknown_blocking ? "UNKNOWN" : "FAIL"}
                     </Badge>
                   </td>
-                  <td className="pl-2 text-[10px] text-muted">
+                  <td className="ps-2 text-[10px] text-muted">
                     {chk.detail}
                     {chk.unknown_reason && <span className="block text-gold">Unknown: {chk.unknown_reason}</span>}
                   </td>
@@ -278,7 +278,7 @@ function Dossier({ id }: { id: string }) {
       )}
 
       {spec && (
-        <Panel title="executable spec (from source)" right={<Badge color={spec.executable ? "#3fb68b" : "#8b8f98"}>{spec.executable ? "EXECUTABLE" : "NOT EXECUTABLE"}</Badge>}>
+        <Panel title="executable spec (from source)" right={<Badge color={spec.executable ? "var(--color-up)" : "var(--color-muted)"}>{spec.executable ? "EXECUTABLE" : "NOT EXECUTABLE"}</Badge>}>
           {(["timeframe", "prerequisites", "entry_long", "entry_short", "confirmation", "stop", "target", "exit", "filters", "exclusions"] as const).map((k) =>
             spec[k] ? (
               <div key={k} className="border-t py-1 first:border-0" style={{ borderColor: "var(--color-line)" }}>
@@ -292,13 +292,13 @@ function Dossier({ id }: { id: string }) {
 
       <Panel title="field provenance — what the instructor stated vs what was inferred">
         <table className="w-full text-[11px]">
-          <thead><tr className="text-muted"><th className="text-left font-medium">field</th><th className="text-left font-medium">label</th><th className="text-right font-medium">line</th></tr></thead>
+          <thead><tr className="text-muted"><th className="text-start font-medium">field</th><th className="text-start font-medium">label</th><th className="text-end font-medium">line</th></tr></thead>
           <tbody>
             {(d.data?.field_provenance ?? []).map((f) => (
               <tr key={f.field} className="border-t" style={{ borderColor: "var(--color-line)" }}>
                 <td className="py-0.5 mono">{f.field}</td>
-                <td><Badge color={C[f.source_label] ?? "#8b8f98"}>{f.source_label}</Badge></td>
-                <td className="mono text-right text-muted">{f.line ?? "—"}</td>
+                <td><Badge color={C[f.source_label] ?? "var(--color-muted)"}>{f.source_label}</Badge></td>
+                <td className="mono text-end text-muted">{f.line ?? "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -358,12 +358,12 @@ function StrategiesInner() {
         <table className="w-full text-[11px]">
           <thead>
             <tr className="text-muted">
-              <th className="text-left font-medium">strategy</th>
-              <th className="text-left font-medium">family</th>
-              <th className="text-left font-medium">source</th>
-              <th className="text-left font-medium">runtime</th>
-              <th className="text-left font-medium">spec</th>
-              <th className="text-left font-medium pl-2">why disabled / missing</th>
+              <th className="text-start font-medium">strategy</th>
+              <th className="text-start font-medium">family</th>
+              <th className="text-start font-medium">source</th>
+              <th className="text-start font-medium">runtime</th>
+              <th className="text-start font-medium">spec</th>
+              <th className="text-start font-medium ps-2">why disabled / missing</th>
             </tr>
           </thead>
           <tbody>
@@ -376,10 +376,10 @@ function StrategiesInner() {
                   <div className="mono text-[9px] text-muted">{r.strategy_id}</div>
                 </td>
                 <td className="text-muted">{r.family}</td>
-                <td><Badge color={C[r.source_status] ?? "#8b8f98"}>{r.source_status.replace("SOURCE_", "")}</Badge></td>
-                <td><Badge color={C[r.runtime_status] ?? "#8b8f98"}>{r.runtime_status}</Badge></td>
-                <td>{r.has_executable_spec ? <Badge color="#3fb68b">YES</Badge> : <Badge color="#8b8f98">NO</Badge>}</td>
-                <td className="pl-2 text-[10px] text-muted">
+                <td><Badge color={C[r.source_status] ?? "var(--color-muted)"}>{r.source_status.replace("SOURCE_", "")}</Badge></td>
+                <td><Badge color={C[r.runtime_status] ?? "var(--color-muted)"}>{r.runtime_status}</Badge></td>
+                <td>{r.has_executable_spec ? <Badge color="var(--color-up)">YES</Badge> : <Badge color="var(--color-muted)">NO</Badge>}</td>
+                <td className="ps-2 text-[10px] text-muted">
                   {r.unknown_critical.length > 0
                     ? <span style={{ color: "#d05f5f" }}>UNKNOWN: {r.unknown_critical.join(", ")}</span>
                     : r.why[0]?.slice(0, 90)}

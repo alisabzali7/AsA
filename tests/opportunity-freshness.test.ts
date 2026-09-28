@@ -84,9 +84,9 @@ describe("freshness is measured in bars of the opportunity's own timeframe", () 
     expect(ORCH.opportunityFreshness(T0, T0 + 60 * MIN, "15m").state).toBe("READY");
   });
 
-  it("an unknown timeframe falls back to the same 15m bar as tfStalenessMs", () => {
+  it("an unknown timeframe fails closed instead of inheriting a publishable window", () => {
     // One authority: the unknown-tf fallback must match admission's table.
-    expect(ORCH.opportunityFreshness(T0, T0 + 59 * MIN, "weird-tf").state).toBe("READY");
+    expect(ORCH.opportunityFreshness(T0, T0 + 59 * MIN, "weird-tf").state).toBe("EXPIRED");
     expect(ORCH.opportunityFreshness(T0, T0 + 61 * MIN, "weird-tf").state).toBe("EXPIRED");
   });
 
@@ -111,10 +111,10 @@ describe("determinism — identical inputs produce identical machine state", () 
 });
 
 describe("admission staleness contract is untouched (tfStalenessMs)", () => {
-  it("keeps exactly 2 bars of each timeframe with the 15m unknown fallback", () => {
+  it("keeps exactly 2 bars of each supported timeframe; unknown duration is invalid", () => {
     expect(ORCH.tfStalenessMs("15m")).toBe(2 * 15 * MIN);
     expect(ORCH.tfStalenessMs("1h")).toBe(2 * HOUR);
     expect(ORCH.tfStalenessMs("1d")).toBe(48 * HOUR);
-    expect(ORCH.tfStalenessMs("unknown-tf")).toBe(2 * 15 * MIN);
+    expect(ORCH.tfStalenessMs("unknown-tf")).toBeNaN();
   });
 });

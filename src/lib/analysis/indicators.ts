@@ -7,6 +7,23 @@
  * - Non-finite input protection: any non-finite input value (NaN, Infinity, -Infinity) yields safe null arrays.
  * - Output length invariant: exactly matches input length across all inputs.
  * - Zero denominator / edge safety: preserves Wilder RSI and True Range canonical semantics.
+ *
+ * WARMUP CONTRACT (Team 02 recovery): every array-returning indicator is
+ * aligned 1:1 with its input and is `null` — never 0, never a seeded guess —
+ * before its first valid index. `firstValidIndex` is the single source of that
+ * boundary so bundles, chart adapters and tests cannot disagree about it:
+ *
+ *   ema(p)          first valid index p-1   (SMA seed over the first p values)
+ *   sma(p)          first valid index p-1
+ *   rsi(p)          first valid index p     (needs p price CHANGES)
+ *   atr(p)          first valid index p     (needs p TRUE RANGES; TR needs a prior close)
+ *   rollingMax/Min  first valid index p-1
+ *
+ * RSI flat-window convention (REPOSITORY CONFLICT, kept explicit): when both
+ * Wilder averages are exactly 0 the ratio is 0/0. The executable contract
+ * pinned by tests/indicators-robustness.test.ts returns the neutral value 50;
+ * the older catalogue text in brain/primitives.ts said "null". The executable
+ * contract is retained and the catalogue text was corrected to match it.
  */
 import type { Candle } from "../domain/types";
 
@@ -35,6 +52,44 @@ function hasNonFiniteCandleOhlc(candles: Candle[]): boolean {
     }
   }
   return false;
+}
+
+export type IndicatorKind = "ema" | "sma" | "rsi" | "atr" | "rollingMax" | "rollingMin";
+
+/** First index at which the indicator can emit a value (null for invalid periods). */
+export function firstValidIndex(kind: IndicatorKind, period: number): number | null {
+  if (!isValidPeriod(period)) return null;
+  switch (kind) {
+    case "rsi":
+    case "atr":
+      return period;
+    default:
+      return period - 1;
+  }
+}
+
+/** Minimum number of input samples required for at least one valid output. */
+export function requiredSamples(kind: IndicatorKind, period: number): number | null {
+  const i = firstValidIndex(kind, period);
+  return i === null ? null : i + 1;
+}
+
+/** Simple moving average over a trailing window; null during warmup. */
+export function sma(values: number[], period: number): (number | null)[] {
+  const n = values.length;
+  const out: (number | null)[] = new Array(n).fill(null);
+  if (!isValidPeriod(period) || hasNonFiniteNumbers(values) || n < period) {
+    return out;
+  }
+  // Each window is summed afresh (O(n*p), p is small) so no running-sum
+  // floating-point drift accumulates: the value at index i depends ONLY on
+  // values[i-p+1..i], which also makes it trivially causal.
+  for (let i = period - 1; i < n; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += values[j];
+    out[i] = sum / period;
+  }
+  return out;
 }
 
 export function ema(values: number[], period: number): (number | null)[] {

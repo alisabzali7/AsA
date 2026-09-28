@@ -341,6 +341,88 @@ describe("history route does not paint an empty store as a venue boundary", () =
     const route = fs.readFileSync("src/app/api/market/history/route.ts", "utf8");
     expect(route).not.toMatch(/completion_state:\s*"NO_DATA"/);
   });
+
+  it("boundary flag is PROOF-GATED: a legacy COMPLETE row with no recorded evidence never claims the boundary", async () => {
+    await scheduler();
+    const { __setHistoryStore, RETRIEVAL_VERSION } = await import("../src/lib/market/history-store");
+    const store = new MemoryHistoryStore();
+    __setHistoryStore(store);
+    marketFetch({ s: "no_data" });
+    const { GET } = await import("../src/app/api/market/history/route");
+
+    const now = Date.now();
+    const t = Math.floor(now / 1000 / 3600) * 3600 - 3600;
+    store.put("BTCUSDT", "1h", [{ t, o: 100, h: 101, l: 99, c: 100.5, v: 10 }]);
+    const baseRow = {
+      symbol: "BTCUSDT", timeframe: "1h",
+      earliest_ts: t, latest_ts: t, bar_count: 1,
+      completion_state: "COMPLETE_TO_TTT_BOUNDARY" as const,
+      gap_count: 0, dataset_fingerprint: "legacy",
+      last_sync_ms: now, last_attempt_ms: now, last_successful_sync_ms: now,
+      last_error: null, retrieval_version: RETRIEVAL_VERSION, source: "ttt",
+    };
+
+    // Legacy row: completion flag retained, but NO evidence type recorded →
+    // the historical completion_state is preserved, the BOUNDARY claim is not.
+    store.putSync({ ...baseRow, boundary_proof: null, boundary_proof_ms: 0 });
+    const res1 = await GET(new Request("http://localhost/api/market/history?symbol=BTCUSDT&tf=1h"));
+    const body1 = await res1.json() as { metadata: { completion_state: string; earliest_boundary_reached: boolean; boundary_proof: string | null } };
+    expect(body1.metadata.completion_state).toBe("COMPLETE_TO_TTT_BOUNDARY"); // historical state kept
+    expect(body1.metadata.boundary_proof).toBeNull();
+    expect(body1.metadata.earliest_boundary_reached).toBe(false); // UNKNOWN evidence ≠ boundary
+
+    // With the recorded explicit TTT no_data proof the boundary IS announced.
+    store.putSync({ ...baseRow, boundary_proof: "TTT_NO_DATA", boundary_proof_ms: now });
+    const res2 = await GET(new Request("http://localhost/api/market/history?symbol=BTCUSDT&tf=1h"));
+    const body2 = await res2.json() as { metadata: { earliest_boundary_reached: boolean; boundary_proof: string | null } };
+    expect(body2.metadata.boundary_proof).toBe("TTT_NO_DATA");
+    expect(body2.metadata.earliest_boundary_reached).toBe(true);
+  });
+
+  it("restart during a discovery outage: persisted cells stay readable WITH a degraded marker; unproven symbols stay 503", async () => {
+    await scheduler();
+    const { __setHistoryStore, RETRIEVAL_VERSION } = await import("../src/lib/market/history-store");
+    const { __setOperationalUniverse } = await import("../src/lib/market/operational-universe");
+    const { __resetCatalogCache } = await import("../src/lib/market/catalog");
+    const store = new MemoryHistoryStore();
+    __setHistoryStore(store);
+    __setOperationalUniverse(null); // restart before any successful discovery
+    __resetCatalogCache(); // no cached catalog survives the restart
+    // discovery itself fails: the venue is unreachable
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("TTT network error: fetch failed (/futures/markets)"); }));
+
+    const now = Date.now();
+    const t = Math.floor(now / 1000 / 3600) * 3600 - 3600;
+    store.put("BTCUSDT", "1h", [{ t, o: 100, h: 101, l: 99, c: 100.5, v: 10 }]);
+    store.putSync({
+      symbol: "BTCUSDT", timeframe: "1h",
+      earliest_ts: t, latest_ts: t, bar_count: 1,
+      completion_state: "COMPLETE_TO_TTT_BOUNDARY",
+      gap_count: 0, dataset_fingerprint: "fp",
+      last_sync_ms: now, last_attempt_ms: now, last_successful_sync_ms: now,
+      boundary_proof: "TTT_NO_DATA", boundary_proof_ms: now,
+      last_error: null, retrieval_version: RETRIEVAL_VERSION, source: "ttt",
+    });
+    const { GET } = await import("../src/app/api/market/history/route");
+
+    // persisted evidence => the durable store remains reachable, clearly degraded
+    const res = await GET(new Request("http://localhost/api/market/history?symbol=BTCUSDT&tf=1h"));
+    const body = await res.json() as { ok: boolean; count: number; metadata: { completion_state: string; boundary_proof: string | null; earliest_boundary_reached: boolean; discovery_degraded: string | null } };
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.count).toBe(1);
+    expect(body.metadata.completion_state).toBe("COMPLETE_TO_TTT_BOUNDARY");
+    expect(body.metadata.boundary_proof).toBe("TTT_NO_DATA");
+    expect(body.metadata.earliest_boundary_reached).toBe(true);
+    // the read never masquerades as a fully-validated discovery-complete read
+    expect(body.metadata.discovery_degraded).toBe("DISCOVERY_UNAVAILABLE");
+
+    // a symbol with NO persisted evidence cannot be confirmed -> 503, not 404/empty
+    const res2 = await GET(new Request("http://localhost/api/market/history?symbol=DOGEUSDT&tf=1h"));
+    expect(res2.status).toBe(503);
+    const body2 = await res2.json() as { degraded?: string };
+    expect(body2.degraded).toBe("DISCOVERY_UNAVAILABLE");
+  });
 });
 
 describe("derivation is labeled, justified, and never an empty success", () => {

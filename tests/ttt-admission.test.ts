@@ -32,6 +32,7 @@ import {
   schedulerStats,
   setActiveScheduler,
   sharedScheduler,
+  systemClock,
   type SchedulerClock,
 } from "../src/lib/ttt/scheduler";
 import { tttRequest, TttHttpError } from "../src/lib/ttt/http";
@@ -334,7 +335,9 @@ describe("transport is the single admission point", () => {
   });
 
   it("J. the instance that charges admissions is the instance status reports", async () => {
-    const injected = new TttScheduler({ ratePerMin: 1000, jitter: () => 0 });
+    // Freeze the scheduler clock, not the event loop: token refill otherwise
+    // makes consecutive stats snapshots legitimately differ under suite load.
+    const injected = new TttScheduler({ ratePerMin: 1000, jitter: () => 0, clock: { ...systemClock, now: () => 1_000_000 } });
     const perTest = activeScheduler(); // this file's describe-level instance
     setActiveScheduler(injected);
     try {
@@ -813,7 +816,9 @@ describe("K. PR #7 history-boundary semantics hold under the single admission po
   });
 
   it("each history attempt is admitted once on the BACKFILL lane, and only explicit no_data proves a boundary", async () => {
-    const injected = new TttScheduler({ ratePerMin: 1000, jitter: () => 0 });
+    // Freeze the scheduler clock, not the event loop: token refill otherwise
+    // makes consecutive stats snapshots legitimately differ under suite load.
+    const injected = new TttScheduler({ ratePerMin: 1000, jitter: () => 0, clock: { ...systemClock, now: () => 1_000_000 } });
     setActiveScheduler(injected);
     const venue = makeFakeVenue(venueSpec(5));
     stubVenue(venue);
@@ -832,7 +837,9 @@ describe("K. PR #7 history-boundary semantics hold under the single admission po
   });
 
   it("an s:ok answer with zero bars is still NOT a boundary and is still admitted once", async () => {
-    const injected = new TttScheduler({ ratePerMin: 1000, jitter: () => 0 });
+    // Freeze the scheduler clock, not the event loop: token refill otherwise
+    // makes consecutive stats snapshots legitimately differ under suite load.
+    const injected = new TttScheduler({ ratePerMin: 1000, jitter: () => 0, clock: { ...systemClock, now: () => 1_000_000 } });
     setActiveScheduler(injected);
     const venue = makeFakeVenue(venueSpec(5), { okEmpty: true });
     stubVenue(venue);

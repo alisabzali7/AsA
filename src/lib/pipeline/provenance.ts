@@ -24,6 +24,10 @@ export interface DeliveryProgressView {
   photo_required: boolean;
   photo_sent: boolean;
   text_sent: boolean;
+  photo_message_id?: number | null;
+  text_message_id?: number | null;
+  photo_accepted_ms?: number;
+  text_accepted_ms?: number;
 }
 
 export interface SignalDeliveryView {
@@ -58,7 +62,9 @@ function progressOf(row: OutboxRow): DeliveryProgressView | null {
   try {
     const p = (JSON.parse(row.payload_json) as { delivery_progress?: Partial<DeliveryProgressView> }).delivery_progress;
     if (!p) return null;
-    return { photo_required: p.photo_required === true, photo_sent: p.photo_sent === true, text_sent: p.text_sent === true };
+    return { ...(p.photo_sent && p.photo_message_id !== undefined ? { photo_message_id: p.photo_message_id, photo_accepted_ms: p.photo_accepted_ms } : {}),
+      ...(p.text_sent && p.text_message_id !== undefined ? { text_message_id: p.text_message_id, text_accepted_ms: p.text_accepted_ms } : {}),
+      photo_required: p.photo_required === true, photo_sent: p.photo_sent === true, text_sent: p.text_sent === true };
   } catch {
     return null;
   }
@@ -68,7 +74,16 @@ function progressOf(row: OutboxRow): DeliveryProgressView | null {
 export function outboxRowForSignal(repo: Repo, sig: SignalRow): { row: OutboxRow | null; link: SignalDeliveryView["link"] } {
   if (sig.outbox_id != null) {
     const row = repo.outboxGet(sig.outbox_id);
-    if (row) return { row, link: "outbox_id" };
+    // A broken modern reference is not a legacy row. Never hide reference
+    // loss by searching for some other delivery with a matching payload.
+    let matches = false;
+    try {
+      const payload = row ? JSON.parse(row.payload_json) : null;
+      matches = row?.kind === "signal" && payload?.kind === "signal"
+        && payload?.opportunity_id === sig.opp_id
+        && (payload?.signal_id === undefined || payload.signal_id === sig.id);
+    } catch { /* corrupt reference is unavailable, not another signal's SENT */ }
+    return { row: matches ? row : null, link: matches ? "outbox_id" : null };
   }
   if (sig.opp_id) {
     const row = repo.outboxForOpportunity(sig.opp_id);
@@ -95,4 +110,15 @@ export function signalDelivery(repo: Repo, sig: SignalRow, nowMs = Date.now()): 
         ? { claimed_by: row.claimed_by as string, claim_ms: row.claim_ms, claim_expires_ms: row.claim_expires_ms }
         : null,
   };
+}
+
+/** Persisted JSON may be corrupt or legacy null; APIs must not crash or invent it. */
+export function parseStoredPayload(json: string): { payload: Record<string, unknown>; status: "PARSED" | "UNAVAILABLE" } {
+  try {
+    const value: unknown = JSON.parse(json);
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      return { payload: value as Record<string, unknown>, status: "PARSED" };
+    }
+  } catch { /* explicit unavailable below */ }
+  return { payload: {}, status: "UNAVAILABLE" };
 }

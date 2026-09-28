@@ -1,8 +1,10 @@
 # AsA 100% source-to-runtime closure contract
 
+> **Restoration notice.** The earlier denominator-bearing contract text was not recovered in the inspected repository history. This evidence-backed contract is a new source-to-runtime status contract, not a reconstruction of that missing text; it reports explicit states and does not invent a completion percentage.
+
 **Computed closure status:** `CLOSURE_BLOCKED_BY_SOURCE`
 
-As-of: 2026-09-27. This is a point-in-time evidence contract for the inspected checkout, not a claim that the supplied corpus is complete. “100%” means the current source, implementation, provenance, and validation boundaries are explicitly inventoried; it is not a subjective completion percentage and does not mean every source fact has been formalized or implemented.
+As-of: 2026-09-28. This is a point-in-time evidence contract for the inspected checkout, not a claim that the supplied corpus is complete. “100%” means the current source, implementation, provenance, and validation boundaries are explicitly inventoried; it is not a subjective completion percentage and does not mean every source fact has been formalized or implemented.
 
 ## Scope and decision rules
 
@@ -68,7 +70,7 @@ The source contract records the missing strategy-semantic adjudication as `UNKNO
 
 ## Source-to-runtime strategy status
 
-`source-contracts.json` is schema/contract version `1.2.0`; its checked-in lock pins contract bytes to `13cb5ec0245e1308046e4a5c9d2faeafa8e49520d21c493a335c6a7b4c4477c0`. The source-contract validator identity is `src/lib/strategy/compiled/source-contract.ts`, SHA-256 `9b59de10a32b62f73b4ab9ad5e8a5e4ee4aa3151b81d33ebddd7ad89127c997b`. Source, validator, implementation, setup, direction, timeframe, and strategy/rule-version identities are checked against runtime; identity/reference existence alone is not semantic parity proof.
+`source-contracts.json` is schema/contract version `1.2.0`; its checked-in lock pins contract bytes to `26acf24e2055290a35addd6cb3cf2da9d1b2b83802e7ac97da9546dc65ef94a8`. The source-contract validator identity is `src/lib/strategy/compiled/source-contract.ts`, SHA-256 `9b59de10a32b62f73b4ab9ad5e8a5e4ee4aa3151b81d33ebddd7ad89127c997b`. Source, validator, implementation, setup, direction, timeframe, and strategy/rule-version identities are checked against runtime; identity/reference existence alone is not semantic parity proof.
 
 | Contract / source record | Compiled binding(s) | Current evidence-backed gaps |
 |---|---|---|
@@ -131,4 +133,4 @@ The validator reports `CLOSURE_BLOCKED_BY_IMPLEMENTATION` for identity, semantic
 
 **Source blockers that remain regardless of passing implementation checks:** `RAW_1`, `RAW_2`, and `RAW_4` are `TRUNCATED`; `RAW_3` and `RAW_5` are `UNKNOWN`; both psychology sources are `TRUNCATED`; missing continuation and strategy-semantic adjudication remain `UNKNOWN`; all six compiled contracts are incomplete and semantically unproven; and source-faithful, version-bound performance/promotion evidence is `NOT_PRESENT`. Recovery beyond the inspected local/GitHub repository has not been searched. These states prevent `CLOSURE_READY` without any implication that the implementation checks have failed.
 
-No merge, rebase, deployment, release, or source-semantic promotion is authorized by this contract. The working branch remains based on `dcba86b`; the separate `origin/main` restoration notice at this same path has not been merged or rewritten here.
+No source-semantic promotion, deployment, or release is authorized by this contract. During this audit, the fixed branch `arena/01a0da21-asa` incorporated `origin/main` at commit `7d676fad6f219a9fec93edb8b701b58fdaa4bf22` by a non-rewriting merge; local history was not rebased or rewritten. This integration does not resolve any source blocker or authorize production eligibility.

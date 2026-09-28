@@ -3,24 +3,29 @@ import { NextResponse } from "next/server";
 import { getRepo } from "@/db/sqlite";
 import { opportunityFreshness } from "@/lib/pipeline/orchestrator";
 
+import { parseStoredPayload } from "@/lib/pipeline/provenance";
+
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request): Promise<NextResponse> {
   const url = new URL(req.url);
   const limit = Math.min(200, Math.max(1, Number.parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
   const now = Date.now();
-  const rows = getRepo().opportunityList(limit);
+  const repo = getRepo();
+  const rows = repo.opportunityList(limit);
   const items = rows.map((r) => {
-    let payload: Record<string, unknown> = {};
-    try { payload = JSON.parse(r.payload_json) as Record<string, unknown>; } catch { /* ignore */ }
+    const { payload, status: payload_status } = parseStoredPayload(r.payload_json);
     // INTERFACE (Task 3): freshness is timeframe-aware — pass the row's own
     // timeframe so the 4-bar window matches the strategy that produced it.
     const fresh = opportunityFreshness((payload.anchor_close_ms as number | null) ?? null, now, r.timeframe);
     const decisionState = r.state;
+    const signal = repo.signalByOpp(r.id);
+    const signalTerminal = signal !== null && !["candidate", "qualified", "published"].includes(signal.state);
     // Freshness is NOT the decision. READY freshness on a REJECTED row must
     // never present as an actionable opportunity.
     return {
       ...payload,
+      payload_status,
       id: r.id,
       symbol: r.symbol,
       timeframe: r.timeframe,
@@ -39,8 +44,10 @@ export async function GET(req: Request): Promise<NextResponse> {
         window_bars: 4,
         timeframe: r.timeframe,
       },
-      actionable: decisionState === "READY" && fresh.state === "READY",
-      note: "85 is a deterministic score — never a calibrated probability. fresh=READY means the anchor is inside the 4-bar window, not that the decision was admitted.",
+      signal_id: signal?.id ?? null,
+      signal_state: signal?.state ?? null,
+      actionable: decisionState === "READY" && fresh.state === "READY" && !signalTerminal,
+      note: "Score is deterministic, never a calibrated probability. READY describes stored admission; actionable filters source freshness and linked lifecycle, not a fresh risk certificate. Publication revalidates current gates.",
     };
   });
   return NextResponse.json({ ok: true, count: items.length, items, ts: now });

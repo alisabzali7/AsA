@@ -1,0 +1,60 @@
+{
+  "date": "2026-09-26",
+  "local_checkout_is_shallow": true,
+  "remote_branch_heads": 21,
+  "remote_path_histories": 21,
+  "exact_roadmap_matching_commits": 0,
+  "github_releases": 0,
+  "pdf_extraction": [
+    {
+      "file": "docs/archive/AsA_Master_Build_Bible_v1.0.pdf",
+      "pages": 50,
+      "characters": 55408
+    },
+    {
+      "file": "docs/ttt/ttt-api-reference.pdf",
+      "pages": 20,
+      "characters": 17569
+    }
+  ],
+  "original_candidates": "remote RAW_1/2/4 blob identities equal local files; no longer originals or named source package located",
+  "authority": "Historical implementation contract and Bible inform architecture, not an authorized current 100-percent accounting denominator",
+  "network": "Canonical public TTT catalog chunk fetched by independent web connector; direct sandbox curl IPv4/TLS1.2 and Node TLS reset before handshake. No runtime market data injected from tool snapshots.",
+  "raw_files": [
+    {
+      "file": "knowledge/raw/RAW_1.txt",
+      "bytes": 617254,
+      "characters": 349998,
+      "sha256": "b430f52e191c763e7c8752359ddc21820cbe8f79ea58b212f14ca0107d3a7244",
+      "tail_excerpt": "عجله برای به پایان رساندن دوره آموزشی و پریدن مستقیم به بخش معاملات [VERIFIED].\nنادیده گرفتن آموزش‌های لایف‌استایل، روانشناسی و مبانی اولیه ترید [VERIFIED].\nتقلید از منابع آموزشی محدود فارسی‌زبان و استفاده از روش‌های منسوخ مثل تابلوخوانی [VERIFIED].\nفرض این‌که"
+    },
+    {
+      "file": "knowledge/raw/RAW_2.txt",
+      "bytes": 598290,
+      "characters": 350000,
+      "sha256": "0177294c7f5b14b758efab3cd8a3b39e3ed8444766c6bdba318978a3e872fbb1",
+      "tail_excerpt": "ر حال موج سواری بوده و ما هم چقدر زیبا می‌تونستیم از این موج سواری استفاده کنیم برای معاملات خودمون. در تمامی تایم‌فریم‌ها هم این مووینگ اوریج‌ها کار خودشون رو می‌کنند دقیقاً طبق تحلیلی که من انجام دادم قیمت تا اینجا پایین اومد به همین سادگی در تایم‌فریم یک دق"
+    },
+    {
+      "file": "knowledge/raw/RAW_3.txt",
+      "bytes": 424438,
+      "characters": 253714,
+      "sha256": "bf0ae22b7fdbde3959c5563338058d378f030d5506ca5b15cf92f59a2be06cee",
+      "tail_excerpt": "اید مسائل معنوی را جایگزین استراتژی و منطق بازار کرد.\nاطلاعات Unknown\n• جزئیات دقیق فرمول‌های ورود، خروج، تایم‌فریم‌ها و مقادیر دقیق Stop Loss و Take Profit در این بخش معرفی نشده‌اند.\nStrategyهای قابل تبدیل به کد\n• UNKNOWN\nفهرست نهایی تمام Strategyها\n• UNKNOWN"
+    },
+    {
+      "file": "knowledge/raw/RAW_4.txt",
+      "bytes": 600086,
+      "characters": 350000,
+      "sha256": "bc050e2aefbb9a0bf0894114d791a7e93dfa01afe263e25ade0b04b1b560db8a",
+      "tail_excerpt": "دل (Body) باشد. [VERIFIED]\nقانون ۳ (ATR پین‌بار): اندازه کل پین‌بار (از High تا Low) باید حداقل ۱.۵ الی ۲ برابر مومنتوم جاری بازار (کندل‌های اخیر) باشد. پین‌بارهای هم‌اندازه با کندل‌های قبلی معتبر نیستند. [VERIFIED]\nقانون ۴ (جهت سایه): در یک روند صعودی (برای گ"
+    },
+    {
+      "file": "knowledge/raw/RAW_5.txt",
+      "bytes": 184218,
+      "characters": 109216,
+      "sha256": "1c73c915fe90d7bd5c49f2b93ceab47b15850b795f53989914fa1f53d208baaf",
+      "tail_excerpt": "ت. Input 3: فاصله ورود تا SL به پیپ (بر اساس گره مینور + ۵ پیپ). Output: محاسبه اتوماتیک Lot Size.\n۱۹. فهرست نهایی تمام Strategyها\n1. استراتژی Bank Trade / اسمارت مانی: معامله بر اساس نواحی Order Block تأییدشده با ۵ شرط اصلی در بازگشت‌های قیمت (FTB, STB, TTb)."
+    }
+  ]
+}

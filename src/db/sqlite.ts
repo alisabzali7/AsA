@@ -6,8 +6,9 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { ASA_DB_PATH } from "../lib/env";
-import type { Repo, OpportunityRow, SignalRow, JournalRow, OutboxRow, OutboxClaim, AiCallRow, NewsRow, RetentionRunRow, BacktestJobRow } from "./repo";
+import type { Repo, OpportunityRow, SignalRow, SignalTransitionRow, JournalRow, OutboxRow, OutboxClaim, AiCallRow, NewsRow, RetentionRunRow, BacktestJobRow } from "./repo";
 import { OUTBOX_MAX_ATTEMPTS } from "./repo";
+import { assertSignalTransition } from "../lib/pipeline/signal-lifecycle";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS config (k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -85,7 +86,7 @@ export class SqliteRepo implements Repo {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("synchronous = NORMAL");
     this.db.exec(SCHEMA);
-    this.migrate();
+    this.db.transaction(() => this.migrate()).immediate();
   }
 
   /**
@@ -136,6 +137,16 @@ export class SqliteRepo implements Repo {
         .prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_ms, note) VALUES (2, ?, ?)")
         .run(Date.now(), "signals.outbox_id present (fresh schema or previously migrated)");
     }
+    // v3: an attempt belongs to a claim, not to each invocation of a helper.
+    if (!cols.has("attempt_claim")) this.db.exec("ALTER TABLE telegram_outbox ADD COLUMN attempt_claim TEXT");
+    this.db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_ms, note) VALUES (3, ?, ?)")
+      .run(Date.now(), "idempotent transport-attempt accounting per claim");
+    this.db.exec(`CREATE TABLE IF NOT EXISTS signal_transitions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, signal_id TEXT NOT NULL,
+      from_state TEXT, to_state TEXT NOT NULL, changed_ms INTEGER NOT NULL
+    ); CREATE INDEX IF NOT EXISTS idx_signal_transitions ON signal_transitions(signal_id, id);`);
+    this.db.prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_ms, note) VALUES (4, ?, ?)")
+      .run(Date.now(), "signal transition audit; historical transitions not fabricated");
   }
 
   configGet(k: string): string | null {
@@ -150,7 +161,7 @@ export class SqliteRepo implements Repo {
       .prepare(
         `INSERT INTO opportunities (id, symbol, timeframe, direction, score, state, mode, strategy_id, payload_json, created_ms, updated_ms)
          VALUES (@id, @symbol, @timeframe, @direction, @score, @state, @mode, @strategy_id, @payload_json, @created_ms, @updated_ms)
-         ON CONFLICT(id) DO UPDATE SET state=@state, score=@score, payload_json=@payload_json, updated_ms=@updated_ms`,
+         ON CONFLICT(id) DO UPDATE SET state=@state, score=@score, mode=@mode, payload_json=@payload_json, updated_ms=@updated_ms`,
       )
       .run(o);
   }
@@ -164,30 +175,51 @@ export class SqliteRepo implements Repo {
     return (this.db.prepare("SELECT COUNT(*) AS c FROM opportunities").get() as { c: number }).c;
   }
   signalInsert(s: SignalRow): void {
-    // FIX (T05): plain INSERT, never INSERT OR REPLACE. A duplicate id/opp_id
-    // is an invariant violation and must fail loudly (PK / UNIQUE(opp_id));
-    // OR REPLACE silently destroyed the existing row's state history and let a
-    // re-publish resurrect terminal signals. Lifecycle transitions go through
-    // signalUpdate; this method only creates.
-    this.db
-      .prepare(
-        `INSERT INTO signals (id, state, symbol, timeframe, direction, score, strategy_id, opp_id, payload_json, created_ms, updated_ms, outbox_id)
-         VALUES (@id, @state, @symbol, @timeframe, @direction, @score, @strategy_id, @opp_id, @payload_json, @created_ms, @updated_ms, @outbox_id)`,
-      )
-      .run({ ...s, outbox_id: s.outbox_id ?? null });
+    this.withTransaction(() => {
+      // FIX (T05): plain INSERT, never INSERT OR REPLACE. A duplicate id/opp_id
+      // is an invariant violation and must fail loudly (PK / UNIQUE(opp_id));
+      // OR REPLACE silently destroyed the existing row's state history and let a
+      // re-publish resurrect terminal signals. Lifecycle transitions go through
+      // signalUpdate; this method only creates.
+      this.db
+        .prepare(
+          `INSERT INTO signals (id, state, symbol, timeframe, direction, score, strategy_id, opp_id, payload_json, created_ms, updated_ms, outbox_id)
+           VALUES (@id, @state, @symbol, @timeframe, @direction, @score, @strategy_id, @opp_id, @payload_json, @created_ms, @updated_ms, @outbox_id)`,
+        )
+        .run({ ...s, outbox_id: s.outbox_id ?? null });
+      this.db.prepare("INSERT INTO signal_transitions(signal_id, from_state, to_state, changed_ms) VALUES (?, NULL, ?, ?)")
+        .run(s.id, s.state, Date.now());
+    });
+  }
+  signalHistory(id: string): SignalTransitionRow[] {
+    return this.db.prepare("SELECT * FROM signal_transitions WHERE signal_id=? ORDER BY id").all(id) as SignalTransitionRow[];
   }
   signalUpdate(s: Partial<SignalRow> & { id: string }): void {
-    const cur = this.db.prepare("SELECT * FROM signals WHERE id = ?").get(s.id) as SignalRow | undefined;
-    if (!cur) return;
-    const next = { ...cur, ...s, updated_ms: Date.now() };
-    this.db
-      .prepare(
-        `UPDATE signals SET state=@state, symbol=@symbol, timeframe=@timeframe, direction=@direction,
-         score=@score, strategy_id=@strategy_id, opp_id=@opp_id, payload_json=@payload_json, updated_ms=@updated_ms,
-         outbox_id=@outbox_id WHERE id=@id`,
-      )
-      .run({ ...next, outbox_id: next.outbox_id ?? null });
+    this.withTransaction(() => {
+      const cur = this.db.prepare("SELECT * FROM signals WHERE id = ?").get(s.id) as SignalRow | undefined;
+      if (!cur) throw new Error(`signal ${s.id} not found`);
+      assertSignalTransition(cur.state, s.state ?? cur.state);
+      for (const key of ["opp_id", "symbol", "timeframe", "direction", "strategy_id", "created_ms"] as const) {
+        if (s[key] !== undefined && s[key] !== cur[key]) throw new Error(`signal identity is immutable: ${key}`);
+      }
+      if (!["candidate", "qualified"].includes(cur.state)) {
+        for (const key of ["payload_json", "score", "outbox_id"] as const) {
+          if (s[key] !== undefined && s[key] !== cur[key]) throw new Error(`signal decision snapshot is immutable: ${key}`);
+        }
+      }
+      if (!["candidate", "qualified", "published"].includes(cur.state)) {
+        if (Object.entries(s).some(([k, v]) => v !== cur[k as keyof SignalRow])) throw new Error("terminal signal is immutable");
+        return;
+      }
+      const next = { ...cur, ...s, updated_ms: Date.now() };
+      this.db.prepare(`UPDATE signals SET state=@state, symbol=@symbol, timeframe=@timeframe, direction=@direction,
+        score=@score, strategy_id=@strategy_id, opp_id=@opp_id, payload_json=@payload_json, updated_ms=@updated_ms,
+        outbox_id=@outbox_id WHERE id=@id`).run({ ...next, outbox_id: next.outbox_id ?? null });
+      if (next.state !== cur.state) this.db.prepare("INSERT INTO signal_transitions(signal_id, from_state, to_state, changed_ms) VALUES (?, ?, ?, ?)")
+        .run(s.id, cur.state, next.state, next.updated_ms);
+    });
   }
+
   signalPage(limit: number, offset: number): SignalRow[] {
     return this.db.prepare("SELECT * FROM signals ORDER BY updated_ms DESC LIMIT ? OFFSET ?").all(limit, offset) as SignalRow[];
   }
@@ -209,6 +241,9 @@ export class SqliteRepo implements Repo {
     return this.db.prepare(
       `SELECT * FROM signals WHERE ${activeStates} ORDER BY updated_ms DESC LIMIT ?`,
     ).all(limit) as SignalRow[];
+  }
+  signalActive(): SignalRow[] {
+    return this.db.prepare("SELECT * FROM signals WHERE state IN ('published', 'qualified') ORDER BY id").all() as SignalRow[];
   }
   signalList(limit: number): SignalRow[] {
     return this.db.prepare("SELECT * FROM signals ORDER BY updated_ms DESC LIMIT ?").all(limit) as SignalRow[];
@@ -234,21 +269,38 @@ export class SqliteRepo implements Repo {
       .run(kind, JSON.stringify(payload), Date.now());
     return Number(r.lastInsertRowid);
   }
+  outboxStateCounts(): Record<OutboxRow["state"], number> {
+    const counts = { QUEUED: 0, SENT: 0, FAILED: 0, DEAD: 0 };
+    for (const row of this.db.prepare("SELECT state, COUNT(*) AS n FROM telegram_outbox GROUP BY state").all() as { state: OutboxRow["state"]; n: number }[]) counts[row.state] = row.n;
+    return counts;
+  }
   outboxList(state: OutboxRow["state"] | "ALL", limit: number): OutboxRow[] {
     if (state === "ALL") return this.db.prepare("SELECT * FROM telegram_outbox ORDER BY created_ms DESC LIMIT ?").all(limit) as OutboxRow[];
     return this.db.prepare("SELECT * FROM telegram_outbox WHERE state = ? ORDER BY created_ms DESC LIMIT ?").all(state, limit) as OutboxRow[];
   }
   outboxRetryable(limit: number): OutboxRow[] {
-    // AUDIT FIX (P1): a transient provider failure must not permanently strand
-    // an advisory. FAILED rows with TRANSPORT attempts remaining are retried;
-    // DEAD is terminal and never retried. Live claims are arbitrated by the
-    // atomic outboxClaim — a concurrent consumer simply loses the claim.
-    return this.db
-      .prepare(
-        "SELECT * FROM telegram_outbox WHERE state IN ('QUEUED','FAILED') AND attempts < ? ORDER BY created_ms ASC LIMIT ?",
-      )
-      .all(OUTBOX_MAX_ATTEMPTS, limit) as OutboxRow[];
+    const now = Date.now();
+    // Recover the final-attempt crash window. Only PERSISTED provider
+    // acceptances can complete it; ambiguous acceptance is terminal DEAD.
+    const complete = `CASE WHEN json_valid(payload_json) THEN
+      json_extract(payload_json, '$.delivery_progress.text_sent') = 1 AND
+      ((json_extract(payload_json, '$.delivery_progress.photo_required') = 0 AND json_extract(payload_json, '$.signal_id') IS NULL) OR
+       json_extract(payload_json, '$.delivery_progress.photo_sent') = 1)
+      ELSE 0 END`;
+    this.db.prepare(`UPDATE telegram_outbox
+      SET state=CASE WHEN (${complete}) THEN 'SENT' ELSE 'DEAD' END,
+        sent_ms=CASE WHEN (${complete}) THEN COALESCE(sent_ms, @now) ELSE sent_ms END,
+        error=CASE WHEN (${complete}) THEN NULL ELSE 'transport budget exhausted during interrupted delivery; provider acceptance may be unknown' END,
+        claimed_by=NULL, claim_ms=NULL, claim_expires_ms=NULL
+      WHERE state IN ('QUEUED','FAILED') AND attempts >= @max
+        AND (claimed_by IS NULL OR claim_expires_ms IS NULL OR claim_expires_ms <= @now)`)
+      .run({ max: OUTBOX_MAX_ATTEMPTS, now });
+    return this.db.prepare(`SELECT * FROM telegram_outbox
+      WHERE state IN ('QUEUED','FAILED') AND attempts < ?
+        AND (claimed_by IS NULL OR claim_expires_ms IS NULL OR claim_expires_ms <= ?)
+      ORDER BY created_ms ASC, id ASC LIMIT ?`).all(OUTBOX_MAX_ATTEMPTS, now, limit) as OutboxRow[];
   }
+
   outboxGet(id: number): OutboxRow | null {
     return (this.db.prepare("SELECT * FROM telegram_outbox WHERE id = ?").get(id) as OutboxRow | undefined) ?? null;
   }
@@ -256,19 +308,21 @@ export class SqliteRepo implements Repo {
     return (
       (this.db
         .prepare(
-          "SELECT * FROM telegram_outbox WHERE kind = 'signal' AND json_extract(payload_json, '$.opportunity_id') = ? ORDER BY id ASC LIMIT 1",
+          "SELECT * FROM telegram_outbox WHERE kind = 'signal' AND json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END, '$.opportunity_id') = ? ORDER BY id ASC LIMIT 1",
         )
         .get(oppId) as OutboxRow | undefined) ?? null
     );
   }
   outboxClaim(id: number, claim: OutboxClaim): boolean {
+    if (!claim.token || !Number.isFinite(claim.claimed_at_ms) || !Number.isFinite(claim.expires_at_ms)
+      || claim.claimed_at_ms > Date.now() || claim.expires_at_ms <= Date.now()) return false;
     // ONE atomic conditional UPDATE = the claim protocol (T05 T3). SQLite
     // serializes the write across processes/threads, so exactly one consumer
     // can win a given row/lease window — no in-process mutex involved.
     // Reclaim is allowed only when unclaimed or the PERSISTED lease expired.
     const r = this.db
       .prepare(
-        `UPDATE telegram_outbox SET claimed_by = @token, claim_ms = @claimed_at_ms, claim_expires_ms = @expires_at_ms
+        `UPDATE telegram_outbox SET claimed_by = @token, claim_ms = @claimed_at_ms, claim_expires_ms = @expires_at_ms, attempt_claim = NULL
          WHERE id = @id AND state IN ('QUEUED','FAILED') AND attempts < @max
            AND (claimed_by IS NULL OR claim_expires_ms IS NULL OR @nowMs >= claim_expires_ms)`,
       )
@@ -282,59 +336,44 @@ export class SqliteRepo implements Repo {
       });
     return r.changes === 1;
   }
+  outboxRenewClaim(id: number, claim: OutboxClaim, expiresAtMs: number): boolean {
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) return false;
+    return this.db.prepare(`UPDATE telegram_outbox SET claim_expires_ms=MAX(claim_expires_ms, ?)
+      WHERE id=? AND state IN ('QUEUED','FAILED') AND claimed_by=? AND claim_ms=? AND claim_expires_ms > ?`)
+      .run(expiresAtMs, id, claim.token, claim.claimed_at_ms, Date.now()).changes === 1;
+  }
   outboxCountAttempt(id: number, claim: OutboxClaim): number | null {
-    // THE only place `attempts` increments: called exactly once per delivery
-    // cycle, at the moment the cycle ENTERS the transport phase. Conditioned
-    // on the claim so a stale owner can never spend the new owner's budget.
-    const row = this.db
-      .prepare(
-        `UPDATE telegram_outbox SET attempts = attempts + 1
-         WHERE id = ? AND claimed_by = ? AND claim_ms = ?
-         RETURNING attempts`,
-      )
-      .get(id, claim.token, claim.claimed_at_ms) as { attempts: number } | undefined;
-    return row ? row.attempts : null;
+    const row = this.db.prepare(`UPDATE telegram_outbox
+      SET attempts=attempts + CASE WHEN attempt_claim = @token THEN 0 ELSE 1 END, attempt_claim=@token
+      WHERE id=@id AND state IN ('QUEUED','FAILED') AND claimed_by=@token AND claim_ms=@claimed
+        AND claim_expires_ms > @now AND (attempts < @max OR attempt_claim=@token)
+      RETURNING attempts`).get({ id, token: claim.token, claimed: claim.claimed_at_ms, now: Date.now(), max: OUTBOX_MAX_ATTEMPTS }) as { attempts: number } | undefined;
+    return row?.attempts ?? null;
   }
   outboxMark(id: number, state: OutboxRow["state"], error: string | null = null, claim: OutboxClaim | null = null): boolean {
-    // NOTE (T05 T3): this NEVER touches attempts — the attempt budget is spent
-    // exclusively by outboxCountAttempt at the transport boundary. With a
-    // claim, the write is owner-conditional (stale owners cannot corrupt a
-    // reclaimed row) and releases the claim when the cycle ends.
-    let r;
-    if (claim) {
-      if (state === "SENT") {
-        r = this.db
-          .prepare(
-            "UPDATE telegram_outbox SET state=?, error=?, sent_ms=?, claimed_by=NULL, claim_ms=NULL WHERE id=? AND claimed_by=? AND claim_ms=?",
-          )
-          .run(state, error, Date.now(), id, claim.token, claim.claimed_at_ms);
-      } else {
-        r = this.db
-          .prepare(
-            "UPDATE telegram_outbox SET state=?, error=?, claimed_by=NULL, claim_ms=NULL WHERE id=? AND claimed_by=? AND claim_ms=?",
-          )
-          .run(state, error, id, claim.token, claim.claimed_at_ms);
-      }
-    } else if (state === "SENT") {
-      r = this.db.prepare("UPDATE telegram_outbox SET state=?, error=?, sent_ms=? WHERE id=?").run(state, error, Date.now(), id);
-    } else {
-      r = this.db.prepare("UPDATE telegram_outbox SET state=?, error=? WHERE id=?").run(state, error, id);
-    }
-    return r.changes > 0;
+    const now = Date.now();
+    // Unowned preflight can annotate only unclaimed retryable rows; never
+    // report success, steal a lease, or resurrect terminal delivery.
+    if (!claim && state === "SENT") return false;
+    const owner = claim
+      ? "claimed_by=@token AND claim_ms=@claimed AND claim_expires_ms > @now"
+      : "claimed_by IS NULL";
+    return this.db.prepare(`UPDATE telegram_outbox SET state=@state, error=@error,
+      sent_ms=CASE WHEN @state='SENT' THEN @now ELSE sent_ms END,
+      claimed_by=NULL, claim_ms=NULL, claim_expires_ms=NULL
+      WHERE id=@id AND state IN ('QUEUED','FAILED') AND ${owner}`)
+      .run({ id, state, error, now, ...(claim ? { token: claim.token, claimed: claim.claimed_at_ms } : {}) }).changes === 1;
   }
   outboxSetPayload(id: number, payload_json: string, claim: OutboxClaim | null = null): boolean {
-    // With a claim: owner-conditional (a stale worker cannot overwrite the
-    // reclaimed row's delivery progress). Mid-delivery writes do NOT release
-    // the claim.
-    const r = claim
-      ? this.db
-          .prepare("UPDATE telegram_outbox SET payload_json=? WHERE id=? AND claimed_by=? AND claim_ms=?")
-          .run(payload_json, id, claim.token, claim.claimed_at_ms)
-      : this.db.prepare("UPDATE telegram_outbox SET payload_json=? WHERE id=?").run(payload_json, id);
-    return r.changes > 0;
+    const owner = claim
+      ? "claimed_by=@token AND claim_ms=@claimed AND claim_expires_ms > @now"
+      : "claimed_by IS NULL";
+    return this.db.prepare(`UPDATE telegram_outbox SET payload_json=@payload_json
+      WHERE id=@id AND state IN ('QUEUED','FAILED') AND ${owner}`)
+      .run({ id, payload_json, ...(claim ? { token: claim.token, claimed: claim.claimed_at_ms, now: Date.now() } : {}) }).changes === 1;
   }
   withTransaction<T>(fn: () => T): T {
-    return this.db.transaction(fn)();
+    return this.db.transaction(fn).immediate();
   }
   aiCallInsert(c: Omit<AiCallRow, "id">): void {
     this.db

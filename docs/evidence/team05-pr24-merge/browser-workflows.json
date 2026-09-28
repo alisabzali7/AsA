@@ -1,0 +1,81 @@
+{
+  "results": [
+    {
+      "name": "real dashboard",
+      "status": "PASS",
+      "evidence": "unmodified built application and actual runtime API"
+    },
+    {
+      "name": "real signals-empty",
+      "status": "PASS",
+      "evidence": "unmodified built application and actual runtime API"
+    },
+    {
+      "name": "real opportunities-empty",
+      "status": "PASS",
+      "evidence": "unmodified built application and actual runtime API"
+    },
+    {
+      "name": "real delivery-runtime",
+      "status": "PASS",
+      "evidence": "unmodified built application and actual runtime API"
+    },
+    {
+      "name": "real missing detail",
+      "status": "PASS",
+      "evidence": "HTTP 404 -> explicit unavailable, no fabricated lifecycle"
+    },
+    {
+      "name": "real mobile Persian RTL",
+      "status": "PASS",
+      "evidence": "390px, no horizontal overflow"
+    },
+    {
+      "name": "LOCAL signal-list",
+      "status": "PASS",
+      "evidence": "actual SQLite -> API -> UI, synthetic upstream/account + local HTTP provider ONLY"
+    },
+    {
+      "name": "LOCAL partial-delivery-detail",
+      "status": "PASS",
+      "evidence": "actual SQLite -> API -> UI, synthetic upstream/account + local HTTP provider ONLY"
+    },
+    {
+      "name": "LOCAL accepted-detail",
+      "status": "PASS",
+      "evidence": "actual SQLite -> API -> UI, synthetic upstream/account + local HTTP provider ONLY"
+    },
+    {
+      "name": "LOCAL terminal-lifecycle",
+      "status": "PASS",
+      "evidence": "actual SQLite -> API -> UI, synthetic upstream/account + local HTTP provider ONLY"
+    },
+    {
+      "name": "LOCAL risk-block",
+      "status": "PASS",
+      "evidence": "actual SQLite -> API -> UI, synthetic upstream/account + local HTTP provider ONLY"
+    },
+    {
+      "name": "LOCAL immutable chart",
+      "status": "PASS",
+      "evidence": "real chart API/renderer reads exact persisted synthetic OHLCV fingerprint during real discovery outage"
+    },
+    {
+      "name": "LOCAL mobile detail RTL",
+      "status": "PASS",
+      "evidence": "no horizontal overflow; decision, delivery and history remain distinct"
+    },
+    {
+      "name": "LOCAL UI -> API -> SQLite -> reloaded UI",
+      "status": "PASS",
+      "evidence": "actual guarded risk preference save, equity 12000, no intercepted response or source edit"
+    },
+    {
+      "name": "LOCAL offline mutation",
+      "status": "PASS",
+      "evidence": "truthful offline refusal; no unhandled promise rejection"
+    }
+  ],
+  "errors": [],
+  "note": "All local nonempty evidence is TEST/SYNTHETIC. No real Telegram acceptance, live strategy promotion or production mutation claimed."
+}

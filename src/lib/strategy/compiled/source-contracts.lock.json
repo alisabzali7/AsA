@@ -1,15 +1,15 @@
 {
   "lock_version": "1.1.0",
   "contract_path": "src/lib/strategy/compiled/source-contracts.json",
-  "contract_sha256": "13cb5ec0245e1308046e4a5c9d2faeafa8e49520d21c493a335c6a7b4c4477c0",
+  "contract_sha256": "26acf24e2055290a35addd6cb3cf2da9d1b2b83802e7ac97da9546dc65ef94a8",
   "implementation_bindings": [
     {
       "file": "src/lib/backtest/strategy-runner.ts",
-      "sha256": "ea6f005e06bca36a01f49bd34a7332bf62ca996540b6da57a851c8b3bb305697"
+      "sha256": "68b0b8c7b9ac7ebf684655afde7b3aebef506b6e6f8348e7ba68a212888e1512"
     },
     {
       "file": "src/lib/strategy/compiled/harmonic-abcd.ts",
-      "sha256": "505e64a34f37a0e4822c4a6eb1aaba47db637042fd4250c7def22c8f87a384cc"
+      "sha256": "f5b5468d3c906a9ce8fea7f7f2614732610d7bb0e10668fc34db20c0886febcd"
     },
     {
       "file": "src/lib/strategy/compiled/index.ts",

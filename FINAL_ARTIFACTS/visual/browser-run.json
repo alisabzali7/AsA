@@ -1,0 +1,754 @@
+{
+  "started_utc": "2026-09-26T10:36:41.984Z",
+  "app": "http://127.0.0.1:3000",
+  "scenarios": [
+    {
+      "name": "0-live-unavailable",
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "checks": {
+        "no candles fabricated": {
+          "pass": true,
+          "observed": "waiting for real TTT candles…"
+        },
+        "analysis shows unavailable (not neutral)": {
+          "pass": true,
+          "observed": "UNAVAILABLE"
+        },
+        "mtf unavailable surfaced": {
+          "pass": true,
+          "observed": "MTF unavailable: HTTP 503 MARKET_SOURCE_UNAVAILABLE Current view: 15m."
+        }
+      },
+      "network_errors": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT"
+        }
+      ],
+      "screenshot": "FINAL_ARTIFACTS/visual/scenario-0-live-unavailable.png",
+      "interception": false,
+      "network_error_classification": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ],
+      "console_error_classification": [
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/analysis/BTCUSDT/15m — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/analysis/mtf/BTCUSDT — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ],
+      "console_errors_understood": true,
+      "network_summary": {
+        "total_responses": 81,
+        "by_status": {
+          "200": 78,
+          "503": 3
+        },
+        "api_paths": [
+          "200 /api/market/focus",
+          "200 /api/market/symbols",
+          "200 /api/system/health",
+          "503 /api/analysis/BTCUSDT/15m",
+          "503 /api/analysis/mtf/BTCUSDT",
+          "503 /api/market/candles"
+        ],
+        "third_party_responses": 0
+      }
+    },
+    {
+      "name": "1-normal",
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "checks": {
+        "panel shows the bundle fingerprint of FIXTUREA 15m": {
+          "pass": true,
+          "observed": "13401e1d5f047a"
+        },
+        "freshness badge from server": {
+          "pass": true,
+          "observed": "FRESH"
+        },
+        "as-of open + knowable-at close in UTC": {
+          "pass": true,
+          "observed": "last bar opened 2026-09-26 04:15 UTC · knowable at close 2026-09-26 04:30 UTC"
+        },
+        "EMA lines rendered from server series": {
+          "pass": true,
+          "observed": null
+        },
+        "forming bar disclosed": {
+          "pass": true,
+          "observed": null
+        },
+        "source declared fixture": {
+          "pass": true,
+          "observed": null
+        },
+        "chart canvases present": {
+          "pass": true,
+          "observed": 7
+        }
+      },
+      "network_errors": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT"
+        }
+      ],
+      "served": 9,
+      "screenshot": "FINAL_ARTIFACTS/visual/scenario-1-normal.png",
+      "network_error_classification": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ],
+      "console_error_classification": [
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/analysis/BTCUSDT/15m — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/analysis/mtf/BTCUSDT — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ],
+      "console_errors_understood": true,
+      "network_summary": {
+        "total_responses": 84,
+        "by_status": {
+          "200": 81,
+          "503": 3
+        },
+        "api_paths": [
+          "200 /api/analysis/FIXTUREA/15m",
+          "200 /api/analysis/mtf/FIXTUREA",
+          "200 /api/market/candles",
+          "200 /api/market/focus",
+          "200 /api/market/history",
+          "200 /api/market/symbols",
+          "200 /api/system/health",
+          "503 /api/analysis/BTCUSDT/15m",
+          "503 /api/analysis/mtf/BTCUSDT",
+          "503 /api/market/candles"
+        ],
+        "third_party_responses": 0
+      }
+    },
+    {
+      "name": "2-structure-rich",
+      "errors": [],
+      "checks": {
+        "fingerprint of FIXTUREB 1h shown": {
+          "pass": true,
+          "observed": "00f52669fc9cae"
+        },
+        "structure objects drawn (S/R, fib, FVG/OB, BOS/CHoCH)": {
+          "pass": true,
+          "observed": "drawn: 8 S/R · 7 fib · 4 FVG · 2 OB · 10 BOS/CHoCH · 2 div · EMA 20 / EMA 50 lines · not drawn: 1 FVG (mitigated (price traded back into the gap)); 1 FVG (display cap 4 most recent open gaps); 1 OB (mitigated (price re-entered the block after the break))"
+        },
+        "semantic disclaimers visible": {
+          "pass": true,
+          "observed": null
+        },
+        "MTF verdict visible": {
+          "pass": true,
+          "observed": "PARTIAL one core timeframe neutral"
+        },
+        "spec-missing layers disclosed (trendlines, MACD, liquidity, momentum threshold)": {
+          "pass": true,
+          "observed": "not available (spec missing, not \"none found\"): TRENDLINES TRENDLINES_SPEC_LOCKED · MACD PARAMETERS_UNSPECIFIED · ICHIMOKU PARAMETERS_UNSPECIFIED · ADX PARAMETERS_UNSPECIFIED · LIQUIDITY LIQUIDITY_SPEC_UNKNOWN · MOMENTUM_STRENGTH MOMENTUM_STRENGTH_THRESHOLD_UNKNOWN"
+        },
+        "no zone/marker left unplaced": {
+          "pass": true,
+          "observed": "none"
+        }
+      },
+      "network_errors": [],
+      "drawn": "drawn: 8 S/R · 7 fib · 4 FVG · 2 OB · 10 BOS/CHoCH · 2 div · EMA 20 / EMA 50 lines · not drawn: 1 FVG (mitigated (price traded back into the gap)); 1 FVG (display cap 4 most recent open gaps); 1 OB (mitigated (price re-entered the block after the break))",
+      "served": 8,
+      "screenshot": "FINAL_ARTIFACTS/visual/scenario-2-structure-rich.png",
+      "network_error_classification": [],
+      "console_error_classification": [],
+      "console_errors_understood": true,
+      "network_summary": {
+        "total_responses": 83,
+        "by_status": {
+          "200": 83
+        },
+        "api_paths": [
+          "200 /api/analysis/FIXTUREB/15m",
+          "200 /api/analysis/FIXTUREB/1h",
+          "200 /api/analysis/mtf/FIXTUREB",
+          "200 /api/market/candles",
+          "200 /api/market/focus",
+          "200 /api/market/history",
+          "200 /api/market/symbols",
+          "200 /api/system/health"
+        ],
+        "third_party_responses": 0
+      }
+    },
+    {
+      "name": "3-insufficient-history",
+      "errors": [],
+      "checks": {
+        "indicators show — (not 0) during warmup": {
+          "pass": true,
+          "observed": "RSI14\n—\nEMA20\n—\nEMA50\n—\nA"
+        },
+        "trend undetermined (not neutral/up/down)": {
+          "pass": true,
+          "observed": null
+        },
+        "warmup reported as not drawn": {
+          "pass": true,
+          "observed": "not drawn: 1 EMA20 (warmup: needs 20 closed bars); 1 EMA50 (warmup: needs 50 closed bars)"
+        },
+        "MTF INSUFFICIENT surfaced": {
+          "pass": true,
+          "observed": null
+        }
+      },
+      "network_errors": [],
+      "screenshot": "FINAL_ARTIFACTS/visual/scenario-3-insufficient-history.png",
+      "network_error_classification": [],
+      "console_error_classification": [],
+      "console_errors_understood": true,
+      "network_summary": {
+        "total_responses": 81,
+        "by_status": {
+          "200": 81
+        },
+        "api_paths": [
+          "200 /api/analysis/FIXTUREC/15m",
+          "200 /api/analysis/mtf/FIXTUREC",
+          "200 /api/market/candles",
+          "200 /api/market/focus",
+          "200 /api/market/history",
+          "200 /api/market/symbols",
+          "200 /api/system/health"
+        ],
+        "third_party_responses": 0
+      }
+    },
+    {
+      "name": "4-tf-change-late-response",
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "checks": {
+        "the 15m response really was delayed and arrived AFTER the switch": {
+          "pass": true,
+          "observed": {
+            "request_15m_issued": 0,
+            "switch_clicked": 1088,
+            "late_15m_finished": 6007
+          }
+        },
+        "header switched to 1h": {
+          "pass": true,
+          "observed": null
+        },
+        "1h fingerprint shown after the late 15m response": {
+          "pass": true,
+          "observed": "0173a1a4f3b8a6"
+        },
+        "15m fingerprint NOT shown": {
+          "pass": true,
+          "observed": "13401e1d5f047a"
+        }
+      },
+      "network_errors": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT"
+        }
+      ],
+      "expected": "1h panel/fingerprint stays after the delayed 15m response lands; 15m fingerprint never shown",
+      "timeline_ms": {
+        "request_15m_issued": 0,
+        "switch_clicked": 1088,
+        "late_15m_finished": 6007
+      },
+      "delayed_requests": [
+        "/api/analysis/FIXTUREA/15m"
+      ],
+      "screenshot": "FINAL_ARTIFACTS/visual/scenario-4-tf-change.png",
+      "network_error_classification": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ],
+      "console_error_classification": [
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/analysis/BTCUSDT/15m — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/analysis/mtf/BTCUSDT — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ],
+      "console_errors_understood": true,
+      "network_summary": {
+        "total_responses": 86,
+        "by_status": {
+          "200": 83,
+          "503": 3
+        },
+        "api_paths": [
+          "200 /api/analysis/FIXTUREA/15m",
+          "200 /api/analysis/FIXTUREA/1h",
+          "200 /api/analysis/mtf/FIXTUREA",
+          "200 /api/market/candles",
+          "200 /api/market/focus",
+          "200 /api/market/history",
+          "200 /api/market/symbols",
+          "200 /api/system/health",
+          "503 /api/analysis/BTCUSDT/15m",
+          "503 /api/analysis/mtf/BTCUSDT",
+          "503 /api/market/candles"
+        ],
+        "third_party_responses": 0
+      }
+    },
+    {
+      "name": "5-symbol-change-subcent",
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "checks": {
+        "header switched to FIXTURESUB": {
+          "pass": true,
+          "observed": null
+        },
+        "FIXTUREA fingerprint gone": {
+          "pass": true,
+          "observed": null
+        },
+        "sub-cent close keeps significant digits": {
+          "pass": true,
+          "observed": "0.000016831"
+        }
+      },
+      "network_errors": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT"
+        }
+      ],
+      "screenshot": "FINAL_ARTIFACTS/visual/scenario-5-symbol-change-subcent.png",
+      "network_error_classification": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ],
+      "console_error_classification": [
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/analysis/BTCUSDT/15m — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/analysis/mtf/BTCUSDT — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        }
+      ],
+      "console_errors_understood": true,
+      "network_summary": {
+        "total_responses": 89,
+        "by_status": {
+          "200": 86,
+          "503": 3
+        },
+        "api_paths": [
+          "200 /api/analysis/FIXTUREA/15m",
+          "200 /api/analysis/FIXTURESUB/15m",
+          "200 /api/analysis/mtf/FIXTUREA",
+          "200 /api/analysis/mtf/FIXTURESUB",
+          "200 /api/market/candles",
+          "200 /api/market/focus",
+          "200 /api/market/history",
+          "200 /api/market/symbols",
+          "200 /api/system/health",
+          "503 /api/analysis/BTCUSDT/15m",
+          "503 /api/analysis/mtf/BTCUSDT",
+          "503 /api/market/candles"
+        ],
+        "third_party_responses": 0
+      }
+    },
+    {
+      "name": "6-upstream-failure",
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+        "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+        "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+        "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)"
+      ],
+      "checks": {
+        "a: analysis unavailable with the typed 502 class": {
+          "pass": true,
+          "observed": "analysis unavailable (HTTP 502 UPSTREAM_FAILURE) — not neutral, not zero"
+        },
+        "a: no snapshot / overlay drawn": {
+          "pass": true,
+          "observed": null
+        },
+        "a: no neutral/zero indicator values shown": {
+          "pass": true,
+          "observed": null
+        },
+        "a: MTF failure surfaced": {
+          "pass": true,
+          "observed": "MTF unavailable: HTTP 502 UPSTREAM_FAILURE Current view: 15m."
+        },
+        "b: failed refresh labelled LAST GOOD, previous snapshot kept and identified": {
+          "pass": true,
+          "observed": "FRESH · LAST GOOD"
+        },
+        "b: a second analysis request was really made and failed": {
+          "pass": true,
+          "observed": 2
+        }
+      },
+      "network_errors": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/BTCUSDT/15m"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/mtf/BTCUSDT"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/FIXTUREA/15m"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/mtf/FIXTUREA"
+        },
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/FIXTUREA/15m"
+        }
+      ],
+      "expected": "a: analysis/MTF shown as unavailable with HTTP 502 UPSTREAM_FAILURE, nothing drawn, no neutral values; b: after a good response a failed refresh is labelled LAST GOOD",
+      "interception_note": "502 bodies are written by this driver in the routes' shape (route code: src/app/api/analysis/*); not produced by the server",
+      "screenshot": "FINAL_ARTIFACTS/visual/scenario-6a-upstream-failure.png",
+      "screenshot_b": "FINAL_ARTIFACTS/visual/scenario-6b-failed-refresh-last-good.png",
+      "network_error_classification": [
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "TEST_ONLY",
+          "why": "502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "TEST_ONLY",
+          "why": "502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/FIXTUREA/15m",
+          "class": "TEST_ONLY",
+          "why": "502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/mtf/FIXTUREA",
+          "class": "TEST_ONLY",
+          "why": "502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "status": 503,
+          "url": "/api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/BTCUSDT/15m",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 503,
+          "url": "/api/analysis/mtf/BTCUSDT",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "status": 502,
+          "url": "/api/analysis/FIXTUREA/15m",
+          "class": "TEST_ONLY",
+          "why": "502 injected by the driver to simulate an upstream failure (scenario 6)"
+        }
+      ],
+      "console_error_classification": [
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+          "class": "TEST_ONLY",
+          "why": "browser echo of HTTP 502 /api/analysis/BTCUSDT/15m — 502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+          "class": "TEST_ONLY",
+          "why": "browser echo of HTTP 502 /api/analysis/mtf/BTCUSDT — 502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+          "class": "TEST_ONLY",
+          "why": "browser echo of HTTP 502 /api/analysis/FIXTUREA/15m — 502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+          "class": "TEST_ONLY",
+          "why": "browser echo of HTTP 502 /api/analysis/mtf/FIXTUREA — 502 injected by the driver to simulate an upstream failure (scenario 6)"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/market/candles?symbol=BTCUSDT&tf=15m&limit=700&refresh=1 — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/analysis/BTCUSDT/15m — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "class": "EXPECTED_UPSTREAM_FAILURE",
+          "why": "browser echo of HTTP 503 /api/analysis/mtf/BTCUSDT — real production server, TTT market source unreachable from the sandbox (TLS reset) → 503 MARKET_SOURCE_UNAVAILABLE"
+        },
+        {
+          "error": "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+          "class": "TEST_ONLY",
+          "why": "browser echo of HTTP 502 /api/analysis/FIXTUREA/15m — 502 injected by the driver to simulate an upstream failure (scenario 6)"
+        }
+      ],
+      "console_errors_understood": true,
+      "network_summary": {
+        "total_responses": 174,
+        "by_status": {
+          "200": 165,
+          "502": 5,
+          "503": 4
+        },
+        "api_paths": [
+          "200 /api/analysis/FIXTUREA/15m",
+          "200 /api/analysis/mtf/FIXTUREA",
+          "200 /api/market/candles",
+          "200 /api/market/focus",
+          "200 /api/market/history",
+          "200 /api/market/symbols",
+          "200 /api/system/health",
+          "502 /api/analysis/BTCUSDT/15m",
+          "502 /api/analysis/FIXTUREA/15m",
+          "502 /api/analysis/mtf/BTCUSDT",
+          "502 /api/analysis/mtf/FIXTUREA",
+          "503 /api/analysis/BTCUSDT/15m",
+          "503 /api/analysis/mtf/BTCUSDT",
+          "503 /api/market/candles"
+        ],
+        "third_party_responses": 0
+      }
+    }
+  ],
+  "browser": "Chromium 138.0.7204.0 (headless, @sparticuz/chromium via playwright-core)",
+  "environment": {
+    "browser": "138.0.7204.0",
+    "engine": "@sparticuz/chromium (headless) via playwright-core; Playwright CDN is blocked in this sandbox",
+    "playwright_core": "1.55.1",
+    "sparticuz_chromium": "138.0.2",
+    "node": "v22.22.3",
+    "platform": "linux x64",
+    "viewport": {
+      "width": 1600,
+      "height": 1000,
+      "deviceScaleFactor": 1
+    },
+    "locale": "en-US",
+    "timezone": "UTC",
+    "app_url": "http://127.0.0.1:3000",
+    "next_build_id": "Q5nVoIzDug2mpYmffIs10",
+    "interception": "Playwright page.route on /api/(market|analysis)/ serves deterministic FIXTURE JSON; every other request passes through to the real production server"
+  },
+  "finished_utc": "2026-09-26T10:37:52.073Z",
+  "final": {
+    "symbol": "FIXTUREB",
+    "tf": "1h",
+    "fp": "00f52669fc9cae",
+    "drawn": "drawn: 8 S/R · 7 fib · 4 FVG · 2 OB · 10 BOS/CHoCH · 2 div · EMA 20 / EMA 50 lines · not drawn: 1 FVG (mitigated (price traded back into the gap)); 1 FVG (display cap 4 most recent open gaps); 1 OB (mitigated (price re-entered the block after the break))"
+  }
+}

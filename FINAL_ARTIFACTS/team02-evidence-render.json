@@ -1,0 +1,127 @@
+{
+  "generated_by": "scripts/team02-visual/render-evidence.ts",
+  "source_type": "FIXTURE",
+  "symbol": "FIXTUREB",
+  "timeframe": "1h",
+  "fixture_clock_utc": "2026-09-26T04:37:00.000Z",
+  "strategy_id": "STR-RAW-2-1258",
+  "setup_outcome": "FAIL",
+  "direction_of_strategy_definition": "short",
+  "score": null,
+  "score_note": "not computed in this render (scoring context absent); never invented",
+  "snapshot": {
+    "symbol": "FIXTUREB",
+    "timeframe": "1h",
+    "closed_bars": 699,
+    "first_t": 1787878800,
+    "as_of_t": 1790391600,
+    "knowable_at_ms": 1790395200000,
+    "engines": "strategy:STR-RAW-2-1258@1.1.1|detectors:1.1.0",
+    "input_fingerprint": "041e75a447d409"
+  },
+  "snapshot_check": {
+    "state": "VERIFIED",
+    "reason": "re-fetched window fingerprint 041e75a447d409 equals the decision fingerprint"
+  },
+  "negative_controls": {
+    "revised_bar_in_window": {
+      "state": "MISMATCH",
+      "reason": "re-fetched window fingerprint 00a1382a5bd1c0 ≠ decision fingerprint 041e75a447d409 (venue revised a bar?)"
+    },
+    "legacy_record_without_snapshot": {
+      "state": "UNVERIFIABLE_LEGACY_RECORD",
+      "reason": "evidence predates snapshot capture (no input_fingerprint stored)"
+    }
+  },
+  "forming_bar_excluded": true,
+  "last_drawn_bar_t": 1790391600,
+  "annotations": [
+    {
+      "kind": "entry",
+      "label": "Entry",
+      "price": 2556.674769622984,
+      "produced_by": {
+        "type": "rule",
+        "id": "SET-STR-RAW-2-1258-short-LOC"
+      },
+      "evidence_kind": "DERIVED"
+    },
+    {
+      "kind": "stop",
+      "label": "Stop loss",
+      "price": 2567.6809972763176,
+      "produced_by": {
+        "type": "rule",
+        "id": "SET-STR-RAW-2-1258-short-INVAL"
+      },
+      "evidence_kind": "INFERRED"
+    },
+    {
+      "kind": "target",
+      "label": "Target 1",
+      "price": 2524.293433985726,
+      "produced_by": {
+        "type": "feature",
+        "id": "FTR-LEVELS"
+      },
+      "evidence_kind": "DERIVED"
+    },
+    {
+      "kind": "target",
+      "label": "Target 2",
+      "price": 2492.8439907391976,
+      "produced_by": {
+        "type": "feature",
+        "id": "FTR-LEVELS"
+      },
+      "evidence_kind": "DERIVED"
+    },
+    {
+      "kind": "invalidation",
+      "label": "Invalidation",
+      "price": 2556.674769622984,
+      "produced_by": {
+        "type": "rule",
+        "id": "SET-STR-RAW-2-1258-short-INVAL"
+      },
+      "evidence_kind": "SOURCE"
+    }
+  ],
+  "candidates": [
+    {
+      "strategy_id": "STR-RAW-2-1258",
+      "outcome": "FAIL",
+      "annotations": 5
+    },
+    {
+      "strategy_id": "STR-RAW-2-1258",
+      "outcome": "BLOCKED",
+      "annotations": 5
+    },
+    {
+      "strategy_id": "STR-RAW-2-803",
+      "outcome": "FAIL",
+      "annotations": 5
+    },
+    {
+      "strategy_id": "STR-RAW-2-926",
+      "outcome": "FAIL",
+      "annotations": 5
+    },
+    {
+      "strategy_id": "STR-RAW-4-2425",
+      "outcome": "FAIL",
+      "annotations": 4
+    },
+    {
+      "strategy_id": "STR-RAW-4-2449",
+      "outcome": "PASS",
+      "annotations": 4
+    }
+  ],
+  "files": {
+    "svg": "FINAL_ARTIFACTS/team02-evidence-render.svg",
+    "png": "FINAL_ARTIFACTS/team02-evidence-render.png"
+  },
+  "png_note": "the PNG rasteriser draws no text; its verification state travels in the X-Snapshot-Check header (/api/charts) or the Telegram caption"
+}

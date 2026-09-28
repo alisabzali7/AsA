@@ -17,6 +17,7 @@
  */
 import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import fs from "node:fs";
+import { syntheticMarket } from "./fixtures/publication-opportunity";
 import os from "node:os";
 import path from "node:path";
 
@@ -222,6 +223,7 @@ beforeAll(async () => {
   engine = await import("../src/lib/market/engine");
   candles = await import("../src/lib/market/candles");
   store = await import("../src/lib/market/store");
+  for (const symbol of ["BTCUSDT", "ETHUSDT"]) store.sharedStore.catalog.set(symbol, syntheticMarket(symbol));
   live = await import("../src/lib/pipeline/live-scan");
   tg = await import("../src/lib/notify/telegram");
   eventBus = (await import("../src/lib/events")).eventBus;
@@ -371,7 +373,7 @@ describe("T05 T5 — restart / first-sighting catch-up (no poll)", () => {
     await vi.waitFor(() => expect(live.liveScanState().in_flight).toBe(0));
     const ev = evs().filter((e) => e.type === "scan.completed" && e.symbol === symbol && e.timeframe === "1h").pop()!;
     expect(ev.trigger).toBe("candles.updated");
-    expect(ev.outcome).toBe("published");
+    expect(ev.outcome, ev.reason ?? "").toBe("published");
     expect(udfCalls.filter((c) => c.symbol === symbol)).toHaveLength(1); // the scan reused the stored series — no extra venue call
 
     // same newest bar re-stored (e.g. a 45s cache refresh) → ignored

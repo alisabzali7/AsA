@@ -1,0 +1,499 @@
+=== asa-reproduction.log: failing regression BEFORE relevant repair ===
+
+ RUN  v3.2.4 /home/user/AsA
+
+ ❯ tests/signal-publish.test.ts (16 tests | 2 failed) 593ms
+   ✓ T05 publish boundary: lifecycle classification > classifies every SIGNAL_STATES value; unknown states fail SAFE as terminal 3ms
+   ✓ T05 publish boundary: exactly-once publication (closure §V) > repeated publishes of one opportunity yield ONE signal row and ONE outbox row 3ms
+   ✓ T05 publish boundary: exactly-once publication (closure §V) > an expired signal is NEVER resurrected and NEVER re-queued 12ms
+   ✓ T05 publish boundary: exactly-once publication (closure §V) > terminal states are preserved verbatim and never re-queued 2ms
+   ✓ T05 publish boundary: exactly-once publication (closure §V) > candidate/qualified activate exactly once and preserve created_ms 1ms
+   ✓ T05 publish boundary: FINAL hard risk boundary (strict) > 1. an explicit well-formed risk PASS publishes 1ms
+   ✓ T05 publish boundary: FINAL hard risk boundary (strict) > 2. an explicit block verdict can NEVER become a published signal or an outbox row 1ms
+   ✓ T05 publish boundary: FINAL hard risk boundary (strict) > 3. missing risk (null/undefined) is NOT approval — unavailable risk never publishes 1ms
+   ✓ T05 publish boundary: FINAL hard risk boundary (strict) > 4. unavailable/unknown risk verdicts never publish 1ms
+   ✓ T05 publish boundary: FINAL hard risk boundary (strict) > 5. malformed risk payloads never publish 1ms
+   ✓ T05 publish boundary: FINAL hard risk boundary (strict) > 6. refused publication creates no signal row, no Telegram outbox row, and nothing a drain could deliver 1ms
+   ✓ T05 publish boundary: FINAL hard risk boundary (strict) > a non-pass risk verdict is refused, not reinterpreted 0ms
+   ✓ T05 publish boundary: FINAL hard risk boundary (strict) > a REJECTED / EXPIRED decision never publishes — only READY does 1ms
+   ✓ T05 publish boundary: FINAL hard risk boundary (strict) > published payload retains full decision provenance 1ms
+   × T05 recovery: final boundary adversarial inputs > rejects a forged PASS over an invalid direction-safe stop 8ms
+     → expected true to be false // Object.is equality
+   × T05 recovery: final boundary adversarial inputs > rejects stale/future/unknown-timeframe publication even with a READY label 2ms
+     → expected true to be false // Object.is equality
+ ❯ tests/team05-persistence-recovery.test.ts (6 tests | 6 failed) 31ms
+   × T05 recovery: persistence ownership is temporal, not merely a token > expired owner cannot mutate even BEFORE another worker reclaims 13ms
+     → expected 1 to be null
+   × T05 recovery: persistence ownership is temporal, not merely a token > unowned preflight cannot mutate an active claim or resurrect SENT 4ms
+     → expected true to be false // Object.is equality
+   × T05 recovery: persistence ownership is temporal, not merely a token > counting the same cycle twice spends only one attempt 2ms
+     → expected 2 to be 1 // Object.is equality
+   × T05 recovery: persistence ownership is temporal, not merely a token > crash on final attempt is terminalized after lease expiry 4ms
+     → expected 'FAILED' to be 'DEAD' // Object.is equality
+   × T05 recovery: persistence ownership is temporal, not merely a token > corrupt unrelated legacy payload does not break provenance resolution 6ms
+     → expected [Function] to not throw an error but 'SqliteError: malformed JSON' was thrown
+   × T05 recovery: persistence ownership is temporal, not merely a token > terminal signal cannot be resurrected through the repository seam 2ms
+     → expected [Function] to throw an error
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/signal-publish.test.ts > T05 recovery: final boundary adversarial inputs > rejects a forged PASS over an invalid direction-safe stop
+AssertionError: expected true to be false // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- false[39m
+[31m+ true[39m
+
+ ❯ tests/signal-publish.test.ts:358:42
+    356|   it("rejects a forged PASS over an invalid direction-safe stop", () =…
+    357|     const opp = makeOpp({ entry_zone: { top: 100, bottom: 100 }, stop:…
+    358|     expect(publishSignal(opp).published).toBe(false);
+       |                                          ^
+    359|     expect(outboxRowsFor(opp.id)).toHaveLength(0);
+    360|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  tests/signal-publish.test.ts > T05 recovery: final boundary adversarial inputs > rejects stale/future/unknown-timeframe publication even with a READY label
+AssertionError: expected true to be false // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- false[39m
+[31m+ true[39m
+
+ ❯ tests/signal-publish.test.ts:368:44
+    366|     ]) {
+    367|       const opp = makeOpp(changes);
+    368|       expect(publishSignal(opp).published).toBe(false);
+       |                                            ^
+    369|       expect(outboxRowsFor(opp.id)).toHaveLength(0);
+    370|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  tests/team05-persistence-recovery.test.ts > T05 recovery: persistence ownership is temporal, not merely a token > expired owner cannot mutate even BEFORE another worker reclaims
+AssertionError: expected 1 to be null
+
+[32m- Expected:[39m
+null
+
+[31m+ Received:[39m
+1
+
+ ❯ tests/team05-persistence-recovery.test.ts:15:44
+     13|     expect(repo.outboxClaim(id, c)).toBe(true);
+     14|     vi.advanceTimersByTime(101);
+     15|     expect(repo.outboxCountAttempt(id, c)).toBeNull();
+       |                                            ^
+     16|     expect(repo.outboxSetPayload(id, '{}', c)).toBe(false);
+     17|     expect(repo.outboxMark(id, "SENT", null, c)).toBe(false);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  tests/team05-persistence-recovery.test.ts > T05 recovery: persistence ownership is temporal, not merely a token > unowned preflight cannot mutate an active claim or resurrect SENT
+AssertionError: expected true to be false // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- false[39m
+[31m+ true[39m
+
+ ❯ tests/team05-persistence-recovery.test.ts:21:66
+     19|   it("unowned preflight cannot mutate an active claim or resurrect SEN…
+     20|     const id = setup(); const c = claim(); repo.outboxClaim(id, c);
+     21|     expect(repo.outboxMark(id, "FAILED", "unconfigured worker")).toBe(…
+       |                                                                  ^
+     22|     expect(repo.outboxSetPayload(id, '{}')).toBe(false);
+     23|     expect(repo.outboxMark(id, "SENT", null, c)).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  tests/team05-persistence-recovery.test.ts > T05 recovery: persistence ownership is temporal, not merely a token > counting the same cycle twice spends only one attempt
+AssertionError: expected 2 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/team05-persistence-recovery.test.ts:30:44
+     28|     const id = setup(); const c = claim(); repo.outboxClaim(id, c);
+     29|     expect(repo.outboxCountAttempt(id, c)).toBe(1);
+     30|     expect(repo.outboxCountAttempt(id, c)).toBe(1);
+       |                                            ^
+     31|   });
+     32|   it("crash on final attempt is terminalized after lease expiry", () =…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  tests/team05-persistence-recovery.test.ts > T05 recovery: persistence ownership is temporal, not merely a token > crash on final attempt is terminalized after lease expiry
+AssertionError: expected 'FAILED' to be 'DEAD' // Object.is equality
+
+Expected: [32m"[7mDEA[27mD"[39m
+Received: [31m"[7mFAILE[27mD"[39m
+
+ ❯ tests/team05-persistence-recovery.test.ts:40:39
+     38|     }
+     39|     vi.advanceTimersByTime(101); repo.outboxRetryable(50);
+     40|     expect(repo.outboxGet(id)?.state).toBe("DEAD");
+       |                                       ^
+     41|     expect(repo.outboxGet(id)?.attempts).toBe(5);
+     42|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  tests/team05-persistence-recovery.test.ts > T05 recovery: persistence ownership is temporal, not merely a token > corrupt unrelated legacy payload does not break provenance resolution
+AssertionError: expected [Function] to not throw an error but 'SqliteError: malformed JSON' was thrown
+
+[32m- Expected:[39m
+undefined
+
+[31m+ Received:[39m
+"SqliteError: malformed JSON"
+
+ ❯ tests/team05-persistence-recovery.test.ts:48:60
+     46|     // The corrupt row must be of the queried kind to exercise SQLite …
+     47|     const bad = repo.outboxEnqueue("signal", {}); repo.outboxSetPayloa…
+     48|     expect(() => repo.outboxForOpportunity("missing")).not.toThrow();
+       |                                                            ^
+     49|     expect(repo.outboxForOpportunity("good")).not.toBeNull();
+     50|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  tests/team05-persistence-recovery.test.ts > T05 recovery: persistence ownership is temporal, not merely a token > terminal signal cannot be resurrected through the repository seam
+AssertionError: expected [Function] to throw an error
+
+[32m- Expected:[39m
+null
+
+[31m+ Received:[39m
+undefined
+
+ ❯ tests/team05-persistence-recovery.test.ts:53:70
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  8 failed | 14 passed (22)
+   Start at  08:11:16
+   Duration  1.17s (transform 427ms, setup 0ms, collect 86ms, tests 624ms, environment 0ms, prepare 153ms)
+
+
+
+=== asa-transport-reproduction.log: failing regression BEFORE relevant repair ===
+
+ RUN  v3.2.4 /home/user/AsA
+
+ ❯ tests/telegram-partial-send.test.ts (8 tests | 2 failed) 889ms
+   ✓ T05 partial-send retry safety > 7. photo success + text success = ONE logical successful delivery (and redelivery is a no-op) 115ms
+   ✓ T05 partial-send retry safety > 8. photo success + text failure -> retry resumes WITHOUT resending the photo 62ms
+   ✓ T05 partial-send retry safety > 9. photo failure before text -> retry completes without duplicating the accepted text sub-step 84ms
+   ✓ T05 partial-send retry safety > 10. terminal failure is truthful and observable: DEAD names the missing sub-step and is never retried 198ms
+   ✓ T05 partial-send retry safety > retry via the real drain resumes partial progress (the engine's actual retry path) 42ms
+   ✓ T05 partial-send retry safety > text-only items (no chart in the contract) still deliver as one text sub-step 4ms
+   × T05 recovery: delayed worker snapshots > reloads persisted partial progress after claiming instead of replaying a stale payload 77ms
+     → expected 2 to be 1 // Object.is equality
+   × T05 recovery: delayed worker snapshots > HTTP 200 with Telegram ok:false is NOT provider acceptance 2ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/telegram-partial-send.test.ts > T05 recovery: delayed worker snapshots > reloads persisted partial progress after claiming instead of replaying a stale payload
+AssertionError: expected 2 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/telegram-partial-send.test.ts:326:24
+    324|     expect(photoCalls).toBe(1);
+    325|     expect((await deliverOutboxRow(stale, repo)).ok).toBe(true);
+    326|     expect(photoCalls).toBe(1);
+       |                        ^
+    327|     expect(textCalls).toBe(2);
+    328|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/telegram-partial-send.test.ts > T05 recovery: delayed worker snapshots > HTTP 200 with Telegram ok:false is NOT provider acceptance
+AssertionError: expected true to be false // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- false[39m
+[31m+ true[39m
+
+ ❯ tests/telegram-partial-send.test.ts:334:62
+    332|     try {
+    333|       const id = repo.outboxEnqueue("system", { kind: "system", genera…
+    334|       expect((await deliverOutboxRow(rowById(id), repo)).ok).toBe(fals…
+       |                                                              ^
+    335|       expect(rowById(id).state).toBe("FAILED");
+    336|     } finally { globalThis.fetch = saved; }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 6 passed (8)
+   Start at  08:12:49
+   Duration  1.18s (transform 294ms, setup 0ms, collect 57ms, tests 889ms, environment 0ms, prepare 63ms)
+
+
+
+=== asa-event-reproduction.log: failing regression BEFORE relevant repair ===
+
+ RUN  v3.2.4 /home/user/AsA
+
+ ❯ tests/live-signal-runtime.test.ts (15 tests | 2 failed) 968ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 1 — a legitimate live decision is published with full provenance (decision → signal → outbox) 13ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 2 — a risk-BLOCKED decision reaches the runtime boundary and yields NO TRADE: no signal, no outbox row 3ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 2b — a strategy the REAL promotion gate has not promoted is never published live 14ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 2c — publishSignal is the FINAL boundary: a READY decision whose risk was tampered to block is refused (no outbox row) 3ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 3 — repeated triggers for the same opportunity produce ONE signal and ONE outbox row 8ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 3b — concurrent scans of one symbol×setup join a single in-flight scan; different symbols run independently 5ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 4 — a terminal signal is never resurrected by a later trigger (and no new outbox row appears) 22ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 5 + 6 — delivery linkage is truthful across FAILED → retry (partial progress) → SENT 90ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 5b — SENDING is reported only while an unexpired claim is held; expired/absent claims report the row state 1ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 5c — legacy signals (published before outbox_id existed) resolve their outbox row by payload match, never by fabrication 2ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 7 — runtime re-entry: repeated scanner start, duplicate candle.closed events and a dedupe reset never duplicate signal/outbox state 136ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > scan errors are reported as outcome=error with the reason — never as a publication and never as a decision 2ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > schema migration: an existing database without signals.outbox_id gains the column and keeps its rows (idempotent) 12ms
+   × T05 recovery: event acknowledgement > a failed scan does not acknowledge the bar; replay can recover 12ms
+     → expected [] to have a length of 1 but got +0
+   × T05 recovery: event acknowledgement > out-of-order older events cannot regress a completed watermark 6ms
+     → expected [ { symbol: 'LTCUSDT', …(7) } ] to deeply equal []
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live-signal-runtime.test.ts > T05 recovery: event acknowledgement > a failed scan does not acknowledge the bar; replay can recover
+AssertionError: expected [] to have a length of 1 but got +0
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/live-signal-runtime.test.ts:464:20
+    462|     expect(failed.outcome).toBe("error");
+    463|     const replay = await live.runLiveScan("LTCUSDT", "1h", "candle.clo…
+    464|     expect(replay).toHaveLength(1);
+       |                    ^
+    465|     expect(replay[0].outcome).toBe("published");
+    466|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/live-signal-runtime.test.ts > T05 recovery: event acknowledgement > out-of-order older events cannot regress a completed watermark
+AssertionError: expected [ { symbol: 'LTCUSDT', …(7) } ] to deeply equal []
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   {[39m
+[31m+     "duration_ms": 1,[39m
+[31m+     "opportunity_id": "2f731751fa3ca9c5",[39m
+[31m+     "outcome": "already_published",[39m
+[31m+     "reason": "already published (idempotent no-op)",[39m
+[31m+     "setup_id": "SET-ORDERED",[39m
+[31m+     "signal_id": "sig-2f731751fa3ca9c5",[39m
+[31m+     "symbol": "LTCUSDT",[39m
+[31m+     "timeframe": "1h",[39m
+[31m+   },[39m
+[31m+ ][39m
+
+ ❯ tests/live-signal-runtime.test.ts:472:125
+    470|     await live.runLiveScan("LTCUSDT", "1h", "candle.closed", { strateg…
+    471|     const count = ensureSeriesSpy.mock.calls.length;
+    472|     expect(await live.runLiveScan("LTCUSDT", "1h", "candle.closed", { …
+       |                                                                                                                             ^
+    473|     expect(ensureSeriesSpy.mock.calls.length).toBe(count);
+    474|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 13 passed (15)
+   Start at  08:15:07
+   Duration  1.39s (transform 597ms, setup 0ms, collect 158ms, tests 968ms, environment 0ms, prepare 79ms)
+
+
+
+=== asa-admission-reproduction.log: failing regression BEFORE relevant repair ===
+
+ RUN  v3.2.4 /home/user/AsA
+
+ ❯ tests/setup-admission-gate.test.ts (18 tests | 7 failed) 375ms
+   ✓ admission contract — the setup verdict is a REQUIRED hard gate > Case A — a PASS setup with otherwise valid inputs can still be admitted 2ms
+   ✓ admission contract — the setup verdict is a REQUIRED hard gate > Case B — setup FAIL can never be admitted, even at score 100 with every other gate green 1ms
+   ✓ admission contract — the setup verdict is a REQUIRED hard gate > Case C — setup UNKNOWN can never be admitted, and the reason preserves UNKNOWN 0ms
+   ✓ admission contract — the setup verdict is a REQUIRED hard gate > Case D — setup BLOCKED can never be admitted, and the reason preserves BLOCKED 0ms
+   ✓ admission contract — the setup verdict is a REQUIRED hard gate > the three rejection explanations are mutually distinct (FAIL ≠ UNKNOWN ≠ BLOCKED) 0ms
+   ✓ admission contract — the setup verdict is a REQUIRED hard gate > adversarial: high score + LIVE_ADVISORY_ONLY never overpowers a non-PASS setup 0ms
+   ✓ admission contract — the setup verdict is a REQUIRED hard gate > the gate is a pure deterministic function of its input (reproducible) 0ms
+   ✓ Case E — scanner parity: non-PASS setups never reach ScanResult.admitted > an evaluated non-PASS candidate is rejected with its setup verdict named — even with fresh data, threshold 0 and a live runtime status  349ms
+   ✓ Case F — orchestrator and scanner obey the SAME setup admission invariant > every production admitOpportunity call site passes the setup verdict 8ms
+   ✓ Case F — orchestrator and scanner obey the SAME setup admission invariant > both pipeline consumers derive admission from the one shared contract 1ms
+   ✓ Case F — orchestrator and scanner obey the SAME setup admission invariant > the contract itself hard-codes the PASS requirement (not a caller convention) 0ms
+   × T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {"risk_verdict":"UNKNOWN"} 7ms
+     → expected true to be false // Object.is equality
+   × T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {"portfolio_verdict":"UNKNOWN"} 1ms
+     → expected true to be false // Object.is equality
+   × T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {"psychology_verdict":"UNKNOWN"} 1ms
+     → expected true to be false // Object.is equality
+   × T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {} 1ms
+     → expected true to be false // Object.is equality
+   × T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {} 1ms
+     → expected true to be false // Object.is equality
+   × T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {"score":null} 1ms
+     → expected true to be false // Object.is equality
+   × T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {"threshold":null} 0ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/setup-admission-gate.test.ts > T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {"risk_verdict":"UNKNOWN"}
+ FAIL  tests/setup-admission-gate.test.ts > T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {"portfolio_verdict":"UNKNOWN"}
+ FAIL  tests/setup-admission-gate.test.ts > T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {"psychology_verdict":"UNKNOWN"}
+ FAIL  tests/setup-admission-gate.test.ts > T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {}
+ FAIL  tests/setup-admission-gate.test.ts > T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {}
+ FAIL  tests/setup-admission-gate.test.ts > T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {"score":null}
+ FAIL  tests/setup-admission-gate.test.ts > T05 shared-boundary recovery: unknown is not approval > rejects malformed gate input {"threshold":null}
+AssertionError: expected true to be false // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- false[39m
+[31m+ true[39m
+
+ ❯ tests/setup-admission-gate.test.ts:218:29
+    216|   ])("rejects malformed gate input %j", (patch) => {
+    217|     const result = admitOpportunity(perfect(patch as never));
+    218|     expect(result.admitted).toBe(false);
+       |                             ^
+    219|     expect(result.reasons.length).toBeGreaterThan(0);
+    220|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 11 passed (18)
+   Start at  08:15:58
+   Duration  693ms (transform 285ms, setup 0ms, collect 79ms, tests 375ms, environment 0ms, prepare 63ms)
+
+
+
+=== asa-mode-reproduction.log: failing regression BEFORE relevant repair ===
+
+ RUN  v3.2.4 /home/user/AsA
+
+ ❯ tests/team05-persistence-recovery.test.ts (9 tests | 1 failed) 40ms
+   ✓ T05 recovery: persistence ownership is temporal, not merely a token > expired owner cannot mutate even BEFORE another worker reclaims 9ms
+   ✓ T05 recovery: persistence ownership is temporal, not merely a token > unowned preflight cannot mutate an active claim or resurrect SENT 2ms
+   ✓ T05 recovery: persistence ownership is temporal, not merely a token > counting the same cycle twice spends only one attempt 2ms
+   ✓ T05 recovery: persistence ownership is temporal, not merely a token > crash on final attempt is terminalized after lease expiry 3ms
+   ✓ T05 recovery: persistence ownership is temporal, not merely a token > corrupt unrelated legacy payload does not break provenance resolution 3ms
+   ✓ T05 recovery: persistence ownership is temporal, not merely a token > terminal signal cannot be resurrected through the repository seam 2ms
+   ✓ T05 recovery: atomic lifecycle audit > rolls back enqueue, signal and transition history together 3ms
+   ✓ T05 recovery: atomic lifecycle audit > persists real transitions once, freezes decision and identity, refuses terminal edits 5ms
+   × T05 recovery: opportunity projection consistency > research to live rescan updates the mode column as well as its payload 9ms
+     → expected 'research' to be 'live' // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/team05-persistence-recovery.test.ts > T05 recovery: opportunity projection consistency > research to live rescan updates the mode column as well as its payload
+AssertionError: expected 'research' to be 'live' // Object.is equality
+
+Expected: [32m"live"[39m
+Received: [31m"research"[39m
+
+ ❯ tests/team05-persistence-recovery.test.ts:87:47
+     85|     repo.opportunityUpsert(row);
+     86|     repo.opportunityUpsert({ ...row, mode: "live", payload_json: '{"mo…
+     87|     expect(repo.opportunityGet(row.id)?.mode).toBe("live");
+       |                                               ^
+     88|     expect(repo.opportunityGet(row.id)?.created_ms).toBe(1);
+     89|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 passed (9)
+   Start at  08:29:15
+   Duration  456ms (transform 134ms, setup 0ms, collect 161ms, tests 40ms, environment 0ms, prepare 80ms)
+
+
+
+=== asa-partial-history-reproduction.log: failing regression BEFORE relevant repair ===
+
+ RUN  v3.2.4 /home/user/AsA
+
+ ❯ tests/live-signal-runtime.test.ts (21 tests | 1 failed) 1146ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 1 — a legitimate live decision is published with full provenance (decision → signal → outbox) 13ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 2 — a risk-BLOCKED decision reaches the runtime boundary and yields NO TRADE: no signal, no outbox row 3ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 2b — a strategy the REAL promotion gate has not promoted is never published live 16ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 2c — publishSignal is the FINAL boundary: a READY decision whose risk was tampered to block is refused (no outbox row) 3ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 3 — repeated triggers for the same opportunity produce ONE signal and ONE outbox row 9ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 3b — concurrent scans of one symbol×setup join a single in-flight scan; different symbols run independently 6ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 4 — a terminal signal is never resurrected by a later trigger (and no new outbox row appears) 25ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 5 + 6 — delivery linkage is truthful across FAILED → retry (partial progress) → SENT 103ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 5b — SENDING is reported only while an unexpired claim is held; expired/absent claims report the row state 1ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 5c — legacy signals (published before outbox_id existed) resolve their outbox row by payload match, never by fabrication 1ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > Case 7 — runtime re-entry: repeated scanner start, duplicate candle.closed events and a dedupe reset never duplicate signal/outbox state 138ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > scan errors are reported as outcome=error with the reason — never as a publication and never as a decision 2ms
+   ✓ T05 T4 runtime path: candle.closed → scanSymbol → publishSignal → outbox > schema migration: an existing database without signals.outbox_id gains the column and keeps its rows (idempotent) 12ms
+   ✓ T05 recovery: event acknowledgement > a failed scan does not acknowledge the bar; replay can recover 2ms
+   ✓ T05 recovery: event acknowledgement > out-of-order older events cannot regress a completed watermark 2ms
+   ✓ T05 recovery: immutable chart and delivery contract > does not silently downgrade a required chart; retry resumes chart only after text success 63ms
+   ✓ T05 recovery: immutable chart and delivery contract > rescan cannot replace the signal's chart evidence; API and Telegram use the frozen snapshot 98ms
+   ✓ T05 recovery: immutable chart and delivery contract > terminal signal is never delivered by a queued stale advisory 4ms
+   ✓ T05 recovery: immutable chart and delivery contract > wrong outbox symbol is poison, never a mismatched text/chart delivery 3ms
+   ✓ T05 recovery: source candle revision > refuses a chart built from revised OHLCV even when symbol/timeframe/anchor still match 4ms
+   × T05 recovery: incomplete historical cache > refetches a partial cache before declaring the required decision chart unavailable 13ms
+     → expected false to be true // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live-signal-runtime.test.ts > T05 recovery: incomplete historical cache > refetches a partial cache before declaring the required decision chart unavailable
+AssertionError: expected false to be true // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/live-signal-runtime.test.ts:549:87
+    547|     const { getHistoryStore } = await import("../src/lib/market/histor…
+    548|     getHistoryStore().put("DOTUSDT", "1h", series("DOTUSDT").candles.s…
+    549|     expect((await tg.deliverOutboxRow(outboxRowsFor(r.opportunity_id!)…
+       |                                                                                       ^
+    550|     expect(photoCalls).toBe(1); expect(textCalls).toBe(1);
+    551|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 20 passed (21)
+   Start at  08:31:58
+   Duration  1.55s (transform 574ms, setup 0ms, collect 163ms, tests 1.15s, environment 0ms, prepare 74ms)

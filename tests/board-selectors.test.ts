@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { topByPrice, topGainers, type BoardRowLite } from "../src/components/board-selectors";
+import { topByPrice, topGainers, healthDisplayState, type BoardRowLite } from "../src/components/board-selectors";
 
 const ROOT = path.join(__dirname, "..");
 const PAGE_SRC = () => fs.readFileSync(path.join(ROOT, "src/app/page.tsx"), "utf8");
@@ -91,5 +91,41 @@ describe("dashboard page copy (regression: no fabricated market presentation)", 
 
   it("states the honest empty state when a snapshot has no gainers", () => {
     expect(PAGE_SRC()).toContain("no 24h gainers in this snapshot");
+  });
+
+  it("health endpoint chip reads /api/system/health, NEVER SSE socket connectivity (truth upgrade regression)", () => {
+    const src = PAGE_SRC();
+    // The chip must poll the actual health endpoint...
+    expect(src).toContain('usePoll<SystemHealthShape>("/api/system/health"');
+    expect(src).toContain("healthDisplayState(health.data");
+    // ...and must not present a connected event socket as market health:
+    // pre-fix it rendered `sse.connected ? "LIVE" : "CONNECTING"` under the
+    // "/api/system/health" label — an UNAVAILABLE market displayed LIVE.
+    expect(src).not.toMatch(/sse\.connected\s*\?\s*"LIVE"/);
+  });
+});
+
+describe("healthDisplayState (health endpoint chip — client may only downgrade)", () => {
+  it("renders the server's market state from /api/system/health", () => {
+    expect(healthDisplayState({ market: "LIVE" }, false, 0)).toBe("LIVE");
+    expect(healthDisplayState({ market: "STALE" }, false, 0)).toBe("STALE");
+    expect(healthDisplayState({ market: "UNAVAILABLE" }, false, 0)).toBe("UNAVAILABLE");
+    expect(healthDisplayState({ market: "CONNECTING" }, false, 0)).toBe("CONNECTING");
+  });
+
+  it("a server STALE is never upgraded by a fresh response", () => {
+    expect(healthDisplayState({ market: "STALE" }, false, 0)).not.toBe("LIVE");
+  });
+
+  it("downgrades a stale snapshot: LIVE ages into STALE then DEGRADED while responses stop", () => {
+    expect(healthDisplayState({ market: "LIVE" }, false, 30_000)).toBe("LIVE");
+    expect(healthDisplayState({ market: "LIVE" }, false, 90_000)).toBe("STALE");
+    expect(healthDisplayState({ market: "LIVE" }, false, 400_000)).toBe("DEGRADED");
+  });
+
+  it("an endpoint that never answered renders ERROR, never LIVE", () => {
+    expect(healthDisplayState(null, true, null)).toBe("ERROR");
+    expect(healthDisplayState(undefined, true, null)).toBe("ERROR");
+    expect(healthDisplayState(null, false, null)).toBe("CONNECTING");
   });
 });

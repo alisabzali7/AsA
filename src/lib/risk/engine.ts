@@ -83,6 +83,20 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
   if (riskPct === null) blocks.push("per-trade risk limit unavailable or invalid — position sizing is blocked, no default substituted");
   if (capLev === null) blocks.push("maximum leverage unavailable or invalid — position sizing is blocked, no default substituted");
 
+  // Runtime inputs cross JSON/config boundaries; TypeScript is not validation.
+  if (input.direction !== "long" && input.direction !== "short") blocks.push("direction is invalid");
+  for (const [name, value] of Object.entries({ entry: input.entry, stop: input.stop, equity: input.equity,
+    riskPerTradePct: input.riskPerTradePct, maxLeverage: input.maxLeverage })) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) blocks.push(`${name} must be finite and positive`);
+  }
+  for (const [name, value] of Object.entries({ target: input.target, venueMaxLeverage: input.venueMaxLeverage,
+    tickSize: input.tickSize, qtyStep: input.qtyStep, minQty: input.minQty, minNotional: input.minNotional })) {
+    if (value != null && (!Number.isFinite(value) || value <= 0)) blocks.push(`${name} must be finite and positive when supplied`);
+  }
+  for (const [name, value] of Object.entries({ maintenanceMarginRate: input.maintenanceMarginRate, takerFeeCoefficient: input.takerFeeCoefficient })) {
+    if (value != null && (!Number.isFinite(value) || value < 0)) blocks.push(`${name} must be finite and nonnegative when supplied`);
+  }
+
   /* ---------------------------------------------- DIRECTION SAFETY (hard) */
   if (!Number.isFinite(input.entry) || !Number.isFinite(input.stop)) {
     blocks.push("entry/stop are not finite numbers");
