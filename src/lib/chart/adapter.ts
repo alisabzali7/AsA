@@ -229,3 +229,99 @@ export function utcLabel(v: number | null | undefined, unit: "s" | "ms"): string
   if (typeof v !== "number" || !Number.isFinite(v)) return "—";
   return `${new Date(unit === "s" ? v * 1000 : v).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
+
+/* ------------------------------------------------------- visible range model */
+
+/**
+ * Quick-range buttons (1D / 5D / 1M / 3M / ALL) for the chart's bottom bar.
+ *
+ * These controls used to all run `fitContent()`, so five buttons did one thing
+ * and "1D" silently showed the whole loaded history. The model below expresses
+ * each range as a REAL time window and:
+ *   - measures the bar step from the series the server actually returned, so no
+ *     timeframe table is duplicated into the browser (a gap can only inflate a
+ *     diff, so the MINIMUM positive diff is the true step);
+ *   - reports when the requested window reaches back past the oldest loaded
+ *     bar, so the UI can label the button partial instead of pretending.
+ * No prices, no candles, no fetching — arithmetic over real bar timestamps.
+ */
+export interface ChartRange {
+  id: string;
+  /** window length in seconds; null = everything currently loaded */
+  seconds: number | null;
+}
+
+export const CHART_RANGES: readonly ChartRange[] = [
+  { id: "1D", seconds: 86_400 },
+  { id: "5D", seconds: 5 * 86_400 },
+  { id: "1M", seconds: 30 * 86_400 },
+  { id: "3M", seconds: 90 * 86_400 },
+  { id: "ALL", seconds: null },
+] as const;
+
+export interface RangeBar {
+  /** epoch seconds, aligned to the timeframe open */
+  t: number;
+}
+
+/** Earliest / latest bar time across ascending series; null when none is loaded. */
+export function barBounds(...series: (readonly RangeBar[])[]): { earliest: number; latest: number } | null {
+  let earliest = Number.POSITIVE_INFINITY;
+  let latest = Number.NEGATIVE_INFINITY;
+  for (const bars of series) {
+    for (const b of bars) {
+      if (typeof b.t !== "number" || !Number.isFinite(b.t)) continue;
+      if (b.t < earliest) earliest = b.t;
+      if (b.t > latest) latest = b.t;
+    }
+  }
+  if (!Number.isFinite(earliest) || !Number.isFinite(latest)) return null;
+  return { earliest, latest };
+}
+
+/**
+ * Seconds per bar, MEASURED from the series (minimum positive consecutive
+ * difference). null when the series has fewer than two bars — the caller then
+ * must not claim a bar-accurate window.
+ */
+export function barStepSeconds(bars: readonly RangeBar[]): number | null {
+  let step: number | null = null;
+  for (let i = 1; i < bars.length; i++) {
+    const d = bars[i].t - bars[i - 1].t;
+    if (!Number.isFinite(d) || d <= 0) continue;
+    if (step === null || d < step) step = d;
+  }
+  return step;
+}
+
+/**
+ * true when the requested window reaches back further than the oldest loaded
+ * bar — i.e. the chart would show LESS than the button claims. Never true for
+ * ALL (which means "everything loaded"), and never true without bars.
+ */
+export function rangePartial(range: ChartRange, bars: readonly RangeBar[]): boolean {
+  if (range.seconds === null || bars.length === 0) return false;
+  const bounds = barBounds(bars);
+  if (!bounds) return false;
+  return bounds.earliest > bounds.latest - range.seconds;
+}
+
+export interface VisibleRange {
+  /** epoch seconds, for ITimeScaleApi.setVisibleRange */
+  from: number;
+  to: number;
+}
+
+/**
+ * The visible range for a button press. `to` extends one measured bar step past
+ * the newest bar so an unclosed forming bar stays visible. Returns null when
+ * there is nothing to show, or for ALL — where `fitContent()` is the honest
+ * answer (no synthetic window is invented).
+ */
+export function visibleRangeFor(range: ChartRange, bars: readonly RangeBar[]): VisibleRange | null {
+  const bounds = barBounds(bars);
+  if (!bounds) return null;
+  if (range.seconds === null) return null;
+  const step = barStepSeconds(bars);
+  return { from: bounds.latest - range.seconds, to: bounds.latest + (step ?? 0) };
+}

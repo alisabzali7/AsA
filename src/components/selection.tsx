@@ -10,7 +10,38 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 export interface AsaSelection { symbol: string | null; tf: string | null; returnTo: string | null }
-const KEY = "asa-sel…ion";
+/**
+ * Canonical selection storage key. This key was previously stored as a
+ * mojibake string ("asa-sel…ion"), which meant the palette wrote one key while
+ * the store read another — symbol selection silently never persisted. One
+ * exported constant, used by every reader and writer.
+ */
+export const SELECTION_KEY = "asa-selection";
+const LEGACY_SELECTION_KEYS = ["asa-sel…ion", "asa-selection"] as const;
+
+function readLegacySelection(): AsaSelection | null {
+  if (typeof window === "undefined") return null;
+  for (const key of LEGACY_SELECTION_KEYS) {
+    if (key === SELECTION_KEY) continue;
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const j = JSON.parse(raw) as Partial<AsaSelection>;
+      const value: AsaSelection = {
+        symbol: typeof j.symbol === "string" ? j.symbol : null,
+        tf: typeof j.tf === "string" ? j.tf : null,
+        returnTo: typeof j.returnTo === "string" ? j.returnTo : null,
+      };
+      // one-time migration to the canonical key, then the legacy key is dropped
+      try {
+        window.localStorage.setItem(SELECTION_KEY, JSON.stringify(value));
+        window.localStorage.removeItem(key);
+      } catch { /* private mode */ }
+      return value;
+    } catch { /* ignore */ }
+  }
+  return null;
+}
 const EMPTY: AsaSelection = { symbol: null, tf: null, returnTo: null };
 
 let cached: AsaSelection | null = null;
@@ -19,7 +50,7 @@ const listeners = new Set<() => void>();
 function read(): AsaSelection {
   if (typeof window === "undefined") return EMPTY;
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(SELECTION_KEY) ?? (readLegacySelection() ? JSON.stringify(readLegacySelection()) : null);
     if (!raw) return EMPTY;
     const j = JSON.parse(raw) as Partial<AsaSelection>;
     return {
@@ -46,7 +77,7 @@ export function useSelection(): [AsaSelection, (patch: Partial<AsaSelection>) =>
   const set = useCallback((patch: Partial<AsaSelection>) => {
     const cur = getSnapshot();
     const next = { ...cur, ...patch };
-    try { window.localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* private mode */ }
+    try { window.localStorage.setItem(SELECTION_KEY, JSON.stringify(next)); } catch { /* private mode */ }
     listeners.forEach((l) => l());
   }, []);
   return [value, set];

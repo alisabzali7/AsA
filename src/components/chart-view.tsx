@@ -40,9 +40,14 @@ import {
   mergeBars,
   overlayToRender,
   priceFormatFor,
+  CHART_RANGES,
+  rangePartial,
   toCandleData,
   toVolumeData,
+  visibleRangeFor,
+  type ChartRange,
 } from "@/lib/chart/adapter";
+
 import { useLang } from "./lang";
 import { usePoll, formatPrice, fmtAge } from "./hooks";
 import { useSelection, useWatchlist } from "./selection";
@@ -138,6 +143,9 @@ interface CandlesShape {
   coverage: { status: string; gap_count: number; bar_count: number; first_ts_ms: number | null } | null;
   forming_price: number | null;
   age_ms: number;
+  /** market-data age of the series (server-computed, distinct from transport age) */
+  data_age_ms: number | null;
+  source_ts_ms: number | null;
   fetched_at_ms: number;
   reason?: string;
   last_bar_forming?: boolean;
@@ -360,6 +368,11 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
   const liveCandles = candles.data && candles.data.symbol === activeSymbol && candles.data.timeframe === tf ? candles.data : null;
   const mtf = mtfState.data?.mtf && (mtfState.data.mtf.symbol === null || mtfState.data.mtf.symbol === activeSymbol) ? mtfState.data.mtf : null;
 
+  /**
+   * Quick-range buttons: each one sets a real time window derived from the
+   * authoritative timeframe model. A window that reaches back past the oldest
+   * loaded bar is labelled partial (see rangePartial) instead of pretending.
+   */
   const isPinned = watchlist.includes(activeSymbol);
   const stats = statsPoll.data;
   const price = stats?.price ?? (liveCandles?.forming_price ?? null);
@@ -740,6 +753,23 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
     const live = liveCandles && liveCandles.ok ? liveCandles.candles : [];
     return mergeBars(historyBySeries[seriesKey]?.bars ?? [], live, liveCandles?.last_bar_forming);
   }, [liveCandles, historyBySeries, seriesKey]);
+
+
+  const applyRange = useCallback(
+    (rng: ChartRange) => {
+      const api = chartApi.current;
+      if (!api) return;
+      if (rng.seconds === null) {
+        api.timeScale().fitContent();
+        return;
+      }
+      const range = visibleRangeFor(rng, merged.bars);
+      if (!range) return;
+      api.timeScale().setVisibleRange({ from: range.from as UTCTimestamp, to: range.to as UTCTimestamp });
+    },
+    [merged.bars],
+  );
+
   const barTimes = useMemo(() => new Set(merged.bars.map((b) => b.t)), [merged]);
 
   // Set data to chart series
@@ -1018,6 +1048,19 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
   };
 
   const coverage = candles.data?.coverage;
+  /**
+   * CANDLE FRESHNESS VERDICT — the server's own word for whether the series
+   * on screen is current. It is never upgraded by a local timer: when the poll
+   * says STALE the chart says STALE, and the forming bar stays marked unclosed.
+   */
+  const candleFreshness = candles.data && candles.status === "OK"
+    ? {
+        verdict: String(candles.data.freshness ?? "UNAVAILABLE").toUpperCase(),
+        ageMs: effectiveAgeMs(candles.data.data_age_ms ?? null, candles.data.age_ms ?? null),
+        forming: liveCandles?.last_bar_forming === true,
+        closed: liveCandles?.closed_count ?? null,
+      }
+    : null;
   const chartSrc = candles.data
     ? candles.data.provenance === "NATIVE" || candles.data.provenance === "DERIVED"
       ? candles.data.provenance
@@ -1067,6 +1110,24 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
               {change24 != null ? `${isUp ? "+" : ""}${change24.toFixed(2)}%` : "—"}
             </span>
           </div>
+
+            {/* Server freshness verdict + closed/forming bar truth */}
+            {candleFreshness && (
+              <div className="flex items-center gap-1.5 border-s hairline ps-2 text-[10px]">
+                <StatusBadge
+                  state={candleFreshness.verdict === "LIVE" || candleFreshness.verdict === "READY" ? "READY" : candleFreshness.verdict}
+                />
+                {candleFreshness.verdict !== "LIVE" && candleFreshness.verdict !== "READY" && (
+                  <span className="text-dim" dir="auto">{t("chart", "notLive")}</span>
+                )}
+                <span className="text-dim mono iso">
+                  {t("chart", "closedBars")}: {candleFreshness.closed ?? "—"}
+                </span>
+                <Badge color={candleFreshness.forming ? "var(--color-warn)" : "var(--color-dim)"}>
+                  {candleFreshness.forming ? t("chart", "formingBar") : t("chart", "closedBars")}
+                </Badge>
+              </div>
+            )}
 
           {stats?.high24h != null && stats?.low24h != null && (
             <div className="hidden 2xl:flex items-center gap-2 text-[10px] text-dim mono border-s hairline ps-2">
@@ -1551,21 +1612,27 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
 
       {/* -------------------------------------------------- BOTTOM BAR -------------------------------------------------- */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t hairline pt-1.5 px-1 text-[10px] text-dim">
-        <div className="flex items-center gap-1.5">
-          <span className="font-bold text-muted">Range:</span>
-          {(["1D", "5D", "1M", "3M", "ALL"] as const).map((rng) => (
-            <button
-              key={rng}
-              className="focus-ring btn !px-1.5 !py-0.5 text-[9.5px] text-dim hover:text-text"
-              onClick={() => {
-                const api = chartApi.current;
-                if (!api) return;
-                api.timeScale().fitContent();
-              }}
-            >
-              {rng}
-            </button>
-          ))}
+        <div className="flex items-center gap-1.5" role="group" aria-label={t("chart", "range")}>
+          <span className="font-bold text-muted">{t("chart", "range")}:</span>
+          {CHART_RANGES.map((rng) => {
+            const partial = rangePartial(rng, merged.bars);
+            return (
+              <button
+                key={rng.id}
+                className="focus-ring btn !px-1.5 !py-0.5 text-[9.5px] text-dim hover:text-text"
+                aria-label={
+                  partial
+                    ? `${rng.id} — ${t("chart", "rangePartial").replace("{span}", rng.id)}`
+                    : `${rng.id}`
+                }
+                title={partial ? t("chart", "rangePartial").replace("{span}", rng.id) : undefined}
+                onClick={() => applyRange(rng)}
+              >
+                {rng.id}
+                {partial && <span aria-hidden className="ms-0.5 text-warn">*</span>}
+              </button>
+            );
+          })}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 ms-auto">

@@ -10,15 +10,16 @@
  *    refresh bus). No placebo commands: every entry changes something true.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { NAV, readRecents, recordRecent } from "./nav";
 import { useLang } from "./lang";
 import { usePoll, stateColor } from "./hooks";
-import { densityPref, motionPref, themePref } from "./selection";
+import { densityPref, motionPref, themePref, useSelection, SELECTION_KEY } from "./selection";
+import { TIMEFRAMES } from "@/lib/domain/timeframes";
 import { Dialog } from "./overlay";
 import { IconAi, IconChart, IconChevron, IconDensity, IconLang, IconMoon, IconRefresh, IconSearch, IconSettings, IconSun, IconZap } from "./icons";
 
-type Group = "recent" | "pages" | "symbols" | "actions";
+type Group = "recent" | "pages" | "symbols" | "timeframes" | "actions";
 interface Entry {
   id: string;
   label: string;
@@ -28,8 +29,14 @@ interface Entry {
   run: () => void;
 }
 
-const GROUP_LABEL: Record<Group, string> = { recent: "Recent", pages: "Pages", symbols: "Symbols", actions: "Actions" };
-const ORDER: Group[] = ["recent", "pages", "symbols", "actions"];
+const GROUP_LABEL: Record<Group, string> = {
+  recent: "Recent",
+  pages: "Pages",
+  symbols: "Symbols",
+  timeframes: "Timeframes",
+  actions: "Actions",
+};
+const ORDER: Group[] = ["recent", "pages", "symbols", "timeframes", "actions"];
 
 /** small, honest scorer: prefix > word-start > contains > subsequence */
 function score(q: string, text: string): number {
@@ -74,6 +81,8 @@ function PaletteLauncher({ onOpen }: { onOpen: () => void }) {
 function PaletteBody({ onClose }: { onClose: () => void }) {
   const { t, lang, setLang } = useLang();
   const router = useRouter();
+  const pathname = usePathname();
+  const [sel, setSel] = useSelection();
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const [density, setDensity] = densityPref.use();
@@ -84,6 +93,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   // fetched when mounted (mounted == open): no background hammering
   const syms = usePoll<{ ok: boolean; symbols: string[]; discovery_complete?: boolean }>("/api/market/symbols", 120_000);
   const universe = useMemo(() => syms.data?.symbols ?? [], [syms.data]);
+  const activeTf = sel.tf ?? "15m";
 
   const entries = useMemo<Entry[]>(() => {
     const go = (href: string, sym?: string) => () => {
@@ -109,6 +119,20 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       hint: `open terminal on ${s}`,
       group: "symbols",
       run: go("/chart", s),
+    }));
+    // Timeframe switching — a terminal command, driven by the same selection
+    // store the chart reads (one source of truth, no mirror state).
+    const timeframes: Entry[] = TIMEFRAMES.map((f) => ({
+      id: `tf:${f.id}`,
+      label: `${f.id}${activeTf === f.id ? " · current" : ""}`,
+      hint: `${f.minutes}m bars · TTT resolution ${f.tttResolution}`,
+      group: "timeframes",
+      keywords: `timeframe tf ${f.id} resolution ${f.tttResolution}`,
+      run: () => {
+        setSel({ tf: f.id });
+        onClose();
+        if (pathname !== "/chart") router.push("/chart");
+      },
     }));
     const actions: Entry[] = [
       {
@@ -172,13 +196,15 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         keywords: "chart symbol",
         run: () => {
           let sym: string | null = null;
-          try { sym = (JSON.parse(localStorage.getItem("asa-selection") || "{}").symbol) ?? null; } catch { sym = null; }
+          try {
+            sym = (JSON.parse(localStorage.getItem(SELECTION_KEY) || "{}").symbol) ?? null;
+          } catch { sym = null; }
           go("/chart", sym ?? undefined)();
         },
       },
     ];
-    return [...recents, ...pages, ...symbols, ...actions];
-  }, [universe, lang, density, motion, theme, t, setLang, setDensity, setMotion, setTheme, router, onClose]);
+    return [...recents, ...pages, ...symbols, ...timeframes, ...actions];
+  }, [universe, activeTf, pathname, lang, density, motion, theme, t, setSel, setLang, setDensity, setMotion, setTheme, router, onClose]);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase().replace(/^!/, "");

@@ -33,7 +33,12 @@ interface OrderbookShape {
   symbol: string;
   bids: [number, number][]; // [price, size]
   asks: [number, number][];
-  ts: number;
+  /** server-computed best-bid/best-ask spread — the ONLY spread we show */
+  spread_abs: number | null;
+  spread_pct: number | null;
+  available?: boolean;
+  state?: string;
+  age_ms: number | null;
 }
 
 interface TradeShape {
@@ -251,9 +256,16 @@ export function MarketInspectorDrawer({
                     </div>
                   ))}
                 </div>
-                {/* Spread */}
-                <div className="my-1 py-1 border-y hairline text-center text-[10px] text-gold mono">
-                  Spread: {price != null ? formatPrice(price, stats?.tick_size) : "—"}
+                {/* Spread — server-computed, never derived from the last price */}
+                <div className="my-1 py-1 border-y hairline text-center text-[10px] text-gold mono" dir="ltr">
+                  Spread:{" "}
+                  {typeof obPoll.data?.spread_abs === "number" && Number.isFinite(obPoll.data.spread_abs)
+                    ? `${formatPrice(obPoll.data.spread_abs, stats?.tick_size)}${
+                        typeof obPoll.data.spread_pct === "number" && Number.isFinite(obPoll.data.spread_pct)
+                          ? ` (${(obPoll.data.spread_pct * 100).toFixed(3)}%)`
+                          : ""
+                      }`
+                    : "UNAVAILABLE"}
                 </div>
                 {/* Bids (Green) */}
                 <div className="space-y-0.5 py-1">
