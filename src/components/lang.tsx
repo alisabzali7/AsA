@@ -1,12 +1,14 @@
 "use client";
 /** Language context: en/fa, RTL switching, persisted in localStorage. */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { STRINGS, dirFor, type Lang } from "@/lib/i18n/strings";
+import { STRINGS, dirFor, type Lang, type StringKey } from "@/lib/i18n/strings";
 
 interface LangCtx {
   lang: Lang;
   setLang: (l: Lang) => void;
-  t: (ns: "nav" | "header" | "market" | "status" | "common" | "board" | "conn" | "ai" | "state" | "palette", key: string) => string;
+  /** namespace is type-checked against the string tables, so a page can never
+   *  reference a vocabulary that does not exist in BOTH languages. */
+  t: (ns: StringKey, key: string) => string;
 }
 const Ctx = createContext<LangCtx>({ lang: "en", setLang: () => {}, t: () => "" });
 
@@ -26,7 +28,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem("asa-lang", lang); } catch { /* ignore */ }
   }, [lang]);
   const t = useCallback(
-    (ns: keyof typeof STRINGS.en, key: string) => {
+    (ns: StringKey, key: string) => {
       const dict = STRINGS[lang] as unknown as Record<string, Record<string, string>>;
       const section = dict[ns] ?? {};
       return section[key] ?? (STRINGS.en as unknown as Record<string, Record<string, string>>)[ns]?.[key] ?? key;

@@ -32,16 +32,16 @@ export default function PsychologyPage() {
     <div className="flex flex-col gap-2">
       <PageHead
         title={t("nav", "psychology")}
-        sub="A real engine with evidence, contradictions and missing evidence — null is never shown as zero."
+        sub={t("psy", "sub")}
         right={active ? <span className="mono text-[10.5px] text-gold">{active}</span> : undefined}
       />
       <div className="flex items-center justify-end gap-2">
         {universe.length > 0 ? (
-          <select className="input w-[150px]" value={active ?? ""} onChange={(e) => { const v = e.target.value; setSymbol(v); if (v && v !== sel.symbol) setSel({ symbol: v, returnTo: "/psychology" }); }} aria-label="symbol">
+          <select className="input w-[150px]" value={active ?? ""} onChange={(e) => { const v = e.target.value; setSymbol(v); if (v && v !== sel.symbol) setSel({ symbol: v, returnTo: "/psychology" }); }} aria-label={t("psy", "symbol")}>
             {universe.map((s) => <option key={s}>{s}</option>)}
           </select>
         ) : (
-          <span className="panel-2 px-2 py-1 text-[11px] text-muted">{syms.status === "LOADING" ? "loading universe…" : `universe ${syms.status === "OK" ? "empty" : syms.failure?.server_state ?? "UNAVAILABLE"}`}</span>
+          <span className="panel-2 px-2 py-1 text-[11px] text-muted" dir="auto">{syms.status === "LOADING" ? t("psy", "loadingUniverse") : `${t("psy", "universeUnavailable")}: ${syms.status === "OK" ? t("psy", "universeEmpty") : syms.failure?.server_state ?? "UNAVAILABLE"}`}</span>
         )}
       </div>
       <div className="grid gap-2 lg:grid-cols-[1fr_300px]">
@@ -53,55 +53,55 @@ export default function PsychologyPage() {
                 <StatusChip state={s.state} />
                 {s.value !== null && s.value !== undefined && <span className="mono text-[13px]">{typeof s.value === "number" ? (Math.abs(s.value) > 10 ? s.value.toLocaleString("en-US", { maximumFractionDigits: 2 }) : s.value) : s.value}</span>}
               </div>
-              {s.reason && <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--color-warn)" }}>reason: {s.reason}</p>}
-              {s.evidence.length > 0 && <div className="mt-1"><EvidenceBlock title="evidence" lines={s.evidence} /></div>}
+              {s.reason && <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--color-warn)" }} dir="auto">{t("psy", "reason")}: {s.reason}</p>}
+              {s.evidence.length > 0 && <div className="mt-1"><EvidenceBlock title={t("psy", "evidence")} lines={s.evidence} /></div>}
             </Panel>
             </div>
           ))}
-          {p.status === "LOADING" && <Empty text="loading psychology…" />}
-          {p.status === "OK" && !d && <Empty text="the summary endpoint answered without a payload — nothing to render" />}
+          {p.status === "LOADING" && <Empty text={t("psy", "loadingUniverse")} />}
+          {p.status === "OK" && !d && <Empty text={t("psy", "noPayload")} />}
           {(!active || p.status === "UNAVAILABLE" || p.status === "ERROR" || p.status === "OFFLINE") && (
             <div className="sm:col-span-2">
-              {!active ? <TruthState status="UNAVAILABLE" failure={{ kind: "UNAVAILABLE", message: "no validated TTT symbol — psychology is computed per discovered universe symbol", status: null, server_state: syms.failure?.server_state ?? null, hint: null }} /> : <TruthState status={p.status} failure={p.failure} onRetry={p.refresh} staleAgeMs={p.data ? p.stale_age_ms : null} />}
+              {!active ? <TruthState status="UNAVAILABLE" failure={{ kind: "UNAVAILABLE", message: t("psy", "noSymbol"), status: null, server_state: syms.failure?.server_state ?? null, hint: null }} /> : <TruthState status={p.status} failure={p.failure} onRetry={p.refresh} staleAgeMs={p.data ? p.stale_age_ms : null} />}
             </div>
           )}
         </div>
         <div className="flex flex-col gap-2">
-          <Panel title="bias">
-            <div className="text-[13px] font-semibold" style={{ color: "var(--color-gold)" }}>{d?.bias ?? "…"} (never asserted without evidence)</div>
+          <Panel title={t("psy", "bias")}>
+            <div className="text-[13px] font-semibold" style={{ color: "var(--color-gold)" }}>{d?.bias ?? "…"} ({t("psy", "biasNote")})</div>
             <p className="mt-1.5 text-[10.5px] leading-relaxed text-muted">{d?.bias_reason}</p>
           </Panel>
-          <Panel title="universe funding (stats sweep)">
+          <Panel title={t("psy", "funding")}>
             {d && (
               <ul className="space-y-1 text-[11px]">
-                <li className="flex justify-between"><span className="text-muted">measured</span><span className="mono">{d.universe_funding.measured}/{d.universe_funding.total}</span></li>
-                <li className="flex justify-between"><span className="text-muted">mean</span><span className="mono">{d.universe_funding.mean === null ? "—" : `${(d.universe_funding.mean * 100).toFixed(4)}%`}</span></li>
-                <li className="flex justify-between"><span className="text-muted">max |rate|</span><span className="mono">{d.universe_funding.max_abs === null ? "—" : `${(d.universe_funding.max_abs * 100).toFixed(4)}%`}</span></li>
+                <li className="flex justify-between"><span className="text-muted">{t("psy", "measured")}</span><span className="mono">{d.universe_funding.measured}/{d.universe_funding.total}</span></li>
+                <li className="flex justify-between"><span className="text-muted">{t("psy", "mean")}</span><span className="mono">{d.universe_funding.mean === null ? "—" : `${(d.universe_funding.mean * 100).toFixed(4)}%`}</span></li>
+                <li className="flex justify-between"><span className="text-muted">{t("psy", "maxAbs")}</span><span className="mono">{d.universe_funding.max_abs === null ? "—" : `${(d.universe_funding.max_abs * 100).toFixed(4)}%`}</span></li>
               </ul>
             )}
           </Panel>
-          <Panel title="semantics">
+          <Panel title={t("psy", "semantics")}>
             <ul className="space-y-1 text-[10px] leading-relaxed text-muted">
-              <li>MEASURED = TTT supplied the value now.</li>
-              <li>DERIVED = computed by AsA from measured inputs (labeled).</li>
-              <li>PROXY/UNVERIFIED = semantics not established — no conclusions drawn.</li>
-              <li>UNAVAILABLE = no verified public source (liquidations, L/S, CVD).</li>
+              <li dir="auto">{t("psy", "measuredDef")}</li>
+              <li dir="auto">{t("psy", "derivedDef")}</li>
+              <li dir="auto">{t("psy", "proxyDef")}</li>
+              <li dir="auto">{t("psy", "unavailableDef")}</li>
             </ul>
           </Panel>
         </div>
       </div>
-      <Panel title="user-supplied psychology source (separate from market context)">
+      <Panel title={t("psy", "userSource")}>
         {d?.user_psychology_source ? <>
           <div className="mb-2 flex flex-wrap gap-2 text-[10px]">
-            <Badge color={d.user_psychology_source.status === "COMPLETE" ? "#3fb68b" : "#d6a24a"}>{`source ${d.user_psychology_source.status}`}</Badge>
-            <Badge color="#8b8f99">semantic {d.user_psychology_source.semantic_status}</Badge>
-            <Badge color="#8b8f99">runtime {d.user_psychology_source.runtime_status}</Badge>
-            <span className="text-muted">user traits inferred: {String(d.user_psychology_source.user_traits_inferred)}</span>
+            <Badge color={d.user_psychology_source.status === "COMPLETE" ? "#3fb68b" : "#d6a24a"}>{`${t("psy", "sourceStatus")} ${d.user_psychology_source.status}`}</Badge>
+            <Badge color="#8b8f99">{t("psy", "semanticStatus")} {d.user_psychology_source.semantic_status}</Badge>
+            <Badge color="#8b8f99">{t("psy", "runtimeStatus")} {d.user_psychology_source.runtime_status}</Badge>
+            <span className="text-muted" dir="auto">{t("psy", "traitsInferred")}: {String(d.user_psychology_source.user_traits_inferred)}</span>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {d.user_psychology_source.sources.map((source) => <div key={source.file_id} className="panel-2 p-2 text-[10px]">
-              <div className="flex justify-between gap-2"><b>{source.file_id}</b><span>{source.truncated ? "TRUNCATED" : "completeness UNKNOWN"}</span></div>
-              <div className="text-muted">{source.total_lines} lines · {source.total_bytes} bytes · sha256 {source.sha256.slice(0, 16)}…</div>
+              <div className="flex justify-between gap-2"><b>{source.file_id}</b><span dir="auto">{source.truncated ? t("psy", "truncated") : t("psy", "completenessUnknown")}</span></div>
+              <div className="text-muted">{source.total_lines} {t("psy", "lines")} · {source.total_bytes} {t("psy", "bytes")} · sha256 {source.sha256.slice(0, 16)}…</div>
             </div>)}
           </div>
           <ul className="mt-2 grid gap-1 sm:grid-cols-2">
@@ -112,7 +112,7 @@ export default function PsychologyPage() {
             </li>)}
           </ul>
           <p className="mt-2 text-[10px] text-dim">{d.user_psychology_source.note}</p>
-        </> : <Empty text="user psychology source inventory UNKNOWN" />}
+        </> : <Empty text={t("psy", "userSourceUnknown")} />}
       </Panel>
     </div>
   );

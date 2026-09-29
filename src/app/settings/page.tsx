@@ -110,7 +110,7 @@ export default function SettingsPage() {
 
   const replayIntro = () => {
     try {
-      sessionStorage.removeItem("asa_intro_seen");
+      sessionStorage.removeItem("asa-intro-seen");
       window.location.href = "/";
     } catch {
       window.location.href = "/";

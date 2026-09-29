@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { topByPrice, topGainers, healthDisplayState, type BoardRowLite } from "../src/components/board-selectors";
+import { STRINGS } from "../src/lib/i18n/strings";
 
 const ROOT = path.join(__dirname, "..");
 const PAGE_SRC = () => fs.readFileSync(path.join(ROOT, "src/app/page.tsx"), "utf8");
@@ -90,7 +91,17 @@ describe("dashboard page copy (regression: no fabricated market presentation)", 
   });
 
   it("states the honest empty state when a snapshot has no gainers", () => {
-    expect(PAGE_SRC()).toContain("no 24h gainers in this snapshot");
+    // The copy moved into the i18n table when the dashboard was translated, so
+    // the guard checks the SENTENCE THE USER SEES (in every language) instead
+    // of only the English literal that used to sit inline in the page.
+    const src = PAGE_SRC();
+    expect(src).toContain('t("home", "noGainers")');
+    const en = STRINGS.en.home.noGainers as string;
+    expect(en).toContain("no 24h gainers in this snapshot");
+    // Persian must carry the same honest statement, not a cheerful placeholder
+    const fa = STRINGS.fa.home.noGainers as string;
+    expect(fa.length).toBeGreaterThan(0);
+    expect(fa).not.toBe(en);
   });
 
   it("health endpoint chip reads /api/system/health, NEVER SSE socket connectivity (truth upgrade regression)", () => {

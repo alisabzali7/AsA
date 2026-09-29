@@ -9,7 +9,9 @@
  * 4. Day Gainers Section (strict 24h positive movers, honest empty state)
  * 5. Dimensional 3D Order Book (Bids, Asks, real-time depth bars, spread)
  * 6. Market Pulse (نبض بازار - BTC, ETH, Gold, Silver, Brent heartbeat with honest availability)
- * 7. Active Opportunities & Signals Stream
+ * 7. "Requires attention" panel — measured problems only, each pointing at the
+ *    surface that owns the truth (never a second source of truth)
+ * 8. Active Opportunities & Signals Stream
  * 8. Quick Grounded AI Assistant Launcher
  * 9. Real-Time Event Bus
  * 10. Advisory Execution Boundary Architecture
@@ -31,12 +33,14 @@ import {
 } from "@/components/board-selectors";
 import { useSelection, useWatchlist } from "@/components/selection";
 import { openPalette } from "@/components/chrome";
+import { attentionItems, attentionToneColor } from "@/components/home-attention";
 import { IntroCinematic } from "@/components/intro-cinematic";
 import { Market3DBox } from "@/components/market-3d-box";
 import { MarketPulse } from "@/components/market-pulse";
 import { Orderbook3D } from "@/components/orderbook-3d";
 import {
   IconAi,
+  IconAlert,
   IconChart,
   IconLayers,
   IconMarket,
@@ -160,6 +164,22 @@ export default function DashboardPage() {
     : healthDisplayState(health.data, health.status !== "OK", health.age_ms);
 
   const marketLive = boardReady && sweepEff !== null && sweepEff < 30000;
+
+  /**
+   * REQUIRES ATTENTION — derived from payloads this page already holds.
+   * No extra request, no invented state: a problem appears only when the
+   * server itself reported one (see src/components/home-attention.ts).
+   */
+  const attention = useMemo(
+    () =>
+      attentionItems(
+        health.data,
+        health.status === "OK",
+        oppsPoll.data?.items ?? [],
+        sigsPoll.data?.items ?? [],
+      ),
+    [health.data, health.status, oppsPoll.data, sigsPoll.data],
+  );
   const terminalHref = sel.symbol ? `/chart?symbol=${sel.symbol}` : "/chart";
 
   const handleQuickAi = (e: React.FormEvent) => {
@@ -178,7 +198,7 @@ export default function DashboardPage() {
       {/* --------------------------- HERO: DYNAMIC ASA IDENTITY --------------------------- */}
       <section
         className="card relative overflow-hidden p-4 sm:p-6"
-        aria-label="AsA living intelligence hero"
+        aria-label={t("home", "eyebrow")}
         style={{
           background: "radial-gradient(70% 120% at 50% 0%, rgba(216,188,120,0.1) 0%, rgba(14,17,24,0.95) 70%), var(--color-panel)",
         }}
@@ -193,11 +213,11 @@ export default function DashboardPage() {
 
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="eyebrow gold-text">AsA INTELLIGENCE WORKSTATION</span>
+                <span className="eyebrow gold-text">{t("home", "eyebrow")}</span>
                 <Badge color="var(--color-gold)">TTT MARKET TRUTH</Badge>
               </div>
-              <h1 className="mt-0.5 text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-text">
-                {lang === "fa" ? "ایستگاه هوش بازار و تصمیم‌گیری تحلیلی" : "Living Intelligence Dashboard"}
+              <h1 className="mt-0.5 text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-text" dir="auto">
+                {t("home", "title")}
               </h1>
               <p className="mt-1 max-w-[65ch] text-[11.5px] sm:text-[12px] leading-relaxed text-muted">
                 {boardReady
@@ -213,18 +233,18 @@ export default function DashboardPage() {
 
           <div className="flex flex-wrap items-center gap-2 ms-auto">
             <Link href={terminalHref} className="focus-ring btn btn-gold !px-3.5 !py-2 text-xs font-bold shadow-md">
-              <IconChart size={14} /> {lang === "fa" ? "ورود به ترمینال" : "Open Terminal"}
+              <IconChart size={14} /> {t("home", "openTerminal")}
             </Link>
             <Link href="/market" className="focus-ring btn !px-3 !py-2 text-xs">
-              <IconMarket size={14} /> {lang === "fa" ? "تابلوی بازار" : "Market Board"}
+              <IconMarket size={14} /> {t("home", "marketBoard")}
             </Link>
             <Link href="/opportunities" className="focus-ring btn !px-3 !py-2 text-xs">
-              <IconOpportunity size={14} /> {lang === "fa" ? "فرصت‌ها" : "Opportunities"}
+              <IconOpportunity size={14} /> {t("home", "opportunities")}
             </Link>
             <button
               className="focus-ring icon-btn !h-9 !w-9 hover:text-gold"
               onClick={() => setShowIntro(true)}
-              title="Replay 3D Intro"
+              title={t("home", "replayIntro")}
             >
               <IconSparkles size={16} />
             </button>
@@ -236,7 +256,7 @@ export default function DashboardPage() {
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rise" style={{ ["--i" as never]: 1 }}>
           <Metric
-            label="TTT market"
+            label={t("home", "kpiTtt")}
             value={
               boardReady ? (
                 <span style={{ color: marketLive ? "var(--color-up)" : "var(--color-warn)" }}>
@@ -248,18 +268,18 @@ export default function DashboardPage() {
             }
             sub={
               boardReady
-                ? `sweep age ${sweepEff !== null ? fmtAge(sweepEff) : "—"} · SSE ${sse.connected ? "on" : "off"}`
+                ? `${t("home", "sweepAge")} · SSE ${sse.connected ? t("home", "sseOn") : t("home", "sseOff")}`.replace("{age}", sweepEff !== null ? fmtAge(sweepEff) : "—")
                 : board.failure?.server_state ?? board.failure?.message ?? "—"
             }
           />
         </div>
         <div className="rise" style={{ ["--i" as never]: 2 }}>
           <Metric
-            label="universe active"
+            label={t("home", "kpiUniverse")}
             value={boardReady ? `${live}/${rows.length}` : "—"}
             sub={
               boardReady
-                ? "dynamic TTT discovered universe"
+                ? t("home", "kpiUniverseSub")
                 : `${t("state", "unavailable").split(" —")[0]} until discovery`
             }
             color="var(--color-gold)"
@@ -267,7 +287,7 @@ export default function DashboardPage() {
         </div>
         <div className="rise" style={{ ["--i" as never]: 3 }}>
           <Metric
-            label="server health"
+            label={t("home", "kpiHealth")}
             value={
               <span className="inline-flex items-center gap-2">
                 <StatusBadge state={healthChip === "OK" ? "CONNECTED" : String(healthChip)} />
@@ -279,9 +299,9 @@ export default function DashboardPage() {
         </div>
         <div className="rise" style={{ ["--i" as never]: 4 }}>
           <Metric
-            label="execution boundary"
-            value={<span className="text-gold">ADVISORY</span>}
-            sub="pure intelligence · human executes"
+            label={t("home", "kpiBoundary")}
+            value={<span className="text-gold">{t("home", "advisory")}</span>}
+            sub={t("home", "pureIntelligence")}
           />
         </div>
       </div>
@@ -293,10 +313,64 @@ export default function DashboardPage() {
             failure={board.failure}
             onRetry={board.refresh}
             staleAgeMs={board.data ? board.stale_age_ms : null}
-            loadingText="requesting authoritative TTT universe snapshot…"
+            loadingText={t("board", "loading")}
           />
         </div>
       )}
+
+      {/* --------------------------- REQUIRES ATTENTION (measured problems only) --------------------------- */}
+      <div className="rise">
+        <Panel
+          title={t("home", "attention")}
+          icon={<IconAlert size={12} />}
+          right={
+            <StatusBadge
+              state={attention.length === 0 ? "READY" : attention[0].tone === "block" ? "BLOCKED" : "DEGRADED"}
+              label={
+                attention.length === 0
+                  ? t("home", "attentionNone")
+                  : `${attention.length} ${t("home", "attention")}`
+              }
+            />
+          }
+        >
+          {attention.length === 0 ? (
+            <p className="text-[11px] leading-relaxed text-muted" dir="auto">
+              {t("home", "attentionNone")}
+            </p>
+          ) : (
+            <ul className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+              {attention.map((a) => (
+                <li key={a.key}>
+                  <Link
+                    href={a.href}
+                    className="focus-ring panel-2 flex items-start gap-2 p-2 transition-colors hover:border-gold-3"
+                  >
+                    <span
+                      aria-hidden
+                      className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full"
+                      style={{ background: attentionToneColor(a.tone) }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: attentionToneColor(a.tone) }} dir="auto">
+                          {a.label}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block text-[10px] leading-snug text-muted" dir="auto">
+                        {a.detail}
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 border-t hairline pt-1.5 text-[9.5px] text-dim">
+            {t("home", "attentionReview")}
+          </p>
+        </Panel>
+      </div>
 
       {/* --------------------------- 3D MARKET CONTAINER (10 PRIMARY ASSETS + MORE EXPANSION) --------------------------- */}
       <div className="rise">
@@ -314,10 +388,10 @@ export default function DashboardPage() {
                   <IconTrendingUp size={15} />
                 </span>
                 <h3 className="text-[13px] font-bold text-text">
-                  {lang === "fa" ? "بیشترین رشد ۲۴ ساعته" : "Day Gainers"}
+                  {t("home", "gainers")}
                 </h3>
               </div>
-              <Badge color="var(--color-up)">24h Positive</Badge>
+              <Badge color="var(--color-up)">{t("home", "positive24h")}</Badge>
             </div>
 
             <ul className="mt-3 space-y-2">
@@ -342,22 +416,20 @@ export default function DashboardPage() {
                 ))}
               {boardReady && gainers.length === 0 && (
                 <li className="py-8 text-center text-dim text-xs">
-                  {lang === "fa"
-                    ? "در این snapshot رشد ۲۴ ساعته‌ی مثبتی ثبت نشده است."
-                    : "no 24h gainers in this snapshot"}
+                  {t("home", "noGainers")}
                 </li>
               )}
               {!boardReady && (
                 <li className="py-8 text-center text-muted text-xs">
-                  <span className="breathe">Loading market gainers…</span>
+                  <span className="breathe">{t("home", "loadingGainers")}</span>
                 </li>
               )}
             </ul>
           </div>
 
           <div className="border-t hairline pt-2 text-[10px] text-dim flex justify-between">
-            <span>Strict positive 24h filter</span>
-            <span>Measured values only</span>
+            <span>{t("home", "strictFilter")}</span>
+            <span>{t("home", "measuredOnly")}</span>
           </div>
         </div>
 
@@ -383,11 +455,11 @@ export default function DashboardPage() {
                   <IconOpportunity size={15} />
                 </span>
                 <h3 className="text-[13px] font-bold text-text">
-                  {lang === "fa" ? "جریان فرصت‌های شناسایی‌شده" : "Active Intelligence Stream"}
+                  {t("home", "intelligenceStream")}
                 </h3>
               </div>
               <Link href="/opportunities" className="focus-ring btn !py-0.5 !px-2 text-[10.5px]">
-                {lang === "fa" ? "مشاهده همه" : "View All"} →
+                {t("home", "viewAll")} →
               </Link>
             </div>
 
@@ -413,15 +485,15 @@ export default function DashboardPage() {
               ))}
               {(oppsPoll.data?.items?.length ?? 0) === 0 && (
                 <div className="col-span-full py-8 text-center text-dim text-xs">
-                  No active opportunities currently stored.
+                  {t("home", "noOpps")}
                 </div>
               )}
             </div>
           </div>
 
           <div className="border-t hairline pt-2 text-[10px] text-dim flex justify-between">
-            <span>Deterministic strategy ranking</span>
-            <span>Decision score, not a probability</span>
+            <span>{t("home", "deterministicRanking")}</span>
+            <span>{t("home", "scoreNotProbability")}</span>
           </div>
         </div>
 
@@ -432,7 +504,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2 border-b hairline pb-2 mb-2.5">
               <IconAi size={15} className="text-gold" />
               <h3 className="text-[13px] font-bold text-text">
-                {lang === "fa" ? "پرسش از کلون هوش مصنوعی" : "AI Grounded Query"}
+                {t("home", "quickAi")}
               </h3>
             </div>
 
@@ -440,19 +512,19 @@ export default function DashboardPage() {
               <input
                 type="text"
                 className="input text-xs"
-                placeholder={lang === "fa" ? "مثال: وضعیت BTCUSDT چگونه است؟" : "e.g. What is the state of BTCUSDT?"}
+                placeholder={t("home", "quickAiPlaceholder")}
                 value={quickPrompt}
                 onChange={(e) => setQuickPrompt(e.target.value)}
               />
               <Button variant="gold" type="submit" disabled={!quickPrompt.trim()} className="!py-1 text-xs font-bold">
-                <IconAi size={13} /> {lang === "fa" ? "ارسال به کلون هوش مصنوعی" : "Ask Grounded AI"}
+                <IconAi size={13} /> {t("home", "askGroundedAi")}
               </Button>
             </form>
           </div>
 
           {/* Real-Time Event Bus */}
           <Panel
-            title={lang === "fa" ? "جریان رویدادهای زنده" : "Real-time Event Bus"}
+            title={t("home", "eventBus")}
             icon={<IconPulse size={13} />}
             right={
               <StatusBadge
@@ -469,7 +541,7 @@ export default function DashboardPage() {
       {/* --------------------------- ADVISORY PIPELINE ARCHITECTURE --------------------------- */}
       <div className="rise">
         <SectionHeader
-          label={lang === "fa" ? "معماری خط لوله تصمیم‌گیری AsA" : "AsA Advisory Pipeline (Deterministic Execution Boundary)"}
+          label={t("home", "pipeline")}
           icon={<IconZap size={12} />}
         />
         <div className="panel overflow-x-auto px-3 py-2.5">

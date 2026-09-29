@@ -17,12 +17,15 @@ export function useOverlay(onClose: () => void) {
     const prev = document.activeElement as HTMLElement | null;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const first = ref.current?.querySelector<HTMLElement>(FOCUSABLE);
-    first?.focus();
+    const visibleFocusable = (): HTMLElement[] => {
+      if (!ref.current) return [];
+      return Array.from(ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+    };
+    visibleFocusable()[0]?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
       if (e.key !== "Tab" || !ref.current) return;
-      const items = Array.from(ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+      const items = visibleFocusable();
       if (items.length === 0) return;
       const i = items.indexOf(document.activeElement as HTMLElement);
       e.preventDefault();
@@ -146,13 +149,16 @@ export function AdaptiveDrawer({
   badge?: ReactNode;
   width?: string;
 }) {
+  // ONE trap container around BOTH breakpoint branches: on mobile the desktop
+  // drawer is display:none, so a ref on the desktop branch alone left the sheet
+  // with no focus trap, no focus restore and no initial focus. The outer wrapper
+  // covers both; hidden-branch controls are filtered out by visibility.
   const ref = useOverlay(onClose);
   return (
-    <div className="fixed inset-0" style={{ zIndex: "var(--z-drawer)" }} onMouseDown={onClose}>
+    <div ref={ref} className="fixed inset-0" style={{ zIndex: "var(--z-drawer)" }} onMouseDown={onClose}>
       <div className="backdrop" aria-hidden />
       {/* Desktop side drawer */}
       <div
-        ref={ref}
         role="dialog"
         aria-modal="true"
         aria-label={title}

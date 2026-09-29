@@ -177,11 +177,11 @@ export default function SignalsPage() {
             <div className="flex items-center gap-2">
               {ready && (
                 <span className="meta-strip">
-                  <span className="mono iso">{items.length} records</span>
+                  <span className="mono iso">{t("sig", "records").replace("{n}", String(items.length))}</span>
                 </span>
               )}
               <button className="focus-ring btn text-[10.5px]" onClick={refresh}>
-                <IconRefresh size={11} /> refresh
+                <IconRefresh size={11} /> {t("sig", "refresh")}
               </button>
             </div>
           }
@@ -194,33 +194,33 @@ export default function SignalsPage() {
               value={search}
               onChange={setSearch}
               onClear={() => setSearch("")}
-              placeholder="Search symbol or signal ID…"
+              placeholder={t("sig", "search")}
               className="w-[200px]"
             />
             <FilterBar<DirectionFilter>
               active={dirFilter}
               onChange={setDirFilter}
               filters={[
-                { id: "all", label: "All" },
-                { id: "long", label: "▲ Long" },
-                { id: "short", label: "▼ Short" },
+                { id: "all", label: t("sig", "allDirections") },
+                { id: "long", label: `▲ ${t("sig", "long")}` },
+                { id: "short", label: `▼ ${t("sig", "short")}` },
               ]}
             />
             <FilterBar<StateFilter>
               active={stateFilter}
               onChange={setStateFilter}
               filters={[
-                { id: "all", label: "All" },
-                { id: "published", label: "Published" },
-                { id: "expired", label: "Expired" },
-                { id: "rejected", label: "Rejected" },
+                { id: "all", label: t("sig", "allStates") },
+                { id: "published", label: t("sig", "published") },
+                { id: "expired", label: t("sig", "expired") },
+                { id: "rejected", label: t("sig", "rejected") },
               ]}
             />
           </div>
 
           {ready && (
             <span className="text-[11px] text-dim mono ms-auto">
-              showing {filteredItems.length} of {items.length}
+              {t("sig", "showing").replace("{n}", String(filteredItems.length)).replace("{total}", String(items.length))}
             </span>
           )}
         </div>
@@ -235,11 +235,11 @@ export default function SignalsPage() {
         )}
 
         {ready && items.length === 0 && (
-          <Empty text="EMPTY — the backend answered and no signals are stored. Signals require every gate, including current complete risk and empirical strategy promotion. Nothing is simulated." />
+          <Empty text={t("sig", "empty")} />
         )}
 
         {ready && items.length > 0 && filteredItems.length === 0 && (
-          <Empty text="No signals match the selected filters." />
+          <Empty text={t("sig", "emptyFiltered")} />
         )}
 
         {/* Signal Cards */}
@@ -250,10 +250,10 @@ export default function SignalsPage() {
                 title={`${s.symbol} · ${s.direction.toUpperCase()} @ ${s.timeframe}`}
                 right={
                   <div className="flex items-center gap-1.5">
-                    <IconButton label="inspect signal details" onClick={() => setSelectedSignal(s)}>
+                    <IconButton label={t("sig", "inspect")} onClick={() => setSelectedSignal(s)}>
                       <IconInfo size={13} />
                     </IconButton>
-                    <IconButton label="open on chart" onClick={() => handleOpenChart(s)}>
+                    <IconButton label={t("sig", "openChart")} onClick={() => handleOpenChart(s)}>
                       <IconChart size={13} />
                     </IconButton>
                     <StatusChip state={s.state} label={s.state} />
@@ -261,8 +261,8 @@ export default function SignalsPage() {
                 }
               >
                 <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
-                  <Badge color="var(--color-gold)">score {s.score}</Badge>
-                  <Badge>{s.strategy_id}</Badge>
+                  <Badge color="var(--color-gold)">{t("sig", "score")} {typeof s.score === "number" ? s.score : "—"}</Badge>
+                  <Badge>{t("sig", "strategy")} {s.strategy_id}</Badge>
                   <Badge
                     color={
                       s.delivery?.delivery_state === "SENT"
@@ -272,34 +272,34 @@ export default function SignalsPage() {
                         : undefined
                     }
                   >
-                    delivery {s.delivery?.delivery_state ?? "UNLINKED"}
+                    {t("sig", "delivery")} {s.delivery?.delivery_state ?? t("sig", "deliveryUnlinked")}
                   </Badge>
                   <span className="text-dim">
-                    created {new Date(s.created_ms).toLocaleString()}
+                    {t("sig", "created")} {new Date(s.created_ms).toLocaleString()}
                   </span>
                 </div>
 
                 <div className="mt-2 text-[10.5px] text-muted flex flex-wrap items-center gap-x-2 gap-y-1">
-                  {s.opp_id && <span>opportunity #{s.opp_id}</span>}
-                  {s.delivery?.outbox_id != null && <span>· outbox #{s.delivery.outbox_id}</span>}
+                  {s.opp_id && <span>{t("sig", "opportunity")} #{s.opp_id}</span>}
+                  {s.delivery?.outbox_id != null && <span>· {t("sig", "outbox")} #{s.delivery.outbox_id}</span>}
                   {s.delivery?.progress && (
                     <span>
-                      · chart {s.delivery.progress.photo_sent ? "✓ sent" : "pending"} · text{" "}
-                      {s.delivery.progress.text_sent ? "✓ sent" : "pending"}
+                      · {t("sig", "chartPhoto")} {s.delivery.progress.photo_sent ? `✓ ${t("sig", "sent")}` : t("sig", "pending")} · {t("sig", "chartText")}{" "}
+                      {s.delivery.progress.text_sent ? `✓ ${t("sig", "sent")}` : t("sig", "pending")}
                     </span>
                   )}
                 </div>
 
                 {s.delivery?.error && (
                   <p className="mt-1 text-[10.5px]" style={{ color: "var(--color-down)" }}>
-                    delivery error: {s.delivery.error}
+                    {t("sig", "deliveryError")}: {s.delivery.error}
                   </p>
                 )}
 
                 <div className="mt-2 pt-1.5 border-t hairline flex items-center justify-between text-[9.5px] text-dim">
-                  <span>Advisory only — no automatic execution. Human executes.</span>
+                  <span>{t("sig", "advisory")}</span>
                   <button onClick={() => setSelectedSignal(s)} className="text-gold hover:underline font-semibold">
-                    inspect signal →
+                    {t("sig", "inspect")} →
                   </button>
                 </div>
               </Panel>
@@ -310,19 +310,20 @@ export default function SignalsPage() {
 
       {/* Right Column: Manual Journal Form & List */}
       <div className="flex flex-col gap-2">
-        <Panel title="Manual Trade Journal">
+        <Panel title={t("sig", "journal")}>
           <div className="flex flex-wrap gap-1.5">
             <input
               className="input w-[110px]"
               value={sym}
               onChange={(e) => setSym(e.target.value.toUpperCase())}
-              aria-label="symbol"
+              aria-label={t("sig", "journalSymbol")}
               placeholder="BTCUSDT"
             />
             <select
               className="input w-[95px]"
               value={dir}
               onChange={(e) => setDir(e.target.value as "long" | "short")}
+              aria-label={t("sig", "journalDirection")}
             >
               <option value="long">long</option>
               <option value="short">short</option>
@@ -332,27 +333,27 @@ export default function SignalsPage() {
               placeholder="R mult"
               value={r}
               onChange={(e) => setR(e.target.value)}
-              aria-label="R multiple"
+              aria-label={t("sig", "journalR")}
             />
           </div>
           <textarea
             className="input mt-1.5 min-h-[70px] text-[12px]"
-            placeholder="Execution notes (entry rationale, exit result, psychological state)…"
+            placeholder={t("sig", "journalNotes")}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
           <div className="mt-2 flex items-center justify-between">
             <Button variant="gold" disabled={saving || !sym.trim()} onClick={() => void saveJournal()}>
-              {saving ? "recording…" : "Save Journal Entry"}
+              {saving ? t("sig", "saving") : t("sig", "save")}
             </Button>
           </div>
           <p className="mt-1.5 text-[9.5px] text-dim leading-relaxed">
-            R multiple is self-reported. AsA never accesses your exchange account. In production, mutations require the operator token in Settings.
+            {t("sig", "selfReported")}
           </p>
         </Panel>
 
         <Panel
-          title={`Journal History (${journal.data?.items.length ?? 0})`}
+          title={t("sig", "journalCount").replace("{n}", String(journal.data?.items.length ?? 0))}
           right={<span className="meta-strip"><span className="mono iso">operator ledger</span></span>}
         >
           <div className="max-h-[440px] space-y-1.5 overflow-y-auto">
@@ -372,7 +373,7 @@ export default function SignalsPage() {
                     <button
                       className="text-dim hover:text-down"
                       onClick={() => void delJournal(j.id)}
-                      title="delete entry"
+                      title={t("sig", "delete")}
                     >
                       <IconTrash size={11} />
                     </button>
@@ -385,7 +386,7 @@ export default function SignalsPage() {
               </div>
             ))}
             {(journal.data?.items?.length ?? 0) === 0 && (
-              <div className="py-6 text-center text-dim text-[11px]">No manual journal entries recorded yet.</div>
+              <div className="py-6 text-center text-dim text-[11px]">{t("sig", "journalEmpty")}</div>
             )}
           </div>
         </Panel>
@@ -394,7 +395,7 @@ export default function SignalsPage() {
       {/* Signal Detail Drawer */}
       {selectedSignal && (
         <AdaptiveDrawer
-          title={`Signal ${selectedSignal.id}`}
+          title={`${t("sig", "detail")} ${selectedSignal.id}`}
           sub={`${selectedSignal.symbol} · ${selectedSignal.direction.toUpperCase()} @ ${selectedSignal.timeframe}`}
           onClose={() => setSelectedSignal(null)}
           width="520px"
@@ -403,34 +404,34 @@ export default function SignalsPage() {
           <div className="flex flex-col gap-3">
             <div className="flex gap-2 border-b hairline pb-3">
               <Button variant="gold" className="flex-1" onClick={() => handleOpenChart(selectedSignal)}>
-                <IconChart size={13} /> View on Terminal
+                <IconChart size={13} /> {t("sig", "viewTerminal")}
               </Button>
               <Button variant="default" className="flex-1" onClick={() => handleOpenAi(selectedSignal)}>
-                <IconAi size={13} /> Ask AI Clone
+                <IconAi size={13} /> {t("sig", "askAi")}
               </Button>
             </div>
 
-            <Panel title="Lifecycle & State">
+            <Panel title={t("sig", "lifecycle")}>
               <div className="grid grid-cols-2 gap-2 text-[11.5px]">
-                <Stat k="lifecycle state" v={selectedSignal.state} />
-                <Stat k="score" v={selectedSignal.score} color="var(--color-gold)" />
-                <Stat k="strategy" v={selectedSignal.strategy_id} />
-                <Stat k="created" v={new Date(selectedSignal.created_ms).toLocaleTimeString()} />
+                <Stat k={t("sig", "lifecycleState")} v={selectedSignal.state} />
+                <Stat k={t("sig", "score")} v={typeof selectedSignal.score === "number" ? selectedSignal.score : "—"} color="var(--color-gold)" />
+                <Stat k={t("sig", "strategy")} v={selectedSignal.strategy_id} />
+                <Stat k={t("sig", "created")} v={new Date(selectedSignal.created_ms).toLocaleTimeString()} />
               </div>
             </Panel>
 
-            <Panel title="Delivery Status">
+            <Panel title={t("sig", "deliveryStatus")}>
               <ul className="space-y-1 text-[11px] text-muted">
-                <li>· State: <strong className="mono text-text">{selectedSignal.delivery?.delivery_state ?? "UNLINKED"}</strong></li>
-                <li>· Outbox ID: <code className="mono text-dim">{selectedSignal.delivery?.outbox_id ?? "none"}</code></li>
-                <li>· Attempts: <strong className="mono text-text">{selectedSignal.delivery?.attempts ?? 0}</strong></li>
+                <li>· {t("sig", "delivery")}: <strong className="mono text-text">{selectedSignal.delivery?.delivery_state ?? t("sig", "deliveryUnlinked")}</strong></li>
+                <li>· {t("sig", "outboxId")}: <code className="mono text-dim">{selectedSignal.delivery?.outbox_id ?? "none"}</code></li>
+                <li>· {t("sig", "attempts")}: <strong className="mono text-text">{selectedSignal.delivery?.attempts ?? 0}</strong></li>
                 {selectedSignal.delivery?.error && (
-                  <li className="text-down">· Error: {selectedSignal.delivery.error}</li>
+                  <li className="text-down">· {t("sig", "deliveryError")}: {selectedSignal.delivery.error}</li>
                 )}
               </ul>
             </Panel>
 
-            <Panel title="Advisory Warning">
+            <Panel title={t("sig", "advisory")}>
               <p className="text-[10.5px] leading-relaxed text-muted">
                 AsA signals are purely advisory intelligence. AsA has no connection to venue API keys and never places orders. The human operator assumes all execution responsibility.
               </p>
