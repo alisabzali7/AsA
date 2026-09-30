@@ -109,9 +109,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       </a>
 
       {/* ---------------------------------------------------- desktop rail */}
-      <aside className="asa-rail fixed inset-y-0 start-0 z-[var(--z-sticky)] hidden flex-col border-e hairline lg:flex" aria-label={t("shell", "primaryNavigation")}>
-        <Link href="/" className="focus-ring flex h-12 items-center gap-2 border-b hairline px-3.5 rounded-none">
-          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md border text-[10px] font-black" style={{ borderColor: "var(--color-gold-3)", color: "var(--color-gold)", boxShadow: "inset 0 0 8px rgba(216,188,120,0.15)" }}>A</span>
+      <aside
+        className="asa-rail fixed inset-y-0 start-0 z-[var(--z-sticky)] hidden flex-col border-e hairline lg:flex"
+        style={{ background: "linear-gradient(180deg, var(--color-ink), var(--color-obsidian) 60%)" }}
+        aria-label={t("shell", "primaryNavigation")}
+      >
+        <Link href="/" className="focus-ring flex h-14 items-center gap-2.5 border-b hairline px-3.5 rounded-none">
+          <span
+            className="brand-mark grid h-8 w-8 shrink-0 place-items-center text-[11px] font-black"
+            style={{ borderRadius: 10 }}
+          >
+            A
+          </span>
           <span className="rail-label flex min-w-0 flex-col leading-none">
             <span className="gold-text text-[15px] font-bold tracking-[0.22em]">ASA</span>
             <span className="mt-1 text-[8px] uppercase tracking-[0.18em] text-dim">advisory terminal</span>
@@ -271,7 +280,7 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
   const path = usePathname();
   const ref = useOverlay(onClose);
   const [motion, setMotion] = motionPref.use();
-  const rest = NAV_GROUPS.flatMap((g) => g.items).filter((n) => !MOBILE_PRIMARY.includes(n.href));
+
   return (
     <div className="fixed inset-0 z-[var(--z-drawer)] lg:hidden" onMouseDown={onClose}>
       <div className="backdrop" aria-hidden />
@@ -287,21 +296,34 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
         <div className="mx-auto mb-2 h-1 w-9 rounded-full" style={{ background: "var(--color-line-3)" }} aria-hidden />
         <div className="relative">
           <SheetClose onClose={onClose} label="close" />
-          <p className="eyebrow pb-1">{t("shell", "moreSections")}</p>
-          <ul className="grid grid-cols-2 gap-1.5">
-            {rest.map((n) => {
-              const active = n.href === "/" ? path === "/" : path.startsWith(n.href);
-              const Icon = n.icon;
+          <p className="eyebrow pb-1.5">{t("shell", "moreSections")}</p>
+          <div className="max-h-[48vh] space-y-3 overflow-y-auto pe-0.5">
+            {NAV_GROUPS.map((g) => {
+              const items = g.items.filter((n) => !MOBILE_PRIMARY.includes(n.href));
+              if (items.length === 0) return null;
               return (
-                <li key={n.href}>
-                  <Link href={n.href} onClick={onClose} className="focus-ring rail-item w-full" data-active={active} aria-current={active ? "page" : undefined}>
-                    <Icon size={15} />
-                    <span className="min-w-0 truncate text-[11px]" dir="auto">{t("nav", n.key)}</span>
-                  </Link>
-                </li>
+                <div key={g.id}>
+                  <p className="px-1 pb-1 text-[9px] font-bold uppercase tracking-[0.14em] text-dim" dir="auto">
+                    {lang === "fa" ? g.labelFa : g.label}
+                  </p>
+                  <ul className="grid grid-cols-2 gap-1.5">
+                    {items.map((n) => {
+                      const active = n.href === "/" ? path === "/" : path.startsWith(n.href);
+                      const Icon = n.icon;
+                      return (
+                        <li key={n.href}>
+                          <Link href={n.href} onClick={onClose} className="focus-ring rail-item w-full" data-active={active} aria-current={active ? "page" : undefined}>
+                            <Icon size={15} />
+                            <span className="min-w-0 truncate text-[11px]" dir="auto">{t("nav", n.key)}</span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               );
             })}
-          </ul>
+          </div>
           <div className="divider my-2.5" />
           <div className="flex items-center justify-between gap-2 pb-1">
             <p className="eyebrow">{t("shell", "devicePresentation")}</p>

@@ -10,10 +10,22 @@ import { IconClose } from "./icons";
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex="-1"])';
 
-/** scroll-lock + focus trap + restore — mounted-only overlays (reset-by-unmount).
- * The close callback is kept in a ref so parent re-renders do not tear down and
- * recreate the trap. That used to move focus back to the opener while typing
- * or while a sheet updated its data. */
+/** monotonic id so nested overlays (palette opened from within a sheet, etc.)
+ * each own exactly one history entry and never fight over who consumes the
+ * next back-button press. */
+let overlayStackSeq = 0;
+
+/** scroll-lock + focus trap + restore + Android/browser BACK BUTTON — mounted-only
+ * overlays (reset-by-unmount). The close callback is kept in a ref so parent
+ * re-renders do not tear down and recreate the trap. That used to move focus
+ * back to the opener while typing or while a sheet updated its data.
+ *
+ * Back-button hierarchy (mission §54): opening ANY overlay pushes one history
+ * entry tagged with its own id. Hardware/gesture back (popstate) closes the
+ * topmost overlay instead of leaving the route — it never falls through to
+ * normal browser history while something is open. Closing via Escape/backdrop
+ * consumes that same entry (history.back()) so back-button and in-app close
+ * stay perfectly symmetric and never leave an orphaned history slot behind. */
 export function useOverlay(onClose: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -31,6 +43,25 @@ export function useOverlay(onClose: () => void) {
       });
     };
     visibleFocusable()[0]?.focus();
+
+    // --- back-button hierarchy -------------------------------------------
+    // One history entry per overlay instance. A hardware/gesture back press
+    // (or the browser back button) fires popstate, which closes THIS overlay
+    // instead of leaving the route underneath it. Closing any other way
+    // (Escape, backdrop tap, an explicit close button, a completed action)
+    // just calls onClose() as before; the cleanup below then pops our own
+    // now-unused history entry so it never lingers for a *later* back press.
+    const overlayId = ++overlayStackSeq;
+    let poppedByBack = false;
+    try { window.history.pushState({ asaOverlay: overlayId }, ""); } catch { /* unavailable */ }
+    const onPopState = (e: PopStateEvent) => {
+      const state = e.state as { asaOverlay?: number } | null;
+      if (state?.asaOverlay === overlayId) return; // navigated back onto our own entry
+      poppedByBack = true;
+      onCloseRef.current();
+    };
+    window.addEventListener("popstate", onPopState);
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); onCloseRef.current(); return; }
       if (e.key !== "Tab" || !ref.current) return;
@@ -42,10 +73,26 @@ export function useOverlay(onClose: () => void) {
       items[next]?.focus();
     };
     window.addEventListener("keydown", onKey);
+
     return () => {
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("popstate", onPopState);
       document.body.style.overflow = prevOverflow;
       if (prev?.isConnected) prev.focus();
+      // closed via UI (not the back button): consume our own history entry
+      // so it doesn't sit there waiting to eat a future, unrelated back press.
+      // Deferred one tick so a same-click navigation (e.g. a Link inside a
+      // sheet) has already pushed its own entry before we decide whether the
+      // top of the stack is still ours to pop.
+      if (!poppedByBack) {
+        setTimeout(() => {
+          try {
+            if ((window.history.state as { asaOverlay?: number } | null)?.asaOverlay === overlayId) {
+              window.history.back();
+            }
+          } catch { /* noop */ }
+        }, 0);
+      }
     };
   }, []);
   return ref;
