@@ -2,6 +2,7 @@
 
 **Audit date:** 2026-09-30 UTC
 **Baseline:** `97c6be1` (`main`, session branch `arena/01a0f13a-asa`)
+**Final verification base:** merged `origin/main` at `8479c80` plus this branch's recovery commit(s)
 **Scope:** frontend product completion, truth-state recovery, chart lifecycle, Android/PWA readiness, accessibility primitives, i18n/RTL, performance and release verification.
 
 This is a current audit record. Older audit reports in this repository are retained historical evidence and are not used as current gate results.
@@ -11,7 +12,7 @@ This is a current audit record. Older audit reports in this repository are retai
 - Next.js 16 App Router, React 19, TypeScript strict mode, Lightweight Charts 5.
 - The 24 static page routes and the dynamic API route surface build successfully; the source tree contains the shared shell, market board, chart workspace, data-state/provider layer, selection store, bilingual vocabulary, PWA worker and advisory-only server boundary.
 - The backend contract is frozen by `BACKEND_FREEZE.md` and `FRONTEND_HANDOFF.md`. This pass does not change strategy, risk, psychology, scoring, market truth or execution semantics.
-- Final gates are green after dependencies were made available: typecheck, lint, 1,513 tests passed with 6 skipped across 85 passing test files, and production build. The repository's closure validator remains honestly `CLOSURE_BLOCKED_BY_SOURCE` because the supplied source corpus is incomplete; that is a source limitation, not silently upgraded in the UI.
+- Final gates are green after dependencies were made available: typecheck, lint, 1,573 tests passed with 6 skipped across 92 passing test files, and production build. The repository's closure validator remains honestly `CLOSURE_BLOCKED_BY_SOURCE` because the supplied source corpus is incomplete; that is a source limitation, not silently upgraded in the UI.
 
 ## Source-to-feedback chain
 
