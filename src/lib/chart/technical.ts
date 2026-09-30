@@ -75,7 +75,14 @@ export interface OverlayZone {
   direction: "up" | "down";
   top: number;
   bottom: number;
-  /** open time (epoch s) of the bar where the zone became knowable */
+  /**
+   * Open time (epoch s) of the bar whose CLOSE made the zone knowable — the
+   * zone must never be drawn before that bar:
+   *   FVG → the third candle of the pattern (`structure.fvgs[].t`)
+   *   OB  → the bar whose close completed the BOS/CHoCH the block led to
+   *         (`structure.order_blocks[].break_t`; RAW_5:679 — an order block
+   *         MUST lead to a BOS, so the node candle alone is not evidence).
+   */
   from_t: number;
   /**
    * Always HISTORICAL_ONLY: an unmitigated-as-of-window-end zone that was
@@ -189,7 +196,12 @@ export function buildChartOverlay(bundle: AnalysisBundle | null | undefined, bun
   const shownObs = openObs.slice(0, OVERLAY_LIMITS.open_order_blocks);
   if (openObs.length > shownObs.length) omitted.push({ kind: "OB", count: openObs.length - shownObs.length, reason: `display cap ${OVERLAY_LIMITS.open_order_blocks} most recent open blocks` });
   for (const { o, i } of shownObs) {
-    zones.push({ id: `ob:${o.index}`, kind: "OB", direction: o.direction, top: o.top, bottom: o.bottom, from_t: o.t, status: "HISTORICAL_ONLY", label: `OB ${o.direction === "up" ? "↑" : "↓"} (${o.break_kind})`, source: `structure.order_blocks[${i}]` });
+    // from_t = the BREAK bar, not the node bar (`o.t`): the node candle's range
+    // is measured at the node, but the block only EXISTS once the break closed
+    // (RAW_5:679). Drawing from the node would render the zone N bars before it
+    // was knowable, and would span bars that the zone's own mitigation
+    // accounting (which starts at break_index + 1) deliberately excludes.
+    zones.push({ id: `ob:${o.index}`, kind: "OB", direction: o.direction, top: o.top, bottom: o.bottom, from_t: o.break_t, status: "HISTORICAL_ONLY", label: `OB ${o.direction === "up" ? "↑" : "↓"} (${o.break_kind})`, source: `structure.order_blocks[${i}]` });
   }
 
   st.events.forEach((e, i) => {

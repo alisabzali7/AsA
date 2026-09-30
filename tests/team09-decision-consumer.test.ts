@@ -484,6 +484,16 @@ describe("AI consumer semantics (no inference beyond the contract)", () => {
     expect(llm.semantics.factual_fields).toContain("factual_evidence");
     expect(factualEvidence(ev).some((e) => e.includes(`fingerprint=${mtf.trigger!.provenance.input_fingerprint}`))).toBe(true);
   });
+
+  it("a MISSING macro/context bundle is reported UNAVAILABLE, never as a measured 0 bars (release-gate)", () => {
+    const ev = evidenceFor(mtf);
+    const line = factualEvidence(ev)[0];
+    expect(line).toContain(`${mtf.macro!.bars}/${mtf.context!.bars}/${mtf.trigger!.bars}`);
+    // the venue failed for a component: its bundle is null, not a zero-bar series
+    const degraded = factualEvidence({ ...ev, macro: null, context: null });
+    expect(degraded[0]).toBe("series bars macro/context/trigger: UNAVAILABLE/UNAVAILABLE/" + `${mtf.trigger!.bars}` + " (4h/1h/15m; UNAVAILABLE = no closed bars for that component)");
+    expect(degraded.join(" ")).not.toMatch(/(^|[^0-9])0\/0\//);
+  });
 });
 
 /* ================================== 6. momentum semantics (source) */

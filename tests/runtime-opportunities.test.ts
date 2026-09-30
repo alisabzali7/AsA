@@ -117,7 +117,11 @@ describe.skipIf(!serverUp)("opportunities surface (live server)", () => {
     globalThis.fetch = realFetch;
   });
 
-  it("renders the REJECTED opportunity as REJECTED, never as READY", async () => {
+  // The regression case below can only be exercised when the store actually
+  // HOLDS such an opportunity. When TTT discovery is down the scan stores
+  // nothing (count 0, nothing simulated), so the case does not exist — skip it
+  // with a stated reason instead of dereferencing null, and never fake a pass.
+  it.skipIf(!liveCases.rejectedWithRiskPass)("renders the REJECTED opportunity as REJECTED, never as READY", async () => {
     const seen = await waitFor(liveCases.rejectedWithRiskPass!.symbol);
     expect(seen, "the stored opportunity must be rendered from the live API").toBe(true);
     const text = host.textContent ?? "";
@@ -147,7 +151,7 @@ describe.skipIf(!serverUp)("opportunities surface (live server)", () => {
     expect(row).not.toMatch(/^READY/);
   });
 
-  it("the dossier gate ledger names every boundary for the REJECTED row", async () => {
+  it.skipIf(!liveCases.rejectedWithRiskPass)("the dossier gate ledger names every boundary for the REJECTED row", async () => {
     // open the dossier of the risk-pass-but-rejected row (the regression case)
     const symbol = liveCases.rejectedWithRiskPass!.symbol;
     expect(await waitFor(symbol)).toBe(true);
@@ -193,8 +197,18 @@ describe.skipIf(!serverUp)("opportunities surface (live server)", () => {
     const chips = Array.from(host.querySelectorAll("[data-state], .badge, span"))
       .map((el) => el.textContent?.trim() ?? "")
       .filter(Boolean);
-    // no chip may be an empty string, and the unavailable vocabulary is explicit
+    // no chip may ever be an empty string
     expect(chips.every((c) => c.length > 0)).toBe(true);
+    const hasRow = liveCases.rejectedWithRiskPass ?? liveCases.ready ?? liveCases.downgraded;
+    if (!hasRow) {
+      // No row exists, so there is no row verdict to render; what the surface
+      // must state instead is the EMPTY truth (backend answered, nothing stored
+      // — never a blank or a fabricated row). That text lives in the state
+      // block, so it is asserted on the page text, not on a chip. Wait for the
+      // first poll to settle: before it answers, the honest state is LOADING.
+      expect(await waitFor("EMPTY", 15000), "an empty store must settle into the EMPTY truth state").toBe(true);
+      return;
+    }
     expect(chips.some((c) => /UNAVAILABLE|LOADING|EMPTY|REJECTED|READY|EXPIRED/.test(c))).toBe(true);
   });
 });
