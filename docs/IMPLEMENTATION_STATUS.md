@@ -1,6 +1,8 @@
 > **HISTORICAL DOCUMENT.** This is a point-in-time snapshot from an earlier
 > build phase and is retained for provenance only. For current truth see
-> `FINAL_STATUS.md` and `MACHINE_READABLE_STATUS.json`.
+> `README.md`, `MACHINE_READABLE_STATUS.json` (regenerate with
+> `npm run brain:audit`), `docs/brain/AUDIT.md` and
+> `docs/roadmap/ASA_100_PERCENT_CONTRACT.md`.
 
 # Implementation Status (evidence-graded)
 

@@ -4,6 +4,49 @@
 
 # Changelog
 
+## Unreleased — audit-artifact freshness, executable-status clarity, CI
+
+### Fixed
+- **Committed audit artifacts went stale.** `MACHINE_READABLE_STATUS.json`
+  still carried the sha256 of a previous `source-contracts.json`
+  (`13cb5ec0…`) instead of the checked-in contract (`26acf24e…`), and
+  `docs/brain/AUDIT.md`'s psychology policy matrix omitted the
+  `runtime status is DISABLED` eligibility reason the current policy registry
+  produces. Both artifacts were regenerated from the current code
+  (`npm run brain:ingest && npm run brain:audit`) and a new
+  `tests/audit-staleness.test.ts` fails loudly if they ever describe a
+  contract/policy registry that is no longer the shipped one.
+- **"Executable" could be misread across the strategy APIs.**
+  `GET /api/brain/strategies` exposed `has_executable_spec: true` for the six
+  compiled strategies while `GET /api/research/strategies` correctly reported
+  `executable: false` (they are RESEARCH_ONLY). The Brain endpoint now also
+  exposes the runtime registry's own verdict (`runtime_availability`, null
+  when no compiled runtime definition exists) and `research_computable` with
+  exactly the research endpoint's semantics, its note defines
+  `has_executable_spec` as "a compiled implementation binding exists — NOT
+  executable or live-eligible", and the registry table header was relabelled
+  from "spec" to "compiled" showing the runtime availability.
+  `tests/brain-strategies-route.test.ts` pins agreement across the Brain,
+  Research and runtime surfaces.
+- **Documentation drift.** `README.md` and `docs/architecture.md` referenced a
+  `StrategySpec` interface that no longer exists (the seam is the Brain-backed
+  runtime registry + `StrategyDefinition` contract) and described a `minRR`
+  risk veto the engine deliberately does not have (R:R is reported; the corpus
+  states no threshold). `docs/testing.md` still described a 389-test/19-file
+  suite (now 87 files / 1528 tests) and `docs/IMPLEMENTATION_STATUS.md` pointed
+  to `FINAL_STATUS.md` (a 2026-09-11 snapshot) as "current truth".
+
+### Added
+- **CI (`.github/workflows/ci.yml`).** The repository had no test CI at all —
+  only the GitHub Pages deployment ran on `main`. Every push/PR to `main` now
+  runs typecheck, lint, the full vitest suite, the production build, and the
+  deterministic closure validator (`npm run closure:validate`; its honest
+  current status `CLOSURE_BLOCKED_BY_SOURCE` exits 0, implementation errors
+  fail).
+- `tests/i18n-scan.test.ts` now enforces full en/fa key-tree parity
+  (568 keys each) — `t()` silently falls back to English for a missing Persian
+  key, so parity was previously only a convention.
+
 ## 6.1 (2026-09-06) — real credentials wired
 
 First window with live credentials supplied. All claims below are backed by

@@ -24,6 +24,14 @@ npm run build && npm run start   # production
 #    curl "$HOST/api/market/history?symbol=BTCUSDT&tf=1h&sync=full&limit=1"
 ```
 
+> `brain:validate` **fails closed** and is honestly BLOCKED in a stock checkout
+> of the current corpus: every research/backtest run requires an explicitly
+> selected source-verified risk policy plus explicit sizing/cost/same-bar/
+> hold-horizon inputs, and with the supplied sources TRUNCATED/UNKNOWN no risk
+> policy is selectable. A blocked run persists **zero** experiments and never
+> substitutes defaults — this is the intended state until complete source
+> material arrives.
+
 Open http://localhost:3000. The engine boots discovery-first: TTT markets → dynamic universe/catalog → stats sweeps → candle backfill/close refresh → analysis → scanning. If TTT is unavailable at boot, the app reports `NOT_READY`/`NETWORK_FAILURE` and keeps the recovery loops running instead of falling back to a static universe.
 
 ## Tests
@@ -31,6 +39,8 @@ Open http://localhost:3000. The engine boots discovery-first: TTT markets → dy
 ```bash
 npx vitest run         # unit + source-scan tests (see docs/testing.md)
 ```
+
+CI (`.github/workflows/ci.yml`) runs typecheck, lint, the full test suite, the production build and the deterministic closure validator (`npm run closure:validate`) on every push/PR to `main`.
 
 ## Strategy validation & promotion
 
@@ -88,12 +98,13 @@ TTT REST (documented public endpoints)
   → TTTAdapter (fetchers + UDF normalization/dedupe/validation)
   → MarketEngine (stats loop, tape lane, book lane, funding ingestion, candle scheduler, coverage, fairness, freshness)
   → Analysis (indicators/structure/regime/liquidity/fib) → MTF context → Psychology (measured vs proxy)
-  → StrategySpec registry → Opportunity engine → Risk engine (HARD GATE) → AI router (heuristic default; Ollama/OpenAI-compatible optional)
+  → Strategy runtime registry (Brain-backed compiled strategies; `src/lib/strategy/runtime.ts` is the ONLY production registry)
+  → Opportunity engine → Risk engine (HARD GATE) → AI router (heuristic default; Ollama/OpenAI-compatible optional)
   → Signal engine (durable) → final merged chart spec → Telegram outbox → human journal
   → Event bus → SSE → React web terminal (browser never talks to TTT directly)
 ```
 
-Everything major is an interface seam: `StrategySpec`, AI provider router, `NewsConnector`, TTT adapter, and a `Repo` storage interface implemented by `better-sqlite3` (`src/db/`). Storage is deliberately swappable without touching business logic.
+Everything major is an interface seam: the `StrategyDefinition` contract plus the Brain-backed compiled-strategy registry (`src/lib/strategy/`), the AI provider router, `NewsConnector`, the TTT adapter, and a `Repo` storage interface implemented by `better-sqlite3` (`src/db/`). Storage is deliberately swappable without touching business logic.
 
 ## Pages
 
