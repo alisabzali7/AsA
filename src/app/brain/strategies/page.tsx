@@ -10,7 +10,7 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { usePoll } from "@/components/hooks";
-import { Badge, Panel, StatusChip } from "@/components/ui";
+import { Badge, Panel, SkeletonRows, StatusChip } from "@/components/ui";
 
 interface StratRow {
   strategy_id: string; canonical_name: string; family: string; aliases: string[];
@@ -395,7 +395,7 @@ function StrategiesInner() {
 
 export default function StrategiesPage() {
   return (
-    <Suspense fallback={<div className="text-[12px] text-muted">Loading…</div>}>
+    <Suspense fallback={<Panel className="p-3" i={0}><SkeletonRows rows={5} cols={4} /></Panel>}>
       <StrategiesInner />
     </Suspense>
   );

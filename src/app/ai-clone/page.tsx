@@ -12,7 +12,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useLang } from "@/components/lang";
 import { usePoll, postJson, fmtAge } from "@/components/hooks";
-import { Panel, Badge, Button, IconButton } from "@/components/ui";
+import { Panel, Badge, Button, IconButton, Skeleton, SkeletonRows } from "@/components/ui";
 import { TruthState } from "@/components/data-state";
 import { PageHead } from "@/components/chrome";
 import { useSelection } from "@/components/selection";
@@ -181,10 +181,13 @@ function AiCloneInner() {
           }
         />
 
-        {/* Question Input Card */}
-        <Panel className="p-3">
+        {/* Question Composer — the cockpit's primary instrument */}
+        <div className="card-elevated relative overflow-hidden rounded-xl p-3.5" style={{ background: "radial-gradient(140% 140% at 0% 0%, rgba(216,188,120,0.05), transparent 60%), var(--color-panel)" }}>
+          <div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-gold">
+            <IconAi size={13} /> {t("nav", "ai")} · composer
+          </div>
           <textarea
-            className="input min-h-[85px] text-[13px]"
+            className="input min-h-[85px] text-[13px] transition-shadow focus:shadow-[0_0_0_3px_rgba(216,188,120,0.14)]"
             placeholder="Ask about live market state, metrics, coverage, risk, strategy… (grounded, tagged answers)"
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -224,7 +227,7 @@ function AiCloneInner() {
               ))}
             </div>
           </div>
-        </Panel>
+        </div>
 
         {/* Conversation History */}
         <div className="flex flex-col gap-2">
@@ -424,9 +427,29 @@ function AiCloneInner() {
   );
 }
 
+function AiCloneSkeleton() {
+  return (
+    <div className="grid gap-2 xl:grid-cols-[1fr_320px]" aria-hidden>
+      <div className="flex flex-col gap-2">
+        <div className="skeleton h-6 w-52" />
+        <div className="card-elevated rounded-xl p-3.5">
+          <Skeleton className="h-20" />
+        </div>
+        <div className="card rounded-xl p-3.5">
+          <Skeleton className="h-4 w-40" />
+          <div className="mt-2"><SkeletonRows rows={3} cols={1} /></div>
+        </div>
+      </div>
+      <div className="card rounded-xl p-3.5">
+        <SkeletonRows rows={4} cols={2} />
+      </div>
+    </div>
+  );
+}
+
 export default function AiClonePage() {
   return (
-    <Suspense fallback={<div className="py-10 text-center text-muted">loading AI Clone…</div>}>
+    <Suspense fallback={<AiCloneSkeleton />}>
       <AiCloneInner />
     </Suspense>
   );

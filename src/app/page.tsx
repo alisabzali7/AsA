@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useRouter } from "next/navigation";
 import { useLang } from "@/components/lang";
 import { usePoll, useSse, fmtAge, formatPrice } from "@/components/hooks";
-import { Badge, Button, Card, Metric, Panel, SectionHeader, Stat, StatusBadge, Timeline } from "@/components/ui";
+import { Badge, Button, Panel, SectionHeader, StatusBadge, Timeline } from "@/components/ui";
 import { TruthState, StatusWord } from "@/components/data-state";
 import {
   topByPrice,
@@ -42,14 +42,9 @@ import {
   IconAi,
   IconAlert,
   IconChart,
-  IconLayers,
   IconMarket,
   IconOpportunity,
-  IconPinFilled,
   IconPulse,
-  IconRefresh,
-  IconSearch,
-  IconSignal,
   IconSparkles,
   IconTrendingUp,
   IconZap,
@@ -196,30 +191,33 @@ export default function DashboardPage() {
       )}
 
       {/* --------------------------- HERO: DYNAMIC ASA IDENTITY --------------------------- */}
-      <section
-        className="card relative overflow-hidden p-4 sm:p-6"
-        aria-label={t("home", "eyebrow")}
-        style={{
-          background: "radial-gradient(70% 120% at 50% 0%, rgba(216,188,120,0.1) 0%, rgba(14,17,24,0.95) 70%), var(--color-panel)",
-        }}
-      >
-        <div className="relative flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            {/* Dynamic Dimensional AsA Monogram */}
-            <div className="relative flex h-14 w-14 sm:h-16 sm:w-16 shrink-0 items-center justify-center rounded-2xl border border-gold-2 bg-[rgba(216,188,120,0.08)] shadow-[0_0_30px_rgba(216,188,120,0.25)]">
+      <section className="hero-scene scene p-4 sm:p-7" aria-label={t("home", "eyebrow")}>
+        <div className="hero-atmosphere" aria-hidden="true">
+          <span className="orb" style={{ width: 320, height: 320, top: -130, insetInlineStart: "6%" }} />
+          <span className="orb o2" style={{ width: 260, height: 260, top: -90, insetInlineEnd: "2%" }} />
+          <span className="field" />
+        </div>
+
+        <div className="relative flex flex-wrap items-start justify-between gap-5">
+          <div className="flex items-start gap-4">
+            {/* Dynamic Dimensional AsA Monogram — the ONE focal object (mission §9) */}
+            <div className="brand-mark relative h-16 w-16 sm:h-20 sm:w-20 shrink-0">
               <span className="mono text-2xl sm:text-3xl font-black text-gold">AsA</span>
-              <span className="absolute -bottom-1 -end-1 h-3.5 w-3.5 rounded-full border-2 border-[var(--color-obsidian)] bg-[var(--color-up)] shadow-sm" />
+              <span
+                className="pulse-dot absolute -bottom-1 -end-1 border-2 border-[var(--color-obsidian)]"
+                style={{ background: "var(--color-up)", color: "var(--color-up)" }}
+              />
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 pt-0.5">
               <div className="flex items-center gap-2">
                 <span className="eyebrow gold-text">{t("home", "eyebrow")}</span>
                 <Badge color="var(--color-gold)">TTT MARKET TRUTH</Badge>
               </div>
-              <h1 className="mt-0.5 text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-text" dir="auto">
+              <h1 className="display-1 text-gradient-gold mt-1.5" dir="auto">
                 {t("home", "title")}
               </h1>
-              <p className="mt-1 max-w-[65ch] text-[11.5px] sm:text-[12px] leading-relaxed text-muted">
+              <p className="mt-2 max-w-[62ch] text-[12px] sm:text-[12.5px] leading-relaxed text-muted">
                 {boardReady
                   ? marketLive
                     ? `market sweep is live — ${live}/${rows.length} universe rows active · sweep age ${fmtAge(sweepEff)}`
@@ -250,61 +248,56 @@ export default function DashboardPage() {
             </button>
           </div>
         </div>
-      </section>
 
-      {/* --------------------------- GLOBAL KPIS --------------------------- */}
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rise" style={{ ["--i" as never]: 1 }}>
-          <Metric
-            label={t("home", "kpiTtt")}
-            value={
-              boardReady ? (
-                <span style={{ color: marketLive ? "var(--color-up)" : "var(--color-warn)" }}>
-                  {marketLive ? "LIVE" : "STALE/DEGRADED"}
-                </span>
-              ) : (
-                <StatusWord status={board.status} failure={board.failure} />
-              )
-            }
-            sub={
-              boardReady
-                ? `${t("home", "sweepAge")} · SSE ${sse.connected ? t("home", "sseOn") : t("home", "sseOff")}`.replace("{age}", sweepEff !== null ? fmtAge(sweepEff) : "—")
-                : board.failure?.server_state ?? board.failure?.message ?? "—"
-            }
-          />
-        </div>
-        <div className="rise" style={{ ["--i" as never]: 2 }}>
-          <Metric
-            label={t("home", "kpiUniverse")}
-            value={boardReady ? `${live}/${rows.length}` : "—"}
-            sub={
-              boardReady
-                ? t("home", "kpiUniverseSub")
-                : `${t("state", "unavailable").split(" —")[0]} until discovery`
-            }
-            color="var(--color-gold)"
-          />
-        </div>
-        <div className="rise" style={{ ["--i" as never]: 3 }}>
-          <Metric
-            label={t("home", "kpiHealth")}
-            value={
-              <span className="inline-flex items-center gap-2">
-                <StatusBadge state={healthChip === "OK" ? "CONNECTED" : String(healthChip)} />
-                <span className="text-[12px] font-bold uppercase">{marketState ?? health.status}</span>
+        {/* inline pulse strip — one primary data story, not four stacked KPI
+            boxes competing for the same attention (mission §8/§10) */}
+        <div className="relative mt-5 sm:mt-6 flex flex-wrap items-baseline gap-y-2.5 border-t hairline pt-3.5">
+          <span className="stat-inline">
+            <span
+              className="pulse-dot"
+              style={{ color: boardReady ? (marketLive ? "var(--color-up)" : "var(--color-warn)") : "var(--color-dim)" }}
+            />
+            <span className="flex flex-col">
+              <span className="stat-inline-k">{t("home", "kpiTtt")}</span>
+              <span
+                className="stat-inline-v mono"
+                style={{ color: boardReady ? (marketLive ? "var(--color-up)" : "var(--color-warn)") : "var(--color-muted)" }}
+              >
+                {boardReady ? (marketLive ? "LIVE" : "STALE/DEGRADED") : <StatusWord status={board.status} failure={board.failure} />}
               </span>
-            }
-            sub={health.data ? (health.data.reason ? `reason: ${health.data.reason}` : "server health verified") : "checking /api/system/health…"}
-          />
+            </span>
+          </span>
+          <span className="stat-inline">
+            <span className="flex flex-col">
+              <span className="stat-inline-k">{t("home", "kpiUniverse")}</span>
+              <span className="stat-inline-v mono text-gold">{boardReady ? `${live}/${rows.length}` : "—"}</span>
+            </span>
+          </span>
+          <span className="stat-inline">
+            <span className="flex flex-col">
+              <span className="stat-inline-k">{t("home", "kpiHealth")}</span>
+              <span className="stat-inline-v inline-flex items-center gap-1.5">
+                <StatusBadge state={healthChip === "OK" ? "CONNECTED" : String(healthChip)} />
+                <span className="mono text-[12px] uppercase">{marketState ?? health.status}</span>
+              </span>
+            </span>
+          </span>
+          <span className="stat-inline">
+            <span className="flex flex-col">
+              <span className="stat-inline-k">{t("home", "kpiBoundary")}</span>
+              <span className="stat-inline-v text-gold">{t("home", "advisory")}</span>
+            </span>
+          </span>
+          <span className="ms-auto hidden text-[10px] text-dim sm:inline">
+            {boardReady
+              ? `${t("home", "sweepAge")} · SSE ${sse.connected ? t("home", "sseOn") : t("home", "sseOff")}`.replace(
+                  "{age}",
+                  sweepEff !== null ? fmtAge(sweepEff) : "—",
+                )
+              : board.failure?.server_state ?? board.failure?.message ?? ""}
+          </span>
         </div>
-        <div className="rise" style={{ ["--i" as never]: 4 }}>
-          <Metric
-            label={t("home", "kpiBoundary")}
-            value={<span className="text-gold">{t("home", "advisory")}</span>}
-            sub={t("home", "pureIntelligence")}
-          />
-        </div>
-      </div>
+      </section>
 
       {board.status !== "OK" && (
         <div className="rise">
@@ -318,28 +311,36 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* --------------------------- REQUIRES ATTENTION (measured problems only) --------------------------- */}
-      <div className="rise">
-        <Panel
-          title={t("home", "attention")}
-          icon={<IconAlert size={12} />}
-          right={
-            <StatusBadge
-              state={attention.length === 0 ? "READY" : attention[0].tone === "block" ? "BLOCKED" : "DEGRADED"}
-              label={
-                attention.length === 0
-                  ? t("home", "attentionNone")
-                  : `${attention.length} ${t("home", "attention")}`
-              }
-            />
-          }
+      {/* --------------------------- REQUIRES ATTENTION (measured problems only) ---------------------------
+          A clean system says nothing here — no placeholder card, no dead
+          space; the banner only exists to be seen when there is something
+          real to act on (mission §10/§42/§44: empty states never fake work). */}
+      {attention.length > 0 && (
+        <div
+          className="rise flex items-start gap-3 rounded-xl border px-3.5 py-3"
+          style={{
+            borderColor: `${attentionToneColor(attention[0].tone)}40`,
+            background: `linear-gradient(90deg, ${attentionToneColor(attention[0].tone)}14, transparent 70%)`,
+          }}
         >
-          {attention.length === 0 ? (
-            <p className="text-[11px] leading-relaxed text-muted" dir="auto">
-              {t("home", "attentionNone")}
-            </p>
-          ) : (
-            <ul className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+          <span
+            className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg"
+            style={{ color: attentionToneColor(attention[0].tone), background: `${attentionToneColor(attention[0].tone)}1f` }}
+            aria-hidden
+          >
+            <IconAlert size={14} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11.5px] font-bold uppercase tracking-wide" dir="auto">
+                {t("home", "attention")}
+              </span>
+              <StatusBadge
+                state={attention[0].tone === "block" ? "BLOCKED" : "DEGRADED"}
+                label={`${attention.length} ${t("home", "attention")}`}
+              />
+            </div>
+            <ul className="mt-2 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
               {attention.map((a) => (
                 <li key={a.key}>
                   <Link
@@ -365,12 +366,10 @@ export default function DashboardPage() {
                 </li>
               ))}
             </ul>
-          )}
-          <p className="mt-2 border-t hairline pt-1.5 text-[9.5px] text-dim">
-            {t("home", "attentionReview")}
-          </p>
-        </Panel>
-      </div>
+            <p className="mt-2 text-[9.5px] text-dim">{t("home", "attentionReview")}</p>
+          </div>
+        </div>
+      )}
 
       {/* --------------------------- 3D MARKET CONTAINER (10 PRIMARY ASSETS + MORE EXPANSION) --------------------------- */}
       <div className="rise">
@@ -394,26 +393,41 @@ export default function DashboardPage() {
               <Badge color="var(--color-up)">{t("home", "positive24h")}</Badge>
             </div>
 
-            <ul className="mt-3 space-y-2">
+            <ul className="mt-3 space-y-1.5">
               {boardReady &&
-                gainers.map((g) => (
-                  <li
-                    key={g.symbol}
-                    className="flex items-center justify-between rounded-md border border-[var(--color-line)] bg-[var(--color-panel-2)] p-2 transition-colors hover:border-gold-3"
-                  >
-                    <Link
-                      href={`/chart?symbol=${g.symbol}`}
-                      onClick={() => setSel({ symbol: g.symbol, returnTo: "/" })}
-                      className="flex flex-col min-w-0"
-                    >
-                      <span className="mono text-xs font-bold text-text truncate">{g.symbol}</span>
-                      <span className="mono text-[10px] text-dim">{formatPrice(g.price)}</span>
-                    </Link>
-                    <span className="mono text-xs font-bold text-end" style={{ color: "var(--color-up)" }}>
-                      +{g.change24hPct!.toFixed(2)}%
-                    </span>
-                  </li>
-                ))}
+                gainers.map((g, i) => {
+                  // gainers are strictly positive-and-measured by construction (topGainers
+                  // selector) — the bar-width magnitude reads the same guaranteed value the
+                  // adjacent percentage label already renders below, never a coalesced null.
+                  const magnitude = Math.min(100, g.change24hPct! * 8);
+                  return (
+                    <li key={g.symbol} className="relative overflow-hidden rounded-md border border-[var(--color-line)] bg-[var(--color-panel-2)] transition-colors hover:border-gold-3">
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute inset-y-0 start-0 opacity-[0.10] transition-all duration-500"
+                        style={{ width: `${magnitude}%`, background: "var(--color-up)" }}
+                      />
+                      <Link
+                        href={`/chart?symbol=${g.symbol}`}
+                        onClick={() => setSel({ symbol: g.symbol, returnTo: "/" })}
+                        className="relative flex items-center justify-between gap-2 p-2"
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="mono grid h-5 w-5 shrink-0 place-items-center rounded text-[9.5px] font-bold text-dim" style={{ background: "var(--color-ink)" }}>
+                            {i + 1}
+                          </span>
+                          <span className="flex flex-col min-w-0">
+                            <span className="mono text-xs font-bold text-text truncate">{g.symbol}</span>
+                            <span className="mono text-[10px] text-dim">{formatPrice(g.price)}</span>
+                          </span>
+                        </span>
+                        <span className="mono flex items-center gap-1 text-xs font-bold text-end" style={{ color: "var(--color-up)" }}>
+                          <IconTrendingUp size={11} /> +{g.change24hPct!.toFixed(2)}%
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
               {boardReady && gainers.length === 0 && (
                 <li className="py-8 text-center text-dim text-xs">
                   {t("home", "noGainers")}
