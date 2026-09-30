@@ -14,7 +14,7 @@ copy .env.example .env        # Windows
 # cp .env.example .env        # macOS/Linux
 # 3. Build runtime state (SQLite via better-sqlite3 — created automatically).
 #    Runtime DBs are NOT shipped; they are rebuilt from the source corpus.
-npm run brain:ingest    # knowledge/raw/*.txt -> asa-data/brain.db (9,398 fragments)
+npm run brain:ingest    # knowledge/raw/*.txt + psychology -> asa-data/brain.db (12,461 fragments: 9,398 corpus + 3,063 psychology)
 npm run brain:mine      # narrative mining    -> atoms/components/candidates
 npm run brain:validate  # real TTT replay     -> validation experiments + promotion verdicts
 # 4. Run

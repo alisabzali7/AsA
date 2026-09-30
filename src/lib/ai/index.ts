@@ -276,8 +276,14 @@ export function factualEvidence(ev: AiEvidence): string[] {
   const t = ev.trigger;
   const st = t?.structure;
   const indicators = t?.indicators;
+  // A missing component bundle is UNAVAILABLE, never "0 bars": this array is
+  // the engine-generated FACTUAL channel (persisted to ai_calls and returned to
+  // consumers verbatim), so a substituted 0 would report an unavailable 4H/1H
+  // series as a measured empty one. `null`-for-missing is the same rule the
+  // orchestrator applies to `provenance.data.candles`.
+  const barCount = (b: AnalysisBundle | null): string => (b ? `${b.bars}` : "UNAVAILABLE");
   const evidence: string[] = [
-    `series bars macro/context/trigger: ${ev.macro?.bars ?? 0}/${ev.context?.bars ?? 0}/${t?.bars ?? 0}`,
+    `series bars macro/context/trigger: ${barCount(ev.macro)}/${barCount(ev.context)}/${barCount(t)} (4h/1h/15m; UNAVAILABLE = no closed bars for that component)`,
   ];
   if (indicators) evidence.push(`rsi14=${fmt(indicators.rsi14)} ema20=${fmt(indicators.ema20)} ema50=${fmt(indicators.ema50)} atr14%=${fmt(indicators.atr14_pct)}`);
   if (st) evidence.push(`trend=${st.trend} (${st.reason})`);

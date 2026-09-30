@@ -11,12 +11,12 @@
 import { NextResponse } from "next/server";
 import { discoverMarkets } from "@/lib/market/catalog";
 import { getHistoryStore } from "@/lib/market/history-store";
-import { TIMEFRAMES, type TimeframeId } from "@/lib/domain/timeframes";
+import { TIMEFRAME_IDS, TIMEFRAMES, type TimeframeId } from "@/lib/domain/timeframes";
 
 export const dynamic = "force-dynamic";
 
-/** The nine production resolutions required by the product. */
-export const PRODUCTION_TIMEFRAMES: TimeframeId[] = ["5m", "15m", "30m", "45m", "1h", "2h", "4h", "8h", "1d"];
+/** The nine production resolutions required by the product (all canonical timeframes except 1m). */
+export const PRODUCTION_TIMEFRAMES: TimeframeId[] = TIMEFRAME_IDS.filter((id) => id !== "1m") as TimeframeId[];
 
 export async function GET(req: Request): Promise<NextResponse> {
   const url = new URL(req.url);

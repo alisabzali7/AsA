@@ -4,7 +4,7 @@
 
 **Computed closure status:** `CLOSURE_BLOCKED_BY_SOURCE`
 
-As-of: 2026-09-28. This is a point-in-time evidence contract for the inspected checkout, not a claim that the supplied corpus is complete. “100%” means the current source, implementation, provenance, and validation boundaries are explicitly inventoried; it is not a subjective completion percentage and does not mean every source fact has been formalized or implemented.
+As-of: 2026-09-30. This is a point-in-time evidence contract for the inspected checkout, not a claim that the supplied corpus is complete. “100%” means the current source, implementation, provenance, and validation boundaries are explicitly inventoried; it is not a subjective completion percentage and does not mean every source fact has been formalized or implemented.
 
 ## Scope and decision rules
 
@@ -133,4 +133,4 @@ The validator reports `CLOSURE_BLOCKED_BY_IMPLEMENTATION` for identity, semantic
 
 **Source blockers that remain regardless of passing implementation checks:** `RAW_1`, `RAW_2`, and `RAW_4` are `TRUNCATED`; `RAW_3` and `RAW_5` are `UNKNOWN`; both psychology sources are `TRUNCATED`; missing continuation and strategy-semantic adjudication remain `UNKNOWN`; all six compiled contracts are incomplete and semantically unproven; and source-faithful, version-bound performance/promotion evidence is `NOT_PRESENT`. Recovery beyond the inspected local/GitHub repository has not been searched. These states prevent `CLOSURE_READY` without any implication that the implementation checks have failed.
 
-No source-semantic promotion, deployment, or release is authorized by this contract. During this audit, the fixed branch `arena/01a0da21-asa` incorporated current `origin/main` at commit `2f9c54794447a290e5acc14376f3ce1f00aedd09` by non-rewriting merges; local history was not rebased or rewritten. This integration does not resolve any source blocker or authorize production eligibility.
+No source-semantic promotion, deployment, or release is authorized by this contract. During this audit, the fixed branch `arena/01a0f130-asa` incorporated current `origin/main` at commit `97c6be1ea60ec80b86ac133554faa03a14515b66` by non-rewriting merges; local history was not rebased or rewritten. This integration does not resolve any source blocker or authorize production eligibility. Fixes in this pass: timeframe single-source (MarketStore + chart-view + matrix), RSS SSRF guard (validateRssUrl + redirect:error), chart import topology allowance for `src/lib/domain/timeframes.ts`, and regression tests `timeframe-unification` + `rss-ssrf`.

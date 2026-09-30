@@ -45,9 +45,15 @@ describe("chart overlay = projection of engine evidence", () => {
         if (l.kind === "SWING") expect([st.last_swing_high, st.last_swing_low]).toContain(l.price);
       }
       for (const z of o.zones) {
-        const src = z.kind === "FVG" ? st.fvgs : st.order_blocks;
-        const hit = (src as { t: number; top: number; bottom: number; mitigated_index: number | null }[]).find((x) => x.t === z.from_t && x.top === z.top && x.bottom === z.bottom);
-        expect(hit).toBeDefined();
+        // from_t must be the bar whose CLOSE made the zone knowable, i.e. the
+        // source field that carries that instant — not merely any bar of the
+        // zone. FVG: the third candle of the pattern (`t`). OB: the bar that
+        // closed through the level (`break_t`, RAW_5:679) — the node candle's
+        // own open time is NOT when the block became evidence.
+        const hit = z.kind === "FVG"
+          ? (st.fvgs as { t: number; top: number; bottom: number; mitigated_index: number | null }[]).find((x) => x.t === z.from_t && x.top === z.top && x.bottom === z.bottom)
+          : (st.order_blocks as { t: number; break_t: number; top: number; bottom: number; mitigated_index: number | null }[]).find((x) => x.break_t === z.from_t && x.top === z.top && x.bottom === z.bottom);
+        expect(hit, `${z.id} must trace to the bar that made it knowable`).toBeDefined();
         expect(hit!.mitigated_index).toBeNull(); // only OPEN zones are drawn
       }
       for (const m of o.markers) {

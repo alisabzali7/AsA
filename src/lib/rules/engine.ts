@@ -26,7 +26,16 @@ export interface RulePredicate {
   expr: string;
   /** the actual test; receives the feature bag */
   test(bag: FeatureBag): { ok: boolean; detail: string };
-  /** features that MUST be valid for this predicate to be meaningful */
+  /**
+   * Features THIS predicate reads. Enforced by `evaluateRule`: a predicate whose
+   * required feature is missing / invalid is UNDECIDABLE (null), never false, so
+   * an unavailable measurement cannot be reported as a measured FAIL.
+   *
+   * `RuleDefinition.feature_dependencies` is the rule-level dependency list (a
+   * rule cannot run at all without them → the whole rule is UNKNOWN). `requires`
+   * is per-predicate and matters when a rule combines predicates with OR/AND:
+   * one unreadable branch must not erase a branch that WAS measured.
+   */
   requires: string[];
   /**
    * Set when the predicate does NOT measure the quantity the source names but
@@ -75,7 +84,15 @@ export interface RuleEvaluation {
  * Order of checks matters:
  *  1. a rule with unresolved source semantics is BLOCKED (never guessed)
  *  2. a rule missing required feature data is UNKNOWN
- *  3. only then are predicates actually run
+ *  3. a predicate missing one of its own `requires` features is UNDECIDABLE —
+ *     it does not silently evaluate to false
+ *  4. only predicates that CAN be evaluated are actually run
+ *
+ * Combination is three-valued (Kleene): inside AND a measured false decides,
+ * inside OR a measured true decides; a rule becomes UNKNOWN only when no
+ * predicate could decide it. A rule that cannot be decided is never reported
+ * as FAIL, so "the condition is not met" and "the condition could not be
+ * measured" stay distinguishable for every consumer.
  */
 export function evaluateRule(rule: RuleDefinition, bag: FeatureBag, now = Date.now()): RuleEvaluation {
   const base = {
@@ -112,17 +129,37 @@ export function evaluateRule(rule: RuleDefinition, bag: FeatureBag, now = Date.n
     };
   }
 
+  // PER-PREDICATE AVAILABILITY GATE (UNKNOWN propagation). A predicate that
+  // cannot read one of its `requires` features is UNDECIDABLE (ok: null), not
+  // false: "the pattern is absent" and "the pattern could not be measured" are
+  // different facts, and rule outcomes must keep them apart. This is enforced
+  // here because `requires` is the only place a branch-level dependency is
+  // declared (e.g. the OR branch of a confirmation rule that reads FTR-PINBAR
+  // while the rule's own `feature_dependencies` lists FTR-REJECTION).
   const results: RuleEvaluation["predicate_results"] = [];
+  const unavailable: string[] = [];
+  let threw = false;
   for (const p of rule.predicates) {
+    const missingRequired = p.requires.filter((fid) => {
+      const f = bag.get(fid);
+      return !f || !f.valid;
+    });
+    if (missingRequired.length > 0) {
+      unavailable.push(...missingRequired.map((fid) => `${fid} (${p.expr})`));
+      results.push({ expr: p.expr, ok: null, detail: `required feature(s) unavailable: ${missingRequired.join(", ")}` });
+      continue;
+    }
     try {
       const r = p.test(bag);
       results.push({ expr: p.expr, ok: r.ok, detail: r.detail });
     } catch (err) {
+      threw = true;
       results.push({ expr: p.expr, ok: null, detail: `predicate threw: ${err instanceof Error ? err.message : String(err)}` });
     }
   }
 
-  const threw = results.some((r) => r.ok === null);
+  // A predicate that THREW is a code defect, not a data state: the rule stays
+  // undecidable regardless of the operator (unchanged behaviour).
   if (threw) {
     return {
       ...base,
@@ -133,14 +170,26 @@ export function evaluateRule(rule: RuleDefinition, bag: FeatureBag, now = Date.n
     };
   }
 
-  const pass = rule.operator === "AND" ? results.every((r) => r.ok === true) : results.some((r) => r.ok === true);
-  const detail = results.map((r) => `${r.ok ? "✓" : "✗"} ${r.detail}`).join(" | ");
+  // Kleene three-valued combination: a decided branch wins over an undecided
+  // one inside its operator (AND: a measured false decides; OR: a measured true
+  // decides); only when nothing decides does the rule become UNKNOWN.
+  const anyTrue = results.some((r) => r.ok === true);
+  const anyFalse = results.some((r) => r.ok === false);
+  const anyNull = results.some((r) => r.ok === null);
+  const outcome: RuleOutcome = rule.operator === "AND"
+    ? anyFalse ? "FAIL" : anyNull ? "UNKNOWN" : "PASS"
+    : anyTrue ? "PASS" : anyNull ? "UNKNOWN" : "FAIL";
+  // an empty predicate list is a PASS (unchanged: `[].every` is true)
+  const decided: RuleOutcome = results.length === 0 ? "PASS" : outcome;
+  const detail = results.map((r) => `${r.ok === true ? "✓" : r.ok === false ? "✗" : "?"} ${r.detail}`).join(" | ");
   return {
     ...base,
-    outcome: pass ? "PASS" : "FAIL",
-    explanation: detail || "no predicates",
+    outcome: decided,
+    explanation: decided === "UNKNOWN"
+      ? `not decidable: ${unavailable.length ? unavailable.join(", ") : "no predicate could decide"}`
+      : detail || "no predicates",
     predicate_results: results,
-    missing_features: [],
+    missing_features: unavailable,
   };
 }
 

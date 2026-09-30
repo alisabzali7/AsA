@@ -21,6 +21,7 @@ import { getHistoryStore } from "@/lib/market/history-store";
 import type { ChartEvidence } from "@/lib/chart/evidence";
 import { chartEvidenceMatches, decisionCandles, verifyDecisionSnapshot } from "@/lib/chart/evidence";
 import { verifiedChartCandles, type ChartSource } from "@/lib/chart/source";
+import { snapshotIdentityCheck } from "@/lib/pipeline/provenance";
 import type { TimeframeId } from "@/lib/domain/timeframes";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,23 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         ok: false,
         error: "no chart evidence stored for this opportunity",
         reason: "the opportunity predates evidence capture; re-run the scan to produce lineage",
+      },
+      { status: 409 },
+    );
+  }
+
+  // PROVENANCE INTEGRITY (fail-closed): the decision window identity is stored
+  // both inside the chart evidence (what the renderer verifies) and inside
+  // provenance.data. If those copies disagree, the record is contradictory —
+  // rendering one of them would present an unverified identity as the decision.
+  const snapshot_identity = snapshotIdentityCheck(payload);
+  if (snapshot_identity.state === "CONTRADICTION") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "contradictory decision provenance",
+        reason: snapshot_identity.reason,
+        snapshot_identity,
       },
       { status: 409 },
     );

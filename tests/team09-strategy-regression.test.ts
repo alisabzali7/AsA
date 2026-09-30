@@ -11,6 +11,19 @@
  * with `slope_cd: null`, and the SLOPE rule's expr/detail say "BC (proxy)".
  * Only STR-RAW-4-2425 digests moved; regression-counts.json (captured from
  * the pre-Task-10 baseline) proves evaluated/passes are unchanged everywhere.
+ *
+ * Team 02 rule-dependency re-baseline (deliberate, 20 of 28 digests): the four
+ * `*-CONF` rules now declare FTR-PINBAR and the five `*-INVAL` rules declare
+ * FTR-CLOSE, because their predicates READ those features (previously
+ * undeclared, so the closure graph and the Brain `required_features` row were
+ * incomplete). `features_used`/`missing_features` are digest-visible, so every
+ * level-reaction strategy's digest moved. Evidence that NO decision changed:
+ *   - evaluated/passes are identical to regression-counts.json (0 mismatches),
+ *   - a digest computed over the SAME evaluation objects with `features_used`
+ *     and `missing_features` excluded is byte-identical to the pre-change one
+ *     for all 28 (series × strategy) pairs — outcomes, explanations, predicate
+ *     results, levels and rr are untouched on this corpus, because
+ *     `buildLevelFeatureBag` + `withClose` already supplied both features.
  */
 import { describe, it, expect } from "vitest";
 import baseline from "./fixtures/strategy/regression-baseline.json";

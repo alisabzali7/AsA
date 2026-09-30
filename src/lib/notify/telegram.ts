@@ -7,7 +7,7 @@
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_CONFIGURED, TELEGRAM_DRY_RUN } from "../env";
 import { getRepo } from "../../db/sqlite";
 import { chartEvidenceMatches, type ChartEvidence, type SnapshotCheckState } from "../chart/evidence";
-import type { OutboxRow, OutboxClaim, Repo } from "../../db/repo";
+import type { OutboxRow, OutboxClaim, OutboxErrorKind, Repo } from "../../db/repo";
 import { OUTBOX_CLAIM_LEASE_MS, OUTBOX_MAX_ATTEMPTS } from "../../db/repo";
 import { verifiedChartCandles, type ChartSource } from "../chart/source";
 import { eventBus } from "../events";
@@ -291,6 +291,24 @@ class ClaimLostError extends Error {
   }
 }
 
+/**
+ * A delivery that can never succeed, with its precise CAUSE (closure §17).
+ *
+ * The two causes are both terminal for this row but they mean different things
+ * to an operator and must never be collapsed into one label:
+ *   POISON_PAYLOAD        the stored content cannot be delivered, ever.
+ *   LINK_NOT_DELIVERABLE  the content is fine; the decision it belongs to is
+ *                         gone/terminal/expired, or the outbox row no longer
+ *                         matches its immutable signal.
+ */
+class NotDeliverableError extends Error {
+  constructor(readonly kind: "POISON_PAYLOAD" | "LINK_NOT_DELIVERABLE", message: string) {
+    super(message);
+  }
+}
+const poison = (why: string): NotDeliverableError => new NotDeliverableError("POISON_PAYLOAD", why);
+const linkDown = (why: string): NotDeliverableError => new NotDeliverableError("LINK_NOT_DELIVERABLE", why);
+
 /** Deliver ONE outbox row through the Telegram provider. */
 export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): Promise<{ ok: boolean; error?: string }> {
   // Caller rows are snapshots, not authority (a drain may have waited minutes).
@@ -306,11 +324,11 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
   // provider request). State notes keep the repository's existing contract:
   // both paths stay retryable.
   if (!TELEGRAM_CONFIGURED) {
-    repo.outboxMark(row.id, "FAILED", "telegram not configured");
+    repo.outboxMark(row.id, "FAILED", "telegram not configured", null, "NOT_CONFIGURED");
     return { ok: false, error: "telegram not configured" };
   }
   if (TELEGRAM_DRY_RUN) {
-    repo.outboxMark(row.id, "QUEUED", "dry-run — no send attempted");
+    repo.outboxMark(row.id, "QUEUED", "dry-run — no send attempted", null, "DRY_RUN");
     return { ok: false, error: "dry-run mode" };
   }
 
@@ -353,7 +371,7 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
     } catch {
       // poison content: zero provider requests ever possible — DEAD without
       // consuming the transport budget (budget = real delivery attempts only)
-      repo.outboxMark(row.id, "DEAD", "unparseable payload", claim);
+      repo.outboxMark(row.id, "DEAD", "unparseable payload", claim, "POISON_PAYLOAD");
       return { ok: false, error: "unparseable payload" };
     }
     // GATE 20 / FIX (T05 T2): ONE logical delivery = [annotated chart photo]
@@ -371,8 +389,8 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
     // ever possible, so the transport budget is untouched (attempts stay 0).
     let caption: string;
     try {
-      if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw new Error("payload is not an object");
-      if (!["system", "signal", "opportunity"].includes(payload.kind)) throw new Error("unknown payload kind");
+      if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw poison("payload is not an object");
+      if (!["system", "signal", "opportunity"].includes(payload.kind)) throw poison("unknown payload kind");
       // Legacy rows can lack signal_id but still resolve by opportunity. Do
       // not deliver an expired/terminal advisory merely because its link uses
       // the old representation. Unlinked legacy rows retain their old contract.
@@ -381,37 +399,49 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
         if (legacy) {
           const snapshot = JSON.parse(legacy.payload_json);
           if (legacy.state !== "published" || opportunityFreshness(snapshot?.anchor_close_ms, Date.now(), legacy.timeframe).state !== "READY") {
-            throw new Error("linked legacy signal missing freshness or no longer published");
+            throw linkDown("linked legacy signal missing freshness or no longer published");
           }
         }
       }
       if (payload.signal_id) {
         const signal = repo.signalGet(payload.signal_id);
-        if (!signal || signal.state !== "published" || signal.opp_id !== payload.opportunity_id) throw new Error("signal missing or no longer published");
+        if (!signal || signal.state !== "published" || signal.opp_id !== payload.opportunity_id) {
+          throw linkDown(`linked signal ${signal ? `is ${signal.state}` : "no longer exists"} — the advisory is not deliverable`);
+        }
         const snapshot = JSON.parse(signal.payload_json);
-        if (opportunityFreshness(snapshot.anchor_close_ms, Date.now(), signal.timeframe).state !== "READY") throw new Error("signal source anchor expired");
+        if (opportunityFreshness(snapshot.anchor_close_ms, Date.now(), signal.timeframe).state !== "READY") {
+          throw linkDown("linked signal source anchor expired — the advisory is stale and is not delivered");
+        }
         const evidence = snapshot.chart_evidence as ChartEvidence | undefined;
         if (!evidence || !chartEvidenceMatches(evidence, signal) || evidence.strategy_id !== signal.strategy_id
           || evidence.setup_id !== snapshot.setup_id || evidence.bar_time !== snapshot.anchor_ts_ms / 1000
           || !Array.isArray(evidence.annotations) || !Array.isArray(evidence.rules)) {
-          throw new Error("required chart evidence absent, malformed or mismatched in immutable signal snapshot");
+          throw poison("required chart evidence absent, malformed or mismatched in immutable signal snapshot");
         }
         if (payload.symbol !== signal.symbol || payload.timeframe !== signal.timeframe || payload.direction !== signal.direction
           || payload.strategy_id !== signal.strategy_id || payload.stop !== snapshot.stop
           || payload.entry !== (snapshot.entry_zone.top + snapshot.entry_zone.bottom) / 2
           || !isDeepStrictEqual(payload.targets, snapshot.targets) || !isDeepStrictEqual(payload.risk, snapshot.risk)) {
-          throw new Error("outbox/immutable signal identity or decision mismatch");
+          throw linkDown("outbox row no longer matches its immutable signal identity or decision");
         }
       }
-      caption = formatSignalText(payload);
+      try {
+        caption = formatSignalText(payload);
+      } catch (err) {
+        // The formatter is a pure function of the persisted payload: a throw
+        // recurs identically on every retry — deterministic content poison.
+        throw poison(`advisory text cannot be formatted (${err instanceof Error ? err.message : String(err)})`);
+      }
       // The contract promises full text. Do not silently truncate important
       // risk/explanation fields into a different advisory.
-      if (caption.length > 4000) throw new Error("advisory exceeds the 4000-character transport contract");
+      if (caption.length > 4000) throw poison("advisory exceeds the 4000-character transport contract");
     } catch (err) {
+      const kind: OutboxErrorKind = err instanceof NotDeliverableError ? err.kind : "POISON_PAYLOAD";
       const why = err instanceof Error ? err.message : String(err);
-      repo.outboxMark(row.id, "DEAD", `poison payload: advisory text cannot be formatted (${why})`, claim);
-      eventBus.emit("system", { message: `telegram outbox row ${row.id} DEAD: poison payload — ${why}`, level: "error" });
-      return { ok: false, error: `poison payload: ${why}` };
+      const message = kind === "LINK_NOT_DELIVERABLE" ? `link not deliverable: ${why}` : `poison payload: ${why}`;
+      repo.outboxMark(row.id, "DEAD", message, claim, kind);
+      eventBus.emit("system", { message: `telegram outbox row ${row.id} DEAD (${kind}): ${why}`, level: "error" });
+      return { ok: false, error: message };
     }
     const prev = payload.delivery_progress;
     const progress: DeliveryProgress = {
@@ -484,7 +514,7 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
     const error = `${missing} not delivered${failures.length ? ` (${failures.join("; ")})` : ""}`;
     // DEAD is reachable ONLY through the exhausted TRANSPORT-attempt budget
     if (attemptsAfterCount !== null && attemptsAfterCount >= OUTBOX_MAX_ATTEMPTS) {
-      if (!repo.outboxMark(row.id, "DEAD", error, claim)) throw new ClaimLostError();
+      if (!repo.outboxMark(row.id, "DEAD", error, claim, "TRANSPORT_BUDGET_EXHAUSTED")) throw new ClaimLostError();
       // AUDIT FIX (observability mandate): a permanently lost delivery is a
       // DEGRADED event, not silence.
       eventBus.emit("system", {
@@ -493,7 +523,7 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
       });
       return { ok: false, error: `max attempts reached: ${error}` };
     }
-    if (!repo.outboxMark(row.id, "FAILED", error, claim)) throw new ClaimLostError();
+    if (!repo.outboxMark(row.id, "FAILED", error, claim, "TRANSPORT_REJECTED")) throw new ClaimLostError();
     eventBus.emit("system", {
       message: `telegram outbox row ${row.id} FAILED (transport attempt ${attemptsAfterCount ?? "0 (preflight)"}/${OUTBOX_MAX_ATTEMPTS}): ${error} — will retry`,
       level: "warn",
@@ -513,7 +543,7 @@ export async function deliverOutboxRow(row: OutboxRow, repo: Repo = getRepo()): 
     // a budget it never spent. DEAD only if the TRANSPORT budget is genuinely
     // exhausted. Retries are bounded by the drain cadence and made visible.
     const dead = attemptsAfterCount !== null && attemptsAfterCount >= OUTBOX_MAX_ATTEMPTS;
-    repo.outboxMark(row.id, dead ? "DEAD" : "FAILED", msg, claim);
+    repo.outboxMark(row.id, dead ? "DEAD" : "FAILED", msg, claim, dead ? "TRANSPORT_BUDGET_EXHAUSTED" : "INFRASTRUCTURE");
     eventBus.emit("system", {
       message: `telegram outbox row ${row.id} ${dead ? "DEAD" : "FAILED (transient, will retry)"}: unexpected error — ${msg}`,
       level: dead ? "error" : "warn",

@@ -139,6 +139,60 @@ export interface ConnectorHealth {
 /** A success older than this makes the connector DEGRADED rather than CONNECTED. */
 export const NEWS_SUCCESS_TTL_MS = 3 * 60 * 60_000;
 
+/* ------------------------------------------------------ SSRF guard */
+export function validateRssUrl(url: string): { ok: true } | { ok: false; reason: string } {
+  let u: URL;
+  try { u = new URL(url); } catch { return { ok: false, reason: "invalid URL" }; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    return { ok: false, reason: `blocked protocol '${u.protocol}' — only http/https allowed` };
+  }
+  if (u.username || u.password) return { ok: false, reason: "URL with credentials blocked" };
+  let host = u.hostname.toLowerCase();
+  // Node's URL keeps brackets on IPv6 literals (e.g. "[::1]") — strip for checks
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+  if (!host) return { ok: false, reason: "empty hostname" };
+  if (host === "localhost" || host === "metadata.google.internal") {
+    return { ok: false, reason: `private host blocked (${host})` };
+  }
+  // IPv4 literal
+  const v4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (v4) {
+    const [a, b] = v4.slice(1).map(Number);
+    if ([...v4.slice(1).map(Number)].some((n) => n < 0 || n > 255)) return { ok: false, reason: "invalid IPv4" };
+    if (a === 10) return { ok: false, reason: "private host blocked (10/8)" };
+    if (a === 172 && b >= 16 && b <= 31) return { ok: false, reason: "private host blocked (172.16/12)" };
+    if (a === 192 && b === 168) return { ok: false, reason: "private host blocked (192.168/16)" };
+    if (a === 169 && b === 254) return { ok: false, reason: "private host blocked (169.254 link-local / metadata)" };
+    if (a === 127) return { ok: false, reason: "private host blocked (127/8 loopback)" };
+    if (a === 0) return { ok: false, reason: "private host blocked (0/8)" };
+    if (host === "169.254.169.254") return { ok: false, reason: "metadata service blocked" };
+  }
+  // IPv6 literals
+  if (host.includes(":")) {
+    const h = host.toLowerCase();
+    if (h === "::1" || h === "::" || h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("::ffff:")) {
+      // ::ffff: is v4-mapped — check embedded v4 part
+      const embedded = h.includes(".") ? h.slice(h.lastIndexOf(":") + 1) : null;
+      if (embedded) {
+        const m = embedded.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+        if (m) {
+          const a = Number(m[1]); const b = Number(m[2]);
+          if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 127) {
+            return { ok: false, reason: "private host blocked (IPv4-mapped IPv6 private)" };
+          }
+        }
+      }
+      if (h === "::1" || h === "::" || h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd")) {
+        return { ok: false, reason: "private host blocked (IPv6 private/link-local/loopback)" };
+      }
+    }
+  }
+  if (host.endsWith(".local") || host.endsWith(".internal") || host.endsWith(".localhost")) {
+    return { ok: false, reason: "private host blocked (.local/.internal/.localhost)" };
+  }
+  return { ok: true };
+}
+
 export class GenericRssConnector implements NewsConnector {
   id = "generic-rss";
   name = "Generic RSS (single feed URL — no event calendar, no social connectors)";
@@ -155,6 +209,8 @@ export class GenericRssConnector implements NewsConnector {
 
   state(): { state: AppState; reason?: string } {
     if (!this.configured) return { state: "NOT_CONFIGURED", reason: "set NEWS_RSS_URL to enable" };
+    const v = validateRssUrl(this.url);
+    if (!v.ok) return { state: "ERROR", reason: `RSS URL blocked: ${v.reason}` };
     if (this.health.last_success_ms === null) {
       return this.health.last_attempt_ms === null
         ? { state: "CONNECTING", reason: "configured but not yet polled — never reported as connected on configuration alone" }
@@ -169,11 +225,18 @@ export class GenericRssConnector implements NewsConnector {
 
   async poll(): Promise<RawNewsItem[]> {
     if (!this.configured) return [];
+    const v = validateRssUrl(this.url);
+    if (!v.ok) {
+      this.health.last_attempt_ms = Date.now();
+      this.health.last_error = `blocked URL: ${v.reason}`;
+      this.health.consecutive_failures++;
+      throw new Error(`RSS URL blocked: ${v.reason}`);
+    }
     this.health.last_attempt_ms = Date.now();
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15_000);
     try {
-      const res = await fetch(this.url, { signal: ctrl.signal, headers: { Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" } });
+      const res = await fetch(this.url, { signal: ctrl.signal, redirect: "error" as RequestRedirect, headers: { Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" } });
       if (!res.ok) throw new Error(`RSS HTTP ${res.status}`);
       const text = await res.text();
       if (text.length > 5_000_000) throw new Error("RSS payload too large");

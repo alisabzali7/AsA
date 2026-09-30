@@ -180,7 +180,11 @@ function levelRules(o: LevelRuleOpts): RuleDefinition[] {
       source_refs: o.refs,
       source_status: "SOURCE_VERIFIED",
       empirical_status: "UNTESTED",
-      feature_dependencies: ["FTR-REJECTION"],
+      // both branches are declared: the rule reads FTR-PINBAR in its alternative
+      // predicate, so the closure graph, the Brain `required_features` row and
+      // the rule-level availability gate must all know it (an unmeasurable
+      // pinbar makes this confirmation rule UNKNOWN, never FAIL).
+      feature_dependencies: ["FTR-REJECTION", "FTR-PINBAR"],
       operator: "OR",
       timeframe: o.tf,
       direction: o.direction,
@@ -220,7 +224,10 @@ function levelRules(o: LevelRuleOpts): RuleDefinition[] {
     source_refs: o.refs,
     source_status: "SOURCE_VERIFIED",
     empirical_status: "UNTESTED",
-    feature_dependencies: ["FTR-LEVEL-TOUCH"],
+    // FTR-CLOSE is read by the predicate (decision-bar close): it is declared so
+    // an unreadable close makes the void-guard UNDECIDABLE, and the closure
+    // graph / Brain `required_features` row list it.
+    feature_dependencies: ["FTR-LEVEL-TOUCH", "FTR-CLOSE"],
     operator: "AND",
     timeframe: o.tf,
     direction: o.direction,
@@ -229,7 +236,10 @@ function levelRules(o: LevelRuleOpts): RuleDefinition[] {
     version: RULE_VERSION,
     predicates: [{
       expr: "close beyond level",
-      requires: ["FTR-LEVEL-TOUCH"],
+      // FTR-CLOSE is read by the predicate and must therefore be declared here:
+      // an unreadable decision-bar close makes the void-guard UNDECIDABLE, and
+      // an undecidable void-guard must never be treated as "level holding".
+      requires: ["FTR-LEVEL-TOUCH", "FTR-CLOSE"],
       test: (bag) => {
         const t = val<{ level: PriceLevel } | null>(bag, "FTR-LEVEL-TOUCH");
         const close = val<number>(bag, "FTR-CLOSE");

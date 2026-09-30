@@ -4,6 +4,62 @@
 
 # Changelog
 
+## Unreleased (2026-09-30) — delivery-failure honesty, provenance contradiction detection, verifiable runtime QA
+
+Scope: advisory delivery state and decision-provenance truth. No execution path
+exists before or after this change; AsA remains advisory-only.
+
+### Fixed
+- **One generic "poison payload" label covered two unrelated terminal causes.**
+  An advisory whose linked signal had expired or gone terminal was dead-lettered
+  with `poison payload: advisory text cannot be formatted (signal missing or no
+  longer published)` even though its content was perfectly well-formed. Reproduced
+  in the LOCAL TEST scenario database (`sig-77ee1c4aba1293c6` → outbox 3: DEAD,
+  attempts 0) and visible through `/api/signals/<id>`.
+  Rows now carry a stable `error_kind`: `POISON_PAYLOAD` (content can never be
+  delivered), `LINK_NOT_DELIVERABLE` (policy-terminal link/identity failure),
+  `TRANSPORT_REJECTED`, `TRANSPORT_BUDGET_EXHAUSTED`, `INTERRUPTED_AMBIGUOUS`,
+  `INFRASTRUCTURE`, `NOT_CONFIGURED`, `DRY_RUN`. `SENT` clears the classification.
+  Legacy rows keep `error_kind: NULL` — prose is never retro-classified
+  (`schema_migrations` v5 adds the column by guarded `ALTER TABLE`).
+- **The decision-window identity is stored twice and nothing compared the
+  copies.** Tampering `provenance.data.snapshot.input_fingerprint` (leaving
+  `chart_evidence.snapshot` intact) still produced
+  `snapshot_check: {state: "VERIFIED"}` on `/api/charts`, so the API returned an
+  unverified fingerprint beside a verified one with no contradiction reported.
+  The two copies are now compared; `snapshot_identity` is exposed on the signals
+  and opportunities APIs, and `/api/charts/<id>` refuses with
+  **409 `contradictory decision provenance`** rather than rendering one copy.
+- **The live-runtime UI suite crashed instead of stating its prerequisite.**
+  `tests/runtime-opportunities.test.ts` threw
+  `TypeError: Cannot read properties of null (reading 'symbol')` when the server
+  was up but its database held no scenario rows — indistinguishable from a real
+  UI regression. It now skips with an explicit seeding instruction when the
+  database is empty, and fails with the exact missing case when rows exist but the
+  required case does not (seeded-but-incomplete data cannot silently pass).
+
+### Added
+- `tests/cross-process-outbox.test.ts` — the repository's first suite that drives
+  the REAL `SqliteRepo` from separate OS processes (esbuild bundle + child
+  `node`): exclusive claim under 6-way contention, stale-owner write rejection,
+  interrupted-final-attempt recovery (SENT vs DEAD), cross-process publication
+  atomicity with no orphan outbox row, live-lease non-retryability, per-claim
+  attempt accounting, forged-claim rejection.
+- `tests/outbox-failure-taxonomy.test.ts`, `tests/snapshot-identity-contradiction.test.ts`
+  — regression suites for the repairs above (unit + real chart-route invocation).
+- `delivery.error_kind` and `snapshot_identity` in the signals/opportunities API
+  payloads, surfaced in the signals UI (list and detail).
+
+### Documentation
+- `docs/testing.md` rewritten from the measured suite (it claimed "389 tests,
+  19 files"; the checkout runs 1574 tests / 91 files) with the live-server
+  prerequisites, the scenario runbook, and the currently BLOCKED external
+  browser QA.
+- `FINAL_STATUS.md` marked as a point-in-time record: it asserted a commit and
+  test counts that do not describe the current tree.
+- `docs/api-contract.md` documents the taxonomy, the provenance-agreement states,
+  and the 409 refusal.
+
 ## 6.1 (2026-09-06) — real credentials wired
 
 First window with live credentials supplied. All claims below are backed by
