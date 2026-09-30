@@ -71,6 +71,41 @@ describe("i18n & footer", () => {
     const dump = JSON.stringify(STRINGS);
     expect(dump).not.toContain("BTCUSDT");
   });
+
+  it("en/fa key trees are identical (full parity is enforced, not assumed)", () => {
+    // `t()` silently falls back to English when a fa key is missing, so a
+    // missing translation would render as English inside the Persian UI with
+    // no signal anywhere. This test makes that drift impossible: every key
+    // present in one language table must be present in the other, and every
+    // leaf must be a non-empty string.
+    const flatten = (value: unknown, prefix = ""): Map<string, unknown> => {
+      const out = new Map<string, unknown>();
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        const key = prefix ? `${prefix}.${k}` : k;
+        if (v !== null && typeof v === "object") {
+          for (const [fk, fv] of flatten(v, key)) out.set(fk, fv);
+        } else {
+          out.set(key, v);
+        }
+      }
+      return out;
+    };
+    const en = flatten(STRINGS.en);
+    const fa = flatten(STRINGS.fa);
+    expect(en.size).toBeGreaterThan(0);
+    expect(fa.size).toBe(en.size);
+    const missingInFa = [...en.keys()].filter((k) => !fa.has(k)).sort();
+    const missingInEn = [...fa.keys()].filter((k) => !en.has(k)).sort();
+    expect(missingInFa, "keys present in en but missing in fa (would silently render English in the Persian UI)").toEqual([]);
+    expect(missingInEn, "keys present in fa but missing in en").toEqual([]);
+    for (const [key, value] of en) {
+      expect(typeof value, `en.${key} must be a string leaf`).toBe("string");
+    }
+    for (const [key, value] of fa) {
+      expect(typeof value, `fa.${key} must be a string leaf`).toBe("string");
+      expect(String(value).trim().length, `fa.${key} must not be empty`).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("production source scans (src/**)", () => {
