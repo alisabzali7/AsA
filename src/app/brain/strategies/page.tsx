@@ -17,6 +17,10 @@ interface StratRow {
   source_status: string; empirical_status: string; runtime_status: string;
   runtime_ceiling: string; why: string[]; unknown_critical: string[];
   has_executable_spec: boolean; setup_ids: string[];
+  /** runtime-registry availability of the same strategy id; null = no compiled runtime definition */
+  runtime_availability: string | null;
+  /** same meaning as GET /api/research/strategies `research_computable` */
+  research_computable: boolean;
   source_refs: { file: string; start_line: number; end_line: number }[];
 }
 interface ListShape { ok: boolean; total: number; returned: number; strategies: StratRow[] }
@@ -362,7 +366,7 @@ function StrategiesInner() {
               <th className="text-start font-medium">family</th>
               <th className="text-start font-medium">source</th>
               <th className="text-start font-medium">runtime</th>
-              <th className="text-start font-medium">spec</th>
+              <th className="text-start font-medium" title="compiled implementation binding — research-computable code path; NOT executable or live-eligible (see runtime_availability and /api/brain/validation)">compiled</th>
               <th className="text-start font-medium ps-2">why disabled / missing</th>
             </tr>
           </thead>
@@ -378,7 +382,15 @@ function StrategiesInner() {
                 <td className="text-muted">{r.family}</td>
                 <td><Badge color={C[r.source_status] ?? "var(--color-muted)"}>{r.source_status.replace("SOURCE_", "")}</Badge></td>
                 <td><Badge color={C[r.runtime_status] ?? "var(--color-muted)"}>{r.runtime_status}</Badge></td>
-                <td>{r.has_executable_spec ? <Badge color="var(--color-up)">YES</Badge> : <Badge color="var(--color-muted)">NO</Badge>}</td>
+                <td title={r.runtime_availability ? `runtime registry availability: ${r.runtime_availability}` : "no compiled runtime definition"}>
+                  {r.has_executable_spec ? (
+                    <Badge color="var(--color-warn)">
+                      YES{r.runtime_availability ? ` · ${r.runtime_availability}` : ""}
+                    </Badge>
+                  ) : (
+                    <Badge color="var(--color-muted)">NO</Badge>
+                  )}
+                </td>
                 <td className="ps-2 text-[10px] text-muted">
                   {r.unknown_critical.length > 0
                     ? <span style={{ color: "#d05f5f" }}>UNKNOWN: {r.unknown_critical.join(", ")}</span>
