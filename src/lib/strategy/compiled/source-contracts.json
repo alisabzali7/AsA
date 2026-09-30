@@ -1491,7 +1491,7 @@
   "implementation_bindings": [
     {
       "file": "src/lib/backtest/strategy-runner.ts",
-      "sha256": "68b0b8c7b9ac7ebf684655afde7b3aebef506b6e6f8348e7ba68a212888e1512"
+      "sha256": "b05cd5620d046aa17601744fcb5ebbfbfdfac8f0a76a6e7bb9f703c66b2bde0e"
     },
     {
       "file": "src/lib/strategy/compiled/harmonic-abcd.ts",

@@ -38,11 +38,26 @@ export interface RiskInput {
   minNotional?: number | null;
 }
 
+/**
+ * State of the liquidation ESTIMATE gate for this evaluation.
+ *
+ * `ENFORCED`       an estimate was computed and the stop was checked against it.
+ * `NOT_APPLICABLE` the estimate lands at or beyond price zero (sub-1x effective
+ *                  leverage), so no liquidation is reachable and the gate has
+ *                  nothing to check. This is a mathematical non-applicability,
+ *                  NOT missing data, and therefore not an `unenforced` entry.
+ * `UNENFORCEABLE`  a required input (leverage/size or maintenance margin rate)
+ *                  was unavailable; also recorded in `unenforced`.
+ */
+export type LiquidationGateState = "ENFORCED" | "NOT_APPLICABLE" | "UNENFORCEABLE";
+
 export interface RiskOutput {
   verdict: "pass" | "block";
   reasons: string[];
   /** venue constraints that could not be enforced, with the exact reason */
   unenforced: string[];
+  /** explicit, always-present state of the liquidation ESTIMATE gate */
+  liquidation_gate: { state: LiquidationGateState; reason: string };
   numbers: {
     stop_distance: number | null;
     stop_distance_pct: number | null;
@@ -154,13 +169,35 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
 
   /* --------------------------------------- liquidation ESTIMATE (labelled) */
   let liq: number | null = null;
+  let liqGate: LiquidationGateState = "UNENFORCEABLE";
+  let liqGateReason = "liquidation ESTIMATE not computable — liquidation gate inactive";
   if (levEst !== null && levEst > 0 && input.maintenanceMarginRate !== null) {
     const mm = Math.min(0.5, Math.max(0, input.maintenanceMarginRate));
     const factor = 1 / levEst - mm;
     if (input.direction === "long" && factor < 1) liq = input.entry * (1 - factor);
     if (input.direction === "short" && factor < 1) liq = input.entry * (1 + factor);
+    if (liq !== null) {
+      liqGate = "ENFORCED";
+      liqGateReason = `liquidation ESTIMATE computed at ${round8(liq)} from estimated leverage ${round4(levEst)}x and maintenance margin ${mm}; the stop is checked against it`;
+    } else {
+      // `factor >= 1` means the estimate would land at or through price zero:
+      // at this effective leverage the position cannot be liquidated before
+      // the instrument is worthless. The gate is NOT APPLICABLE rather than
+      // starved of data, so it is reported as such and does NOT enter
+      // `unenforced` (which `risk/live.ts` treats as a hard live block).
+      //
+      // Remediation 2026-09-30: this branch used to be entirely SILENT —
+      // `liq_estimate`/`liq_label` were null with no statement anywhere about
+      // why a declared gate had produced nothing.
+      liqGate = "NOT_APPLICABLE";
+      liqGateReason = `liquidation ESTIMATE lands at or beyond price zero at estimated leverage ${round4(levEst)}x with maintenance margin ${mm}; no liquidation is reachable above zero, so the gate does not apply`;
+    }
+  } else if (levEst === null || levEst <= 0) {
+    liqGateReason = "liquidation ESTIMATE not computable (position size/leverage unknown) — liquidation gate inactive";
+    unenforced.push(liqGateReason);
   } else {
-    unenforced.push("liquidation ESTIMATE not computable (no maintenance margin rate) — liquidation gate inactive");
+    liqGateReason = "liquidation ESTIMATE not computable (no maintenance margin rate) — liquidation gate inactive";
+    unenforced.push(liqGateReason);
   }
 
   /* ------------------------------------------------------------- vetoes */
@@ -189,6 +226,7 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
     verdict: blocks.length === 0 ? "pass" : "block",
     reasons: [...reasons, ...blocks],
     unenforced,
+    liquidation_gate: { state: liqGate, reason: liqGateReason },
     numbers: {
       stop_distance: stopAbs > 0 ? round8(stopAbs) : null,
       stop_distance_pct: stopPct !== null ? round4(stopPct) : null,

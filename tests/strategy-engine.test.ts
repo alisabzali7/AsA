@@ -286,7 +286,9 @@ describe.runIf(hasReplay)("backtest — no lookahead", () => {
     expect(r.same_bar_policy).toBe("stop_first");
     expect(r.assumptions.join(" ")).toMatch(/same-bar stop\+target ambiguity/i);
     // no trade may report a target outcome with a bar that also hit the stop
-    for (const t of r.trades) expect(["target", "stop", "partial_then_stop", "timeout"]).toContain(t.outcome);
+    for (const t of r.trades) {
+      expect(["target", "stop", "partial_then_stop", "partial_then_timeout", "timeout"]).toContain(t.outcome);
+    }
   });
 
   it("applies fees and slippage so gross R exceeds net R", () => {

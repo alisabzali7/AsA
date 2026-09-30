@@ -92,7 +92,18 @@ export interface OpportunityPayload {
   chart_evidence: ChartEvidence | null;
   /** Exact decision dataset reference; absent on legacy opportunities only. */
   chart_source?: ChartSource;
-  risk: { verdict: string; reasons: string[]; unenforced?: string[]; numbers?: Record<string, unknown> } | null;
+  risk: {
+    verdict: string;
+    reasons: string[];
+    unenforced?: string[];
+    numbers?: Record<string, unknown>;
+    /**
+     * Explicit state of the liquidation ESTIMATE gate (ENFORCED /
+     * NOT_APPLICABLE / UNENFORCEABLE). Absent only on rows persisted before
+     * this field existed — never rendered as "enforced" by default.
+     */
+    liquidation_gate?: { state: string; reason: string };
+  } | null;
   ai: { provider: string; label: string } | null;
   provenance: {
     generated_at_ms: number;
@@ -340,7 +351,15 @@ export async function scanSymbol(
     score_semantics: SCORE_DISCLAIMER,
     chart_evidence: buildChartEvidence(ev, score.score, snapshot),
     chart_source: chartSource(candles),
-    risk: risk ? { verdict: risk.verdict, reasons: risk.reasons, unenforced: risk.unenforced, numbers: risk.numbers as unknown as Record<string, unknown> } : null,
+    risk: risk
+      ? {
+        verdict: risk.verdict,
+        reasons: risk.reasons,
+        unenforced: risk.unenforced,
+        numbers: risk.numbers as unknown as Record<string, unknown>,
+        liquidation_gate: risk.liquidation_gate,
+      }
+      : null,
     ai: null,
     provenance: {
       generated_at_ms: nowMs,

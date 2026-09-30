@@ -15,6 +15,7 @@ import { isOperationalSymbol, universeMeta } from "@/lib/market/operational-univ
 import { runBacktest, type BacktestInput } from "@/lib/backtest/engine";
 import { getRuntimeStrategy } from "@/lib/strategy/runtime";
 import { getProductionRiskPolicy } from "@/lib/risk/policy";
+import { researchRiskPolicyBlockers } from "@/lib/risk/research-policy-gate";
 import { getRiskPrefs } from "@/lib/prefs";
 
 export const dynamic = "force-dynamic";
@@ -53,8 +54,17 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "maxHoldBars must be explicitly supplied as a positive integer" }, { status: 400 });
   }
   const policy = getProductionRiskPolicy();
-  if (policy.selection_status !== "SELECTED" || policy.source_status !== "SOURCE_VERIFIED" || policy.source_refs.length === 0 || policy.conflict_group_id !== null) {
-    return NextResponse.json({ ok: false, error: `risk policy blocks research backtest: ${policy.selection_reason}`, risk_policy: policy }, { status: 409 });
+  const policyBlockers = researchRiskPolicyBlockers(policy);
+  if (policyBlockers.length > 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `risk policy blocks research backtest: ${policy.selection_reason}`,
+        blocking: policyBlockers,
+        risk_policy: policy,
+      },
+      { status: 409 },
+    );
   }
   const riskPrefs = getRiskPrefs();
   const accountEquity = typeof body.accountEquity === "number" ? body.accountEquity : riskPrefs.equity;
