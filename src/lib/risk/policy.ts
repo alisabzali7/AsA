@@ -37,8 +37,8 @@ const SOURCE_LINES = new Map<string, string[] | null>();
 
 function linesForSource(relativePath: string): string[] | null {
   if (SOURCE_LINES.has(relativePath)) return SOURCE_LINES.get(relativePath) ?? null;
-  const root = path.resolve(process.cwd());
-  const full = path.resolve(root, relativePath);
+  const root = path.resolve(/*turbopackIgnore: true*/ process.cwd());
+  const full = path.resolve(/*turbopackIgnore: true*/ root, relativePath);
   if (!full.startsWith(`${root}${path.sep}`)) {
     SOURCE_LINES.set(relativePath, null);
     return null;

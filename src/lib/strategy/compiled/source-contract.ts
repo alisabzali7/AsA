@@ -444,8 +444,8 @@ function sha256(bytes: Buffer): string {
 }
 
 function repositoryFile(relative: string): string | null {
-  const root = path.resolve(process.cwd());
-  const target = path.resolve(root, relative);
+  const root = path.resolve(/*turbopackIgnore: true*/ process.cwd());
+  const target = path.resolve(/*turbopackIgnore: true*/ root, relative);
   return target.startsWith(`${root}${path.sep}`) ? target : null;
 }
 

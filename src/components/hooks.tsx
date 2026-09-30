@@ -43,35 +43,43 @@ export function usePoll<T>(url: string | null, intervalMs = 7000, enabled = true
   const [staleAge, setStaleAge] = useState<{ url: string | null; ms: number | null }>({ url: null, ms: null });
   const lastOkAtRef = useRef<{ url: string; ms: number } | null>(null);
   const [tick, setTick] = useState(0);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const onDataRef = useRef(onData);
   useEffect(() => { onDataRef.current = onData; });
   useEffect(() => {
     if (!enabled || !url) return;
     let dead = false;
+    let activeController: AbortController | null = null;
     // overlapping polls of this URL may resolve out of order — only the newest
-    // issued request may write state (response-ordering guard)
+    // issued request may write state. Aborting the previous request also keeps
+    // a fast symbol/timeframe switch from leaving orphaned network work behind.
     const seq = createSequenceGuard();
     const load = async () => {
+      activeController?.abort();
+      const controller = new AbortController();
+      activeController = controller;
       const ticket = seq.issue();
-      const r = await loadResource(url);
-      if (r.status === "OK") {
-        if (!dead && seq.accept(ticket)) {
-          setSnap({ url, data: r.data as T, error: null, status: "OK", failure: null });
-          setAge({ url, ms: 0 });
-          lastOkAtRef.current = { url, ms: r.at_ms };
-          setStaleAge({ url, ms: 0 });
-          onDataRef.current?.(r.data as T);
+      try {
+        const r = await loadResource(url, { signal: controller.signal });
+        if (r.status === "OK") {
+          if (!dead && seq.accept(ticket)) {
+            setSnap({ url, data: r.data as T, error: null, status: "OK", failure: null });
+            setAge({ url, ms: 0 });
+            lastOkAtRef.current = { url, ms: r.at_ms };
+            setStaleAge({ url, ms: 0 });
+            onDataRef.current?.(r.data as T);
+          }
+        } else {
+          // never clear the last authoritative payload FOR THIS URL — the UI keeps
+          // showing it with a decaying age (cached-not-live), which is truthful;
+          // another URL's payload is NEVER inherited
+          if (!dead && seq.accept(ticket)) setSnap((p) => ({ url, data: p.url === url ? p.data : null, error: r.failure ? r.failure.message : "request failed", status: r.status, failure: r.failure }));
         }
-      } else {
-        // never clear the last authoritative payload FOR THIS URL — the UI keeps
-        // showing it with a decaying age (cached-not-live), which is truthful;
-        // another URL's payload is NEVER inherited
-        if (!dead && seq.accept(ticket)) setSnap((p) => ({ url, data: p.url === url ? p.data : null, error: r.failure ? r.failure.message : "request failed", status: r.status, failure: r.failure }));
+      } finally {
+        if (activeController === controller) activeController = null;
       }
     };
     void load();
-    timer.current = setInterval(() => void load(), intervalMs);
+    const timer = setInterval(() => void load(), intervalMs);
     const ageTimer = setInterval(() => {
       setAge((a) => (a.ms === null ? a : { url: a.url, ms: a.ms + 1000 }));
       const ok = lastOkAtRef.current;
@@ -87,7 +95,8 @@ export function usePoll<T>(url: string | null, intervalMs = 7000, enabled = true
     window.addEventListener("asa:refresh", onBus);
     return () => {
       dead = true;
-      if (timer.current) clearInterval(timer.current);
+      activeController?.abort();
+      clearInterval(timer);
       clearInterval(ageTimer);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("asa:refresh", onBus);
@@ -196,17 +205,34 @@ export function useSse(onEvent?: (e: { type: string; ts: number }) => void): { c
   useEffect(() => { cbRef.current = onEvent; }); // refs are written in effects, not render
   useEffect(() => {
     let retries = 0;
+    let closed = false;
     let es: EventSource | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let onlineListener: (() => void) | null = null;
     const open = () => {
-      es = new EventSource("/api/system/events?stream=1");
-      es.onopen = () => { setConnected(true); retries = 0; };
+      if (closed) return;
+      es?.close();
+      try {
+        es = new EventSource("/api/system/events?stream=1");
+      } catch {
+        setConnected(false);
+        return;
+      }
+      es.onopen = () => {
+        if (closed) return;
+        setConnected(true);
+        retries = 0;
+      };
       es.onerror = () => {
-        setConnected(false); es?.close(); retries++;
+        if (closed) return;
+        setConnected(false);
+        es?.close();
+        retries++;
         // bounded backoff while offline; recovery is event-driven, not polling
-        if (retries < 5) setTimeout(open, 3000 * retries);
+        if (retries < 5) retryTimer = setTimeout(open, 3000 * retries);
       };
       es.onmessage = (ev) => {
+        if (closed) return;
         try {
           const e = JSON.parse(ev.data) as { type: string; ts: number };
           setLastAt(e.ts);
@@ -215,9 +241,21 @@ export function useSse(onEvent?: (e: { type: string; ts: number }) => void): { c
       };
     };
     open();
-    onlineListener = () => { retries = 0; es?.close(); open(); };
+    onlineListener = () => {
+      if (closed) return;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
+      retries = 0;
+      open();
+    };
     window.addEventListener("online", onlineListener);
-    return () => { es?.close(); setConnected(false); if (onlineListener) window.removeEventListener("online", onlineListener); };
+    return () => {
+      closed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
+      es?.close();
+      if (onlineListener) window.removeEventListener("online", onlineListener);
+    };
   }, []);
   return { connected, lastAt };
 }

@@ -34,6 +34,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { ChartOverlay } from "@/lib/chart/technical";
+import { normalizeHistoryPage } from "@/lib/chart/adapter";
 import {
   analysisStatus,
   gateAnalysis,
@@ -310,6 +311,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
   const chartRef = useRef<HTMLDivElement>(null);
   const canvasOverlayRef = useRef<HTMLCanvasElement>(null);
   const chartApi = useRef<IChartApi | null>(null);
+  const redrawCanvasRef = useRef<() => void>(() => {});
 
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
@@ -323,6 +325,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
   type Bar = { t: number; o: number; h: number; l: number; c: number; v?: number };
   interface HistoryBucket { bars: Bar[]; exhausted: boolean; boundary: boolean; earliest: number | null }
   const [historyBySeries, setHistoryBySeries] = useState<Record<string, HistoryBucket>>({});
+  const [historyErrors, setHistoryErrors] = useState<Record<string, string | null>>({});
   const [loadingOlder, setLoadingOlder] = useState(false);
   const loadingRef = useRef(false);
 
@@ -555,6 +558,14 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
     }
   }, [drawings, drawingsVisible, drawingDraft]);
 
+  // Chart subscriptions are intentionally stable for the lifetime of the
+  // chart. Keep their paint callback current without making the chart itself
+  // remount every time a drawing draft changes.
+  useEffect(() => {
+    redrawCanvasRef.current = redrawCanvas;
+    redrawCanvas();
+  }, [redrawCanvas]);
+
   // Save drawings helper
   const saveDrawings = useCallback((nextDrawings: UserDrawing[]) => {
     setDrawingsBySymbol((prev) => ({ ...prev, [activeSymbol]: nextDrawings }));
@@ -651,7 +662,7 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
 
     // Crosshair hover inspection
     api.subscribeCrosshairMove((param) => {
-      redrawCanvas();
+      redrawCanvasRef.current();
       if (!param.time || !param.seriesData.get(mainSeries)) {
         setHoverOhlc(null);
         return;
@@ -679,8 +690,8 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
       }
     });
 
-    api.timeScale().subscribeVisibleLogicalRangeChange(() => redrawCanvas());
-    api.timeScale().subscribeVisibleTimeRangeChange(() => redrawCanvas());
+    api.timeScale().subscribeVisibleLogicalRangeChange(() => redrawCanvasRef.current());
+    api.timeScale().subscribeVisibleTimeRangeChange(() => redrawCanvasRef.current());
 
     const emas = emaRefs.current;
     return () => {
@@ -691,7 +702,20 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
       markersRef.current = null;
       emas.clear();
     };
-  }, [chartType, activeTool, showVolume, redrawCanvas]);
+  // activeTool/showVolume are applied by the two stable option effects below;
+  // including them here would remount the chart and lose viewport continuity.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartType]);
+
+  // Changing a tool or hiding the volume pane changes chart options, not the
+  // chart instance. This keeps the user's viewport and drawings intact.
+  useEffect(() => {
+    chartApi.current?.applyOptions({ crosshair: { mode: activeTool === "crosshair" ? 1 : 0 } });
+  }, [activeTool]);
+
+  useEffect(() => {
+    chartApi.current?.priceScale("vol").applyOptions({ visible: showVolume });
+  }, [showVolume]);
 
   // Symbol change -> server focus update
   useEffect(() => {
@@ -719,15 +743,17 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
     loadingRef.current = true;
     setLoadingOlder(true);
     try {
-      const r = await fetch(`/api/market/history?symbol=${activeSymbol}&tf=${tf}&to=${oldest - 1}&limit=${PAGE_BARS}`);
-      const j = (await r.json()) as {
-        ok: boolean;
-        candles?: { t: number; o: number; h: number; l: number; c: number }[];
-        metadata?: { earliest_available: number | null; earliest_boundary_reached?: boolean };
-      };
-      const page = j.candles ?? [];
-      const earliest = j.metadata?.earliest_available ?? null;
-      const venueBoundary = j.metadata?.earliest_boundary_reached === true;
+      const r = await fetch(`/api/market/history?symbol=${encodeURIComponent(activeSymbol)}&tf=${encodeURIComponent(tf)}&to=${oldest - 1}&limit=${PAGE_BARS}`, { cache: "no-store" });
+      const normalized = normalizeHistoryPage(r.status, await r.json().catch(() => null));
+      if (!normalized.ok) {
+        setHistoryErrors((prev) => ({ ...prev, [key]: normalized.error }));
+        return;
+      }
+      setHistoryErrors((prev) => ({ ...prev, [key]: null }));
+      const page = normalized.candles;
+      const earliest = normalized.earliest;
+      // The backend proof remains earliest_boundary_reached === true; normalization does not invent it.
+      const venueBoundary = normalized.venueBoundary;
       setHistoryBySeries((prev) => {
         const cur = prev[key] ?? { bars: [], exhausted: false, boundary: false, earliest: null };
         const seen = new Set(cur.bars.map((c) => c.t));
@@ -741,8 +767,11 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
           [key]: { bars, exhausted: noMoreStored, boundary: venueBoundary, earliest: earliest ?? cur.earliest },
         };
       });
-    } catch {
-      /* transient */
+    } catch (error) {
+      setHistoryErrors((prev) => ({
+        ...prev,
+        [key]: error instanceof Error ? error.message : "history request failed",
+      }));
     } finally {
       loadingRef.current = false;
       setLoadingOlder(false);
@@ -793,8 +822,8 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
     if ((historyBySeries[seriesKey]?.bars.length ?? 0) === 0) {
       chartApi.current?.timeScale().fitContent();
     }
-    redrawCanvas();
-  }, [merged, historyBySeries, seriesKey, chartType, redrawCanvas]);
+    redrawCanvasRef.current();
+  }, [merged, historyBySeries, seriesKey, chartType]);
 
   // Pagination on scroll to left edge
   useEffect(() => {
@@ -917,24 +946,24 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
   // Real Screenshot capture function
   const handleTakeScreenshot = useCallback(async () => {
     if (!chartRef.current) return;
-    const canvas = chartRef.current.querySelector("canvas");
-    if (!canvas) {
+    const canvases = Array.from(chartRef.current.querySelectorAll("canvas"));
+    if (canvases.length === 0) {
       toast.push({ title: "Screenshot failed: Canvas not ready", tone: "error" });
       return;
     }
     try {
       const exportCanvas = document.createElement("canvas");
-      exportCanvas.width = canvas.width;
-      exportCanvas.height = canvas.height;
+      exportCanvas.width = Math.max(...canvases.map((canvas) => canvas.width));
+      exportCanvas.height = Math.max(...canvases.map((canvas) => canvas.height));
       const ctx = exportCanvas.getContext("2d");
       if (!ctx) return;
 
-      // Dark background
+      // Dark background, then every Lightweight Charts layer (price, volume,
+      // grid and labels). The old implementation exported only the first
+      // canvas, which silently dropped the volume pane in real screenshots.
       ctx.fillStyle = "#06070a";
       ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
-
-      // Draw chart canvas
-      ctx.drawImage(canvas, 0, 0);
+      for (const canvas of canvases) ctx.drawImage(canvas, 0, 0, exportCanvas.width, exportCanvas.height);
 
       // Draw user drawing canvas layer if present
       if (canvasOverlayRef.current) {
@@ -1637,6 +1666,12 @@ export function ChartView({ urlSymbol }: { urlSymbol?: string | null }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 ms-auto">
+          {historyErrors[seriesKey] && (
+            <span role="status" className="flex items-center gap-1.5 rounded border border-[rgba(228,106,104,0.35)] px-2 py-1 text-[9.5px] text-warn" dir="auto">
+              <span>older history unavailable — {historyErrors[seriesKey]}</span>
+              <button className="focus-ring btn !px-1.5 !py-0.5 text-[9px]" onClick={() => void loadOlder()}>retry</button>
+            </span>
+          )}
           {loadingOlder && <Badge color="var(--color-info)">loading older history…</Badge>}
           {historyBySeries[seriesKey]?.boundary && <Badge color="var(--color-up)">TTT boundary reached</Badge>}
           <span className="text-dim">

@@ -1,7 +1,7 @@
 {
   "lock_version": "1.1.0",
   "contract_path": "src/lib/strategy/compiled/source-contracts.json",
-  "contract_sha256": "0855553cdae9bf3f8206a82e949eaa8ffcca7317362e5f6492781a21ff553835",
+  "contract_sha256": "4279556bd488735788fdf93dc63a4827a9091dcd1e86aedea9f584b5e42b98df",
   "implementation_bindings": [
     {
       "file": "src/lib/backtest/strategy-runner.ts",
@@ -102,6 +102,6 @@
   },
   "validator_binding": {
     "file": "src/lib/strategy/compiled/source-contract.ts",
-    "sha256": "9b59de10a32b62f73b4ab9ad5e8a5e4ee4aa3151b81d33ebddd7ad89127c997b"
+    "sha256": "936515e4361b96e3fdbf984e205cae93dcfc42d352c39ce941fb48da7d2edb8b"
   }
 }

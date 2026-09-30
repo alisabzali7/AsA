@@ -1508,6 +1508,6 @@
   ],
   "validator_binding": {
     "file": "src/lib/strategy/compiled/source-contract.ts",
-    "sha256": "9b59de10a32b62f73b4ab9ad5e8a5e4ee4aa3151b81d33ebddd7ad89127c997b"
+    "sha256": "936515e4361b96e3fdbf984e205cae93dcfc42d352c39ce941fb48da7d2edb8b"
   }
 }

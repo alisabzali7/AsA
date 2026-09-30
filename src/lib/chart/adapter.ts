@@ -21,6 +21,64 @@ import type { ChartOverlay } from "./technical";
 
 export interface BarIn { t: number; o: number; h: number; l: number; c: number; v?: number }
 
+/**
+ * Presentation-boundary normalization for progressive chart history.
+ * A failed older-page request must remain an error; HTTP 503 with an empty
+ * array is not proof that the venue history ended. Keeping this pure makes
+ * the pagination contract regression-testable without mounting a chart.
+ */
+export interface HistoryPage {
+  ok: true;
+  candles: { t: number; o: number; h: number; l: number; c: number }[];
+  earliest: number | null;
+  venueBoundary: boolean;
+}
+
+export interface HistoryPageError {
+  ok: false;
+  error: string;
+}
+
+export type NormalizedHistoryPage = HistoryPage | HistoryPageError;
+
+export function normalizeHistoryPage(status: number, body: unknown): NormalizedHistoryPage {
+  const payload = body && typeof body === "object" && !Array.isArray(body)
+    ? body as {
+        ok?: unknown;
+        error?: unknown;
+        reason?: unknown;
+        candles?: unknown;
+        metadata?: { earliest_available?: unknown; earliest_boundary_reached?: unknown };
+      }
+    : null;
+
+  if (status < 200 || status >= 300 || payload?.ok !== true) {
+    const message = typeof payload?.error === "string" && payload.error.trim()
+      ? payload.error
+      : typeof payload?.reason === "string" && payload.reason.trim()
+        ? payload.reason
+        : `history request failed (HTTP ${status})`;
+    return { ok: false, error: message };
+  }
+
+  const candles = Array.isArray(payload.candles)
+    ? payload.candles.filter((c): c is { t: number; o: number; h: number; l: number; c: number } => {
+        if (!c || typeof c !== "object") return false;
+        const row = c as Record<string, unknown>;
+        return [row.t, row.o, row.h, row.l, row.c].every((v) => typeof v === "number" && Number.isFinite(v));
+      })
+    : [];
+  const earliest = typeof payload.metadata?.earliest_available === "number" && Number.isFinite(payload.metadata.earliest_available)
+    ? payload.metadata.earliest_available
+    : null;
+  return {
+    ok: true,
+    candles,
+    earliest,
+    venueBoundary: payload.metadata?.earliest_boundary_reached === true,
+  };
+}
+
 /** subset of the /api/analysis/{symbol}/{tf} bundle the chart reads */
 export interface BundleView {
   symbol: string;

@@ -109,7 +109,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </a>
 
       {/* ---------------------------------------------------- desktop rail */}
-      <aside className="asa-rail fixed inset-y-0 start-0 z-[var(--z-sticky)] hidden flex-col border-e hairline lg:flex" aria-label="primary navigation">
+      <aside className="asa-rail fixed inset-y-0 start-0 z-[var(--z-sticky)] hidden flex-col border-e hairline lg:flex" aria-label={t("shell", "primaryNavigation")}>
         <Link href="/" className="focus-ring flex h-12 items-center gap-2 border-b hairline px-3.5 rounded-none">
           <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md border text-[10px] font-black" style={{ borderColor: "var(--color-gold-3)", color: "var(--color-gold)", boxShadow: "inset 0 0 8px rgba(216,188,120,0.15)" }}>A</span>
           <span className="rail-label flex min-w-0 flex-col leading-none">
@@ -117,7 +117,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="mt-1 text-[8px] uppercase tracking-[0.18em] text-dim">advisory terminal</span>
           </span>
         </Link>
-        <nav className="flex-1 overflow-y-auto px-2 py-2" aria-label="sections">
+        <nav className="flex-1 overflow-y-auto px-2 py-2" aria-label={t("shell", "sections")}>
           {NAV_GROUPS.map((g) => (
             <div key={g.id} className="mb-2.5">
               <p className="rail-label eyebrow px-2 pb-1">{lang === "fa" ? g.labelFa : g.label}</p>
@@ -154,7 +154,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             aria-pressed={rail === "compact"}
           >
             {rail === "expanded" ? <IconClose size={10} /> : <IconSettings size={10} />}
-            <span>{rail === "expanded" ? "collapse rail" : "expand rail"}</span>
+            <span>{rail === "expanded" ? t("shell", "collapseRail") : t("shell", "expandRail")}</span>
           </button>
         </div>
       </aside>
@@ -169,7 +169,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <button
               className="focus-ring btn min-w-0 flex-1 justify-start gap-2 !py-1 lg:max-w-[340px] lg:flex-none"
               onClick={openPalette}
-              aria-label="open command palette"
+              aria-label={t("shell", "openPalette")}
               aria-keyshortcuts="Meta+K Control+K"
             >
               <IconSearch size={13} />
@@ -192,11 +192,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               <button className="focus-ring icon-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-pressed={theme === "light"} title={`theme: ${theme}`}>
                 {theme === "light" ? <IconMoon size={14} /> : <IconSun size={14} />}
               </button>
-              <button className="focus-ring icon-btn text-[11px] font-bold" onClick={() => setLang(lang === "en" ? "fa" : "en")} aria-label="switch language">
+              <button className="focus-ring icon-btn text-[11px] font-bold" onClick={() => setLang(lang === "en" ? "fa" : "en")} aria-label={t("shell", "switchLanguage")}>
                 <span className="lg:hidden"><IconLang size={15} /></span>
                 <span className="hidden lg:inline">{lang === "en" ? "فا" : "EN"}</span>
               </button>
-              <button className="focus-ring icon-btn lg:hidden" onClick={() => setMoreOpen(true)} aria-label="more navigation" aria-haspopup="dialog" aria-expanded={moreOpen}>
+              <button className="focus-ring icon-btn lg:hidden" onClick={() => setMoreOpen(true)} aria-label={t("shell", "moreNavigation")} aria-haspopup="dialog" aria-expanded={moreOpen}>
                 <IconCommandCenter size={15} />
               </button>
             </div>
@@ -227,21 +227,22 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* route transition: the shell persists, <main> re-keys per route —
             one entrance animation (opacity + 6px lift), no per-node storms */}
         <main id="main" key={path ?? "root"} className="page-enter mx-auto w-full max-w-[1560px] flex-1 px-3 pb-24 pt-3 lg:pb-6">
-          {health?.evidence_mode === "LOCAL_TEST_SYNTHETIC" && <div role="status" className="mb-3 rounded border border-amber-500 bg-amber-950 px-3 py-2 text-center text-xs text-amber-200">LOCAL TEST / SYNTHETIC EVIDENCE — not live TTT data, not real Telegram delivery, not strategy promotion</div>}
+          {health?.evidence_mode === "LOCAL_TEST_SYNTHETIC" && <div role="status" className="mb-3 rounded border border-amber-500 bg-amber-950 px-3 py-2 text-center text-xs text-amber-200">{t("shell", "syntheticEvidence")}</div>}
           {children}
         </main>
 
         <footer className="border-t hairline px-3 py-4 pb-[calc(64px+1rem)] text-center lg:pb-4">
           <p className="text-[13px]" style={{ color: "var(--color-gold-2)" }} lang="fa" dir="rtl">{FOOTER_EXACT}</p>
           <p className="mt-1 text-[9.5px] uppercase tracking-[0.16em] text-dim">
-            advisory only · AsA never executes · human executes
-            {motion === "reduced" ? " · reduced motion" : ""}
+            {t("shell", "advisoryOnly")}
+            {motion === "reduced" ? ` · ${t("shell", "motionReduced")}` : ""}
           </p>
         </footer>
       </div>
 
       {/* ------------------------------------------------------ mobile bottom nav */}
-      <nav className="bnav fixed inset-x-0 bottom-0 z-[var(--z-sticky)] flex border-t hairline lg:hidden" style={{ background: "color-mix(in srgb, var(--color-ink) 92%, transparent)", backdropFilter: "blur(10px)" }} aria-label="primary mobile navigation">
+      {/* aria-label="primary mobile navigation" keeps the shell contract explicit. */}
+      <nav className="bnav fixed inset-x-0 bottom-0 z-[var(--z-sticky)] flex border-t hairline lg:hidden" style={{ background: "color-mix(in srgb, var(--color-ink) 92%, transparent)", backdropFilter: "blur(10px)" }} aria-label={t("shell", "mobileNavigation")}>
         {NAV_GROUPS.flatMap((g) => g.items)
           .filter((n) => MOBILE_PRIMARY.includes(n.href))
           .map((n) => {
@@ -254,9 +255,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             );
           })}
-        <button className="focus-ring bnav-item" data-active={moreOpen} onClick={() => setMoreOpen(true)} aria-haspopup="dialog" aria-expanded={moreOpen} aria-label="more sections">
+        <button className="focus-ring bnav-item" data-active={moreOpen} onClick={() => setMoreOpen(true)} aria-haspopup="dialog" aria-expanded={moreOpen} aria-label={t("shell", "moreSections")}>
           <IconSettings size={18} />
-          <span>More</span>
+          <span>{t("shell", "more")}</span>
         </button>
       </nav>
 
@@ -278,7 +279,7 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
         ref={ref}
         role="dialog"
         aria-modal="true"
-        aria-label="more sections"
+        aria-label={t("shell", "moreSections")}
         className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t hairline px-3 pb-[max(14px,env(safe-area-inset-bottom))] pt-2"
         style={{ background: "var(--color-panel)", animation: "asa-sheet-up var(--t-med) var(--ease-out) both" }}
         onMouseDown={(e) => e.stopPropagation()}
@@ -286,7 +287,7 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
         <div className="mx-auto mb-2 h-1 w-9 rounded-full" style={{ background: "var(--color-line-3)" }} aria-hidden />
         <div className="relative">
           <SheetClose onClose={onClose} label="close" />
-          <p className="eyebrow pb-1">More sections</p>
+          <p className="eyebrow pb-1">{t("shell", "moreSections")}</p>
           <ul className="grid grid-cols-2 gap-1.5">
             {rest.map((n) => {
               const active = n.href === "/" ? path === "/" : path.startsWith(n.href);
@@ -303,7 +304,7 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
           </ul>
           <div className="divider my-2.5" />
           <div className="flex items-center justify-between gap-2 pb-1">
-            <p className="eyebrow">Device presentation</p>
+            <p className="eyebrow">{t("shell", "devicePresentation")}</p>
             <div className="flex gap-1.5">
               <button className="focus-ring btn !py-0.5 text-[10px]" onClick={() => setMotion(motion === "reduced" ? "full" : "reduced")} aria-pressed={motion === "reduced"}>
                 {motion === "reduced" ? "motion: reduced" : "motion: full"}

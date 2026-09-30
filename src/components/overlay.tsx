@@ -10,20 +10,29 @@ import { IconClose } from "./icons";
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex="-1"])';
 
-/** scroll-lock + focus trap + restore — mounted-only overlays (reset-by-unmount) */
+/** scroll-lock + focus trap + restore — mounted-only overlays (reset-by-unmount).
+ * The close callback is kept in a ref so parent re-renders do not tear down and
+ * recreate the trap. That used to move focus back to the opener while typing
+ * or while a sheet updated its data. */
 export function useOverlay(onClose: () => void) {
   const ref = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const visibleFocusable = (): HTMLElement[] => {
       if (!ref.current) return [];
-      return Array.from(ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+      return Array.from(ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => {
+        const style = window.getComputedStyle(el);
+        return style.display !== "none" && style.visibility !== "hidden" && !el.closest("[aria-hidden=\"true\"]");
+      });
     };
     visibleFocusable()[0]?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
+      if (e.key === "Escape") { e.preventDefault(); onCloseRef.current(); return; }
       if (e.key !== "Tab" || !ref.current) return;
       const items = visibleFocusable();
       if (items.length === 0) return;
@@ -36,9 +45,9 @@ export function useOverlay(onClose: () => void) {
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
-      prev?.focus?.();
+      if (prev?.isConnected) prev.focus();
     };
-  }, [onClose]);
+  }, []);
   return ref;
 }
 

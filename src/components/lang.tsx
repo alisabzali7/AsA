@@ -1,31 +1,58 @@
 "use client";
 /** Language context: en/fa, RTL switching, persisted in localStorage. */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { STRINGS, dirFor, type Lang, type StringKey } from "@/lib/i18n/strings";
 
 interface LangCtx {
   lang: Lang;
   setLang: (l: Lang) => void;
   /** namespace is type-checked against the string tables, so a page can never
-   *  reference a vocabulary that does not exist in BOTH languages. */
+   * reference a vocabulary that does not exist in BOTH languages. */
   t: (ns: StringKey, key: string) => string;
 }
 const Ctx = createContext<LangCtx>({ lang: "en", setLang: () => {}, t: () => "" });
 
-function initialLang(): Lang {
-  if (typeof window === "undefined") return "en"; // SSR first paint
+const LANG_KEY = "asa-lang";
+const langListeners = new Set<() => void>();
+
+/** Read the browser preference only from the external-store snapshot. Keeping
+ * the server snapshot at English makes hydration deterministic; the pre-paint
+ * bootstrap in layout.tsx still prevents a visible language flash. */
+function readLang(): Lang {
+  if (typeof window === "undefined") return "en";
   try {
-    const saved = localStorage.getItem("asa-lang");
+    const saved = window.localStorage.getItem(LANG_KEY);
     return saved === "fa" || saved === "en" ? saved : "en";
-  } catch { /* private mode */ return "en"; }
+  } catch {
+    return "en";
+  }
+}
+
+function subscribeLang(listener: () => void): () => void {
+  langListeners.add(listener);
+  if (typeof window === "undefined") return () => { langListeners.delete(listener); };
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === LANG_KEY) listener();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    langListeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+function setStoredLang(lang: Lang): void {
+  try { window.localStorage.setItem(LANG_KEY, lang); } catch { /* private mode */ }
+  langListeners.forEach((listener) => listener());
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(initialLang);
+  const lang = useSyncExternalStore(subscribeLang, readLang, (): Lang => "en");
+  const setLang = useCallback((next: Lang) => setStoredLang(next), []);
+
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = dirFor(lang);
-    try { localStorage.setItem("asa-lang", lang); } catch { /* ignore */ }
   }, [lang]);
   const t = useCallback(
     (ns: StringKey, key: string) => {
@@ -36,8 +63,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     [lang],
   );
   const value = useMemo(
-    () => ({ lang, setLang: setLangState, t }),
-    [lang, t],
+    () => ({ lang, setLang, t }),
+    [lang, setLang, t],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -193,9 +193,9 @@ export const USER_PSYCHOLOGY_SOURCE_RULES: UserPsychologySourceRule[] = [
 
 export function verifyUserPsychologySources(sourceDir = path.join(process.cwd(), "knowledge", "psychology")) {
   return USER_PSYCHOLOGY_SOURCES.map((descriptor) => {
-    const full = path.join(sourceDir, descriptor.filename);
-    if (!fs.existsSync(full)) throw new Error(`Missing user psychology source: ${full}`);
-    const buf = fs.readFileSync(full);
+    const full = path.join(/*turbopackIgnore: true*/ sourceDir, descriptor.filename);
+    if (!fs.existsSync(/*turbopackIgnore: true*/ full)) throw new Error(`Missing user psychology source: ${full}`);
+    const buf = fs.readFileSync(/*turbopackIgnore: true*/ full);
     const text = buf.toString("utf8");
     const sha256 = createHash("sha256").update(buf).digest("hex");
     const totalLines = text.split("\n").length;
@@ -221,7 +221,7 @@ export function ingestUserPsychologySources(
     let linesSeen = 0;
 
     for (const descriptor of verified) {
-      const text = fs.readFileSync(path.join(sourceDir, descriptor.filename), "utf8");
+      const text = fs.readFileSync(/*turbopackIgnore: true*/ path.join(/*turbopackIgnore: true*/ sourceDir, descriptor.filename), "utf8");
       const lines = text.split("\n");
       const doc: SourceDocument = {
         file_id: descriptor.file_id,

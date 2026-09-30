@@ -92,7 +92,7 @@ export function computeSourceTreeIdentity(root = process.cwd()): SourceTreeIdent
   const absoluteRoot = path.resolve(root);
   const files: string[] = [];
   const errors: string[] = [];
-  const missing = REQUIRED_INPUTS.filter((name) => !fs.existsSync(path.join(absoluteRoot, name)));
+  const missing = REQUIRED_INPUTS.filter((name) => !fs.existsSync(/*turbopackIgnore: true*/ path.join(/*turbopackIgnore: true*/ absoluteRoot, name)));
   visitTree(absoluteRoot, "", files, errors);
   files.sort();
   if (files.length === 0) return { status: "UNKNOWN", sha256: null, files: 0, bytes: 0, missing_required_inputs: missing, errors: [...errors, "no source-tree inputs available to hash"] };
