@@ -220,7 +220,18 @@ function pass(id: string, label: string, detail: string, checks: CriterionCheck[
   checks.push({ id, label, verdict: "PASS", detail });
 }
 
-/** Quality gate over one metric set. Returns false if the step is not reached. */
+/**
+ * Quality gate over one metric set. Returns false if the step is not reached.
+ *
+ * UNKNOWN IS NOT A PASS (remediation 2026-09-30). The gate previously recorded
+ * a null profit factor / expectancy as an UNKNOWN *reason* but still returned
+ * `true` when no measured criterion had failed, so a metric that was never
+ * computed silently carried a strategy up the ladder (e.g. a 40-trade run with
+ * zero losing trades has `profit_factor === null` and used to reach
+ * OOS_TESTED with `promoted: true`). A criterion that could not be measured now
+ * stops the ladder exactly like a measured shortfall, but is reported
+ * separately so UNKNOWN stays distinguishable from FAIL.
+ */
 function qualityGate(
   m: BacktestMetrics,
   label: string,
@@ -231,8 +242,10 @@ function qualityGate(
   checks: CriterionCheck[],
 ): boolean {
   const fails: string[] = [];
+  const unknowns: string[] = [];
   if (m.trade_count < minTrades) fails.push(`only ${m.trade_count} trades (need ${minTrades})`);
   if (m.profit_factor === null) {
+    unknowns.push("profit factor is not computed (null)");
     unknownReasons.push(`${label} profit factor is not computed (null) — treating as UNKNOWN, not as a pass`);
     checks.push({ id: `${label}_profit_factor`, label: `${label} profit factor`, verdict: "UNKNOWN", detail: "metric not computed" });
   } else if (m.profit_factor < PROMOTION_CRITERIA.min_profit_factor) {
@@ -241,6 +254,7 @@ function qualityGate(
     pass(`${label}_profit_factor`, `${label} profit factor`, `${m.profit_factor} >= ${PROMOTION_CRITERIA.min_profit_factor}`, checks);
   }
   if (m.expectancy_r === null) {
+    unknowns.push("expectancy is not computed (null)");
     unknownReasons.push(`${label} expectancy is not computed (null) — treating as UNKNOWN, not as a pass`);
     checks.push({ id: `${label}_expectancy`, label: `${label} expectancy`, verdict: "UNKNOWN", detail: "metric not computed" });
   } else if (m.expectancy_r < PROMOTION_CRITERIA.min_expectancy_r) {
@@ -248,7 +262,11 @@ function qualityGate(
   } else {
     pass(`${label}_expectancy`, `${label} expectancy`, `${m.expectancy_r}R >= ${PROMOTION_CRITERIA.min_expectancy_r}R`, checks);
   }
-  if (m.max_drawdown_r > PROMOTION_CRITERIA.max_drawdown_r) {
+  if (!Number.isFinite(m.max_drawdown_r)) {
+    unknowns.push("max drawdown is not computed");
+    unknownReasons.push(`${label} max drawdown is not computed — treating as UNKNOWN, not as a pass`);
+    checks.push({ id: `${label}_drawdown`, label: `${label} max drawdown`, verdict: "UNKNOWN", detail: "metric not computed" });
+  } else if (m.max_drawdown_r > PROMOTION_CRITERIA.max_drawdown_r) {
     fails.push(`max drawdown ${m.max_drawdown_r}R > ${PROMOTION_CRITERIA.max_drawdown_r}R`);
   } else {
     pass(`${label}_drawdown`, `${label} max drawdown`, `${m.max_drawdown_r}R <= ${PROMOTION_CRITERIA.max_drawdown_r}R`, checks);
@@ -256,6 +274,12 @@ function qualityGate(
   if (fails.length) {
     failureReasons.push(`${label} quality gate failed: ${fails.join("; ")}`);
     reasons.push(`${label} quality gate FAILED: ${fails.join("; ")}`);
+    return false;
+  }
+  if (unknowns.length) {
+    // No measured criterion failed, but at least one was never measured. The
+    // ladder cannot advance on evidence that does not exist.
+    reasons.push(`${label} quality gate UNKNOWN: ${unknowns.join("; ")} — not advanced (UNKNOWN is never a pass)`);
     return false;
   }
   reasons.push(`${label} quality gate passed`);

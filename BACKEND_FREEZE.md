@@ -35,10 +35,25 @@ Brain StrategyRecord
             -> SourceRef         (file + line in the immutable corpus)
 ```
 
-**Counts (authoritative):** brain strategies **104** · runtime strategies **6** ·
-setups **7** · executable setups **7** · disabled setups **0**.
+**Counts (authoritative, machine-checked by `tests/backend-freeze-contract.test.ts`):**
+brain strategies **104** · runtime strategies **6** · setups **7** ·
+EXECUTABLE setups **0** · RESEARCH_ONLY setups **7** ·
+NON_COMPUTABLE setups **0** · DISABLED setups **0**.
 The 6→7 difference is `STR-RAW-2-1258`, which compiles a long *and* a short branch
 because the corpus states separate entry conditions per direction.
+
+> **Corrected 2026-09-30.** This line previously stated *"executable setups **7** ·
+> disabled setups **0**"*. The runtime registry does not report that. In
+> `src/lib/strategy/runtime.ts`, `EXECUTABLE` means **source-faithful and
+> deterministically computable**: it requires `sourceContractStatusFor(id) ===
+> "SOURCE_FAITHFUL"`. All six corpus strategies currently hold
+> `contract_status: "INCOMPLETE"` (the supplied corpus files are `TRUNCATED` or
+> of `UNKNOWN` completeness and semantic parity is `NOT_PROVEN`), so every
+> compiled setup resolves to `RESEARCH_ONLY` and **zero** setups are executable.
+> Nothing about the code changed — the document was stale, and reading it as
+> "7 executable" overstated what the system can actually run. The counts are
+> now derived from `listRuntimeStrategies()` in a test so they cannot drift
+> apart again.
 
 Pipeline order (identical in advisory and backtest):
 `data freshness → MTF → prerequisites → features → rules → setup → psychology → risk → portfolio → score → admission`

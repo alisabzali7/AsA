@@ -18,6 +18,7 @@
 import { randomUUID } from "node:crypto";
 import { getRuntimeStrategy } from "../strategy/runtime";
 import { getProductionRiskPolicy } from "../risk/policy";
+import { researchRiskPolicyBlockers } from "../risk/research-policy-gate";
 import { getRiskPrefs } from "../prefs";
 import { buildReleaseIdentity } from "../release";
 import type { Candle } from "../domain/types";
@@ -110,8 +111,12 @@ export function runBacktest(input: BacktestInput): BacktestOutput {
   if (!Number.isSafeInteger(input.maxHoldBars) || input.maxHoldBars <= 0) return fail(run_id, "maxHoldBars must be explicitly configured as a positive integer");
 
   const policy = getProductionRiskPolicy();
-  if (policy.selection_status !== "SELECTED" || policy.source_status !== "SOURCE_VERIFIED" || policy.source_refs.length === 0 || policy.conflict_group_id !== null) {
-    return fail(run_id, `risk policy is not production-usable: ${policy.selection_reason}`);
+  // Same shared definition the runner enforces. Previously this copy omitted
+  // the DISABLED runtime status, so a disabled policy reached the runner and
+  // surfaced as an uncaught throw instead of an explained refusal.
+  const policyBlockers = researchRiskPolicyBlockers(policy);
+  if (policyBlockers.length > 0) {
+    return fail(run_id, `risk policy is not production-usable: ${[...policyBlockers, policy.selection_reason].join("; ")}`);
   }
   const prefs = getRiskPrefs();
   const equity = input.accountEquity ?? prefs.equity;

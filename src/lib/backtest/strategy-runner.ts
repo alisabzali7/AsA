@@ -21,6 +21,7 @@ import { evaluatePortfolio } from "../risk/portfolio";
 import { scoreFromEvaluation } from "../pipeline/scoring";
 import { admitOpportunity } from "../brain/score";
 import type { ProductionRiskPolicy } from "../risk/policy";
+import { researchRiskPolicyBlockers } from "../risk/research-policy-gate";
 
 export type SameBarPolicy = "stop_first" | "target_first";
 
@@ -58,7 +59,19 @@ export interface PositionRecord {
   fills: FillRecord[];
   exit_ts: number;
   avg_exit_price: number;
-  outcome: "target" | "stop" | "partial_then_stop" | "timeout";
+  /**
+   * How the position actually finished.
+   *
+   * `partial_then_stop`    at least one ladder target filled, the remainder
+   *                        was closed by the STOP.
+   * `partial_then_timeout` at least one ladder target filled, the remainder
+   *                        was closed by the hold horizon — NOT by a stop.
+   *
+   * Remediation 2026-09-30: the timeout branch used to report
+   * `partial_then_stop`, which asserted a stop-out that never happened and
+   * contradicted the position's own fill reasons.
+   */
+  outcome: "target" | "stop" | "partial_then_stop" | "partial_then_timeout" | "timeout";
   bars_held: number;
   risk_amount: number;
   /** R after all fees and slippage */
@@ -144,11 +157,18 @@ export function computeMetrics(
     if (r <= 0) { streak++; worst = Math.max(worst, streak); } else streak = 0;
   }
 
-  // true equity-curve drawdown in %, from the account curve rather than R sums
+  // True equity-curve drawdown in %, from the account curve rather than R sums.
+  //
+  // Remediation 2026-09-30: the peak used to be seeded from `curve[0]`, which
+  // is the equity AFTER the first position closed. A first losing trade
+  // therefore never counted as a drawdown and the reported figure understated
+  // the real peak-to-trough decline (10_000 -> 8_000 -> 10_000 reported 0%).
+  // The starting equity IS a curve point, so it seeds the peak here.
   let ddPct: number | null = null;
-  if (curve.length > 1) {
-    let ePeak = curve[0].equity, maxPct = 0;
-    for (const pt of curve) {
+  if (curve.length > 0) {
+    const start = Number.isFinite(equity) && equity > 0 ? equity : curve[0].equity;
+    let ePeak = start, maxPct = 0;
+    for (const pt of [{ ts: curve[0].ts, equity: start }, ...curve]) {
       ePeak = Math.max(ePeak, pt.equity);
       if (ePeak > 0) maxPct = Math.max(maxPct, ((ePeak - pt.equity) / ePeak) * 100);
     }
@@ -208,9 +228,10 @@ export function runStrategyBacktest(
   if (!Number.isFinite(opts.equity) || opts.equity <= 0) invalid.push("account equity is unconfigured or invalid");
   if (!Number.isFinite(opts.riskPerTradePct) || (opts.riskPerTradePct ?? 0) <= 0) invalid.push("per-trade sizing input is unconfigured or invalid");
   if (!Number.isFinite(opts.maxLeverage) || (opts.maxLeverage ?? 0) <= 0) invalid.push("maximum leverage is unconfigured or invalid");
-  if (!opts.policy || opts.policy.selection_status !== "SELECTED" || opts.policy.source_status !== "SOURCE_VERIFIED" || opts.policy.source_refs.length === 0 || opts.policy.conflict_group_id !== null || opts.policy.runtime_status === "DISABLED") {
-    invalid.push("risk policy is not explicitly selected and source-verified without an unresolved conflict");
-  }
+  // ONE shared definition, also used by backtest/engine.ts and the research
+  // backtest route, so the three layers cannot disagree about which policy is
+  // usable (see risk/research-policy-gate.ts).
+  invalid.push(...researchRiskPolicyBlockers(opts.policy));
   if (!Number.isFinite(costs?.fee_rate) || costs.fee_rate < 0 || !Number.isFinite(costs?.slippage_rate) || costs.slippage_rate < 0) invalid.push("fee and slippage inputs are unconfigured or invalid");
   if (sameBar !== "stop_first" && sameBar !== "target_first") invalid.push("same-bar ambiguity policy is unconfigured");
   if (!Number.isSafeInteger(maxHold) || maxHold <= 0) invalid.push("maximum holding bars must be explicitly configured as a positive integer");
@@ -391,7 +412,9 @@ export function runStrategyBacktest(
         ts: b.t, reason: "timeout",
       });
       exitIdx = j;
-      outcome = nextTargetIdx > 0 ? "partial_then_stop" : "timeout";
+      // The remainder was closed by the hold horizon, not by the stop. Naming
+      // it `partial_then_stop` would contradict this fill's own reason.
+      outcome = nextTargetIdx > 0 ? "partial_then_timeout" : "timeout";
       qtyLeft = 0;
     }
 
