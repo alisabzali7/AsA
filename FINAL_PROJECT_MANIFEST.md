@@ -1,7 +1,7 @@
 # AsA — Project Manifest
 
-**Commit:** `c29fc81` · **Generated:** 2026-09-11 10:37 UTC
-**Source:** 6.76 MB (273 files) · **Tests:** 389/389
+**Commit:** `97c6be1` · **Generated:** 2026-09-30 07:35 UTC
+**Source:** ~6.8 MB (275 files tracked) · **Tests:** 1525 passed / 12 skipped / 87 suites
 
 ## Structure
 
@@ -9,7 +9,7 @@
 knowledge/raw/        SOURCE OF TRUTH — the 5-file corpus (immutable, tracked)
 knowledge/canonical/  canonical knowledge pack (deterministic ingest input)
 src/                  application (app/, lib/, components/, db/)
-tests/                19 suites + replay/live fixtures
+tests/                87 suites (1525 tests + fixtures) + replay/live fixtures
 scripts/              ingest · mine · validate · audit · handoff · probes
 docs/                 architecture · deployment · audit · brain · ttt · archive
 asa-data/             RUNTIME ONLY — not in the repo, not in the handoff
@@ -26,8 +26,8 @@ asa-data/             RUNTIME ONLY — not in the repo, not in the handoff
 
 ```bash
 npm ci                  # 452 packages
-npm run brain:ingest    # knowledge/raw -> brain.db (9,398 fragments)
-npm run brain:mine      # narrative mining -> 8,591 atoms
+npm run brain:ingest    # knowledge/raw+psychology -> brain.db (12,461 fragments: 9,398 corpus + 3,063 psychology)
+npm run brain:mine      # narrative mining -> atoms/components/candidates
 npm run brain:validate  # OOS / walk-forward -> experiments table
 npm run build && npm start
 curl "$HOST/api/market/history?symbol=BTCUSDT&tf=1h&sync=full&limit=1"

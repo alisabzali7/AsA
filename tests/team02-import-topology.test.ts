@@ -102,7 +102,7 @@ describe("frontend import topology", () => {
 
   it("the chart reaches only the render contract (adapter) and the poll sequencer from src/lib", () => {
     const libs = [...reachable(join(SRC, "components/chart-view.tsx")).keys()].map(rel).filter((r) => r.startsWith("src/lib/")).sort();
-    expect(libs.every((r) => ["src/lib/chart/adapter.ts", "src/lib/poll-sequence.ts", "src/lib/i18n/strings.ts", "src/lib/prefs.ts"].includes(r) || r.startsWith("src/lib/i18n/"))).toBe(true);
+    expect(libs.every((r) => ["src/lib/chart/adapter.ts", "src/lib/poll-sequence.ts", "src/lib/i18n/strings.ts", "src/lib/prefs.ts", "src/lib/domain/timeframes.ts"].includes(r) || r.startsWith("src/lib/i18n/"))).toBe(true);
     expect(libs).toContain("src/lib/chart/adapter.ts");
   });
 

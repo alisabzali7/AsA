@@ -84,6 +84,7 @@ import {
   IconVerticalLine,
 } from "./icons";
 import { useRouter } from "next/navigation";
+import { TIMEFRAME_IDS } from "@/lib/domain/timeframes";
 
 /**
  * Three-tier historical data model:
@@ -91,8 +92,8 @@ import { useRouter } from "next/navigation";
  * - COMPUTE_WINDOW: indicator/analysis calculation window
  * - CHART_VIEWPORT: visible candles currently rendered in lightweight-charts
  */
-const TFS = ["1m", "5m", "15m", "30m", "45m", "1h", "2h", "4h", "8h", "1d"] as const;
-type Timeframe = (typeof TFS)[number];
+const TFS = TIMEFRAME_IDS;
+type Timeframe = (typeof TIMEFRAME_IDS)[number];
 
 type DrawingTool =
   | "cursor"

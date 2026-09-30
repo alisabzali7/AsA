@@ -1,6 +1,6 @@
 # AsA — Project Size Report
 
-**Commit:** `c29fc81` · **Generated:** 2026-09-11 10:37 UTC
+**Commit:** `97c6be1` · **Generated:** 2026-09-30 07:35 UTC
 
 | Metric | Value |
 |---|---|

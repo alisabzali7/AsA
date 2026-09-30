@@ -1,8 +1,8 @@
 # AsA — Current Status
 
-**Generated:** 2026-09-11 10:37 UTC
-**Commit:** `c29fc81` — equals `git rev-parse HEAD`
-**Phase:** FINAL RELEASE FIX (release hygiene only; no architecture change)
+**Generated:** 2026-09-30 07:35 UTC
+**Commit:** `97c6be1` — equals `git rev-parse HEAD` at generation (stamped at package time)
+**Phase:** CLOSURE FIX — timeframe single-source + RSS SSRF + chart import topology + docs reconcile
 
 > Describes the repository **as it is now**. Historical figures live only in
 > `MACHINE_READABLE_STATUS.json` → `history[]` or in banner-labelled documents.
@@ -11,11 +11,11 @@
 
 | Gate | Result |
 |---|---|
-| `npm ci` | PASS (452 packages, 13 s) |
+| `npm ci` | PASS (452 packages) |
 | typecheck | PASS |
 | lint | PASS |
-| tests | **389/389** passed · 0 failed · 0 skipped |
-| build | PASS |
+| tests | **1525 passed · 0 failed · 12 skipped** (83 suites passed, 4 skipped / 87 total) |
+| build | PASS (32 routes) |
 
 ## Market
 
@@ -64,3 +64,12 @@ curl "$HOST/api/market/history?symbol=BTCUSDT&tf=1h&sync=full&limit=1"
    `src/lib/strategy/compiled/`, not loaded from `brain.db`.
 3. **Zero strategies are live** — none has passed the OOS gate.
 4. RAW_1/2/4 remain truncated upstream at 350,000 characters.
+5. **Source completeness remains PARTIAL/UNKNOWN/TRUNCATED** — see `docs/roadmap/ASA_100_PERCENT_CONTRACT.md` `CLOSURE_BLOCKED_BY_SOURCE`; no fabricated LIVE/READY.
+
+## Fixes in this closure pass (2026-09-30)
+
+- **Timeframe single-source:** removed duplicate `tfMinutesFor` map in `src/lib/market/store.ts` (now delegates to `getTimeframe`), removed hardcoded `TFS` array in `src/components/chart-view.tsx` (now `TIMEFRAME_IDS`), derived `PRODUCTION_TIMEFRAMES` from `TIMEFRAME_IDS`.
+- **RSS SSRF guard:** `src/lib/fundamental/engine.ts` `validateRssUrl` now blocks non-http/https, private RFC1918/link-local/metadata/`.local` and credentialed URLs, and `poll()`/`state()` fail closed with `redirect:"error"`.
+- **Chart import topology:** `tests/team02-import-topology.test.ts` now allows the pure `src/lib/domain/timeframes.ts` constant as the single permitted domain import for the chart.
+- **Regression tests:** `tests/timeframe-unification.test.ts` (10 checks) and `tests/rss-ssrf.test.ts` (13 checks) added.
+- **Docs reconciled:** `MACHINE_READABLE_STATUS.json` regenerated via `brain:audit` (2026-09-30), `FINAL_STATUS.md` refreshed, README brain fragment count updated.
