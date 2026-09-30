@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-27T07:23:09.156Z",
+  "generated_at": "2026-09-30T07:48:53.689Z",
   "brain_db": "./asa-data/brain.db",
   "source_recovery": {
     "manifest_status": "PARTIAL",
@@ -9,7 +9,7 @@
   "source_contract": {
     "contract_path": "src/lib/strategy/compiled/source-contracts.json",
     "contract_version": "1.2.0",
-    "contract_sha256": "13cb5ec0245e1308046e4a5c9d2faeafa8e49520d21c493a335c6a7b4c4477c0",
+    "contract_sha256": "26acf24e2055290a35addd6cb3cf2da9d1b2b83802e7ac97da9546dc65ef94a8",
     "identity_status": "VALID",
     "strategy_count": 6,
     "status_counts": {
@@ -601,6 +601,7 @@
       "runtime": "DISABLED",
       "overridable": false,
       "eligibility_reasons": [
+        "runtime status is DISABLED",
         "source 4.txt completeness is TRUNCATED; production selection requires COMPLETE"
       ]
     },

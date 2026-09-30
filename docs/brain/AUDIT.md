@@ -1,6 +1,6 @@
 # AsA Brain — Self Audit
 
-Generated 2026-09-27T07:23:09.156Z from `./asa-data/brain.db`. Every number below is read from
+Generated 2026-09-30T07:48:53.689Z from `./asa-data/brain.db`. Every number below is read from
 stored evidence; nothing is asserted without a record behind it.
 
 ## 1. Source recovery and supplied-text inventory
@@ -206,7 +206,7 @@ The competing per-trade percentages are preserved as separate policies. No avera
 ## 15. Psychology policy matrix
 | policy | effect | penalty | source status | source completeness | effective runtime | overridable | eligibility |
 |---|---|---|---|---|---|---|---|
-| PSY-DAILY-LOSS | BLOCK | 0 | SOURCE_VERIFIED | {"4.txt":"TRUNCATED"} | DISABLED | no | source 4.txt completeness is TRUNCATED; production selection requires COMPLETE |
+| PSY-DAILY-LOSS | BLOCK | 0 | SOURCE_VERIFIED | {"4.txt":"TRUNCATED"} | DISABLED | no | runtime status is DISABLED; source 4.txt completeness is TRUNCATED; production selection requires COMPLETE |
 | PSY-REVENGE | BLOCK | 0 | SOURCE_INFERRED | {"4.txt":"TRUNCATED"} | DISABLED | no | source status is SOURCE_INFERRED, not SOURCE_VERIFIED; runtime status is DISABLED; source 4.txt completeness is TRUNCATED; production selection requires COMPLETE |
 | PSY-COOLDOWN | BLOCK | 0 | SOURCE_INFERRED | {} | DISABLED | yes | source status is SOURCE_INFERRED, not SOURCE_VERIFIED; no exact source references; runtime status is DISABLED |
 | PSY-CHASE | REDUCE_SCORE | 15 | SOURCE_INFERRED | {} | DISABLED | yes | source status is SOURCE_INFERRED, not SOURCE_VERIFIED; no exact source references; runtime status is DISABLED |
