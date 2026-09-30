@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: typecheck / lint / test / build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (npm ci)
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit + source-scan tests
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build
+
+  closure:
+    name: source-to-runtime closure validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (npm ci)
+        run: npm ci
+
+      # Deterministic identity + focused-suite gate (scripts/validate-asa-closure.mjs).
+      # The honest expected status for the current source corpus is
+      # CLOSURE_BLOCKED_BY_SOURCE (exit 0); any IMPLEMENTATION error fails this
+      # job with exit 1. Source blockers are the corpus's own truncation state
+      # and are never converted into a pass.
+      - name: Closure validation
+        run: npm run closure:validate
