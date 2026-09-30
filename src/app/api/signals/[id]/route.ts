@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { getRepo } from "@/db/sqlite";
 import { SIGNAL_STATES, refreshSignalExpiry } from "@/lib/pipeline/signal-lifecycle";
-import { signalDelivery, parseStoredPayload } from "@/lib/pipeline/provenance";
+import { signalDelivery, parseStoredPayload, snapshotIdentityCheck } from "@/lib/pipeline/provenance";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +18,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { payload, status: payload_status } = parseStoredPayload(row.payload_json);
   const now = Date.now();
   const delivery = signalDelivery(repo, row, now);
+  // PROVENANCE INTEGRITY: a record whose two stored decision identities
+  // disagree is contradictory provenance, not a verified one.
+  const snapshot_identity = snapshotIdentityCheck(payload);
   return NextResponse.json({
     ok: true,
     note: "signal ≠ order. Delivery state is read live from the outbox row and is not copied onto the decision.",
+    warning: snapshot_identity.state === "CONTRADICTION" ? snapshot_identity.reason : undefined,
     item: {
       id: row.id,
       state: row.state,
@@ -34,6 +38,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       created_ms: row.created_ms,
       updated_ms: row.updated_ms,
       delivery,
+      snapshot_identity,
       payload,
       payload_status,
       lifecycle: { source: "recorded_transitions", history: repo.signalHistory(row.id), note: "Legacy history before audit capture is unknown." },

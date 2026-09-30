@@ -29,6 +29,8 @@ import { SIGNAL_STATES as LIFECYCLE } from "@/lib/domain/signal-states";
 
 interface DeliveryView {
   delivery_state?: string;
+  /** stable failure classification; null when unclassified/legacy */
+  error_kind?: string | null;
   attempts?: number | null;
   error?: string | null;
   sent_ms?: number | null;
@@ -48,6 +50,8 @@ interface SigItem {
   created_ms: number;
   updated_ms: number;
   delivery?: DeliveryView;
+  /** provenance integrity of the two stored decision-identity copies */
+  snapshot_identity?: { state: "AGREED" | "SINGLE_SOURCE" | "CONTRADICTION" | "ABSENT"; reason: string };
   opp_id?: string | null;
 }
 
@@ -292,7 +296,7 @@ export default function SignalsPage() {
 
                 {s.delivery?.error && (
                   <p className="mt-1 text-[10.5px]" style={{ color: "var(--color-down)" }}>
-                    {t("sig", "deliveryError")}: {s.delivery.error}
+                    {t("sig", "deliveryError")}: {s.delivery.error_kind && <code className="mono">[{s.delivery.error_kind}]</code>} {s.delivery.error}
                   </p>
                 )}
 
@@ -426,7 +430,12 @@ export default function SignalsPage() {
                 <li>· {t("sig", "outboxId")}: <code className="mono text-dim">{selectedSignal.delivery?.outbox_id ?? "none"}</code></li>
                 <li>· {t("sig", "attempts")}: <strong className="mono text-text">{selectedSignal.delivery?.attempts ?? 0}</strong></li>
                 {selectedSignal.delivery?.error && (
-                  <li className="text-down">· {t("sig", "deliveryError")}: {selectedSignal.delivery.error}</li>
+                  <li className="text-down">
+                    · {t("sig", "deliveryError")}: {selectedSignal.delivery.error_kind && <code className="mono">{selectedSignal.delivery.error_kind}</code>} {selectedSignal.delivery.error}
+                  </li>
+                )}
+                {selectedSignal.snapshot_identity && ["CONTRADICTION", "SINGLE_SOURCE"].includes(selectedSignal.snapshot_identity.state) && (
+                  <li className="text-down">· {t("sig", "provenanceWarning")}: {selectedSignal.snapshot_identity.reason}</li>
                 )}
               </ul>
             </Panel>

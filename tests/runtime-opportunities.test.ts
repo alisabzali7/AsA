@@ -68,13 +68,14 @@ interface LiveOpp {
   blocked_factors?: string[];
 }
 interface LiveOppFull extends LiveOpp { signal_state?: string | null }
-const liveCases = await (async (): Promise<{ rejectedWithRiskPass: LiveOpp | null; ready: LiveOppFull | null; downgraded: LiveOppFull | null }> => {
-  if (!serverUp) return { rejectedWithRiskPass: null, ready: null, downgraded: null };
+const liveCases = await (async (): Promise<{ rejectedWithRiskPass: LiveOpp | null; ready: LiveOppFull | null; downgraded: LiveOppFull | null; stored: number }> => {
+  if (!serverUp) return { rejectedWithRiskPass: null, ready: null, downgraded: null, stored: 0 };
   try {
     const r = await realFetch(`${ORIGIN}/api/opportunities`, { signal: AbortSignal.timeout(5000) });
     const j = (await r.json()) as { items: LiveOppFull[] };
     const live = j.items.filter((o) => typeof o.state === "string" && typeof o.symbol === "string");
     return {
+      stored: live.length,
       rejectedWithRiskPass:
         live.find((o) => o.state === "REJECTED" && o.risk?.verdict === "pass") ?? null,
       // a READY row whose linked signal is NOT terminal keeps READY
@@ -88,11 +89,43 @@ const liveCases = await (async (): Promise<{ rejectedWithRiskPass: LiveOpp | nul
       downgraded: live.find((o) => o.state === "READY" && o.signal_state != null && !["candidate", "qualified", "published"].includes(o.signal_state)) ?? null,
     };
   } catch {
-    return { rejectedWithRiskPass: null, ready: null, downgraded: null };
+    return { rejectedWithRiskPass: null, ready: null, downgraded: null, stored: 0 };
   }
 })();
 
-describe.skipIf(!serverUp)("opportunities surface (live server)", () => {
+/**
+ * PREREQUISITE CONTRACT (why this is explicit).
+ *
+ * These suites render the REAL UI against a running server, so they need
+ * STORED rows. A server with an empty database is not a UI regression — it is
+ * an unmet prerequisite, and it must say so instead of crashing with
+ * "Cannot read properties of null" (the pre-repair behaviour) or silently
+ * passing. Once the database HAS rows, the required cases below are asserted
+ * as hard requirements: seeded-but-incomplete data fails with the exact
+ * missing case, never with a skip.
+ *
+ * Seed the scenario DB (see docs/testing.md) and point ASA_QA_ORIGIN at it.
+ */
+const scenarioReady = serverUp && liveCases.stored > 0;
+if (serverUp && !scenarioReady) {
+  console.warn(
+    `[runtime-opportunities] SKIPPED: ${ORIGIN} answered but stores 0 opportunities. ` +
+      "This suite needs the LOCAL TEST scenario database (SEED IT — do not read this as a UI pass): " +
+      "node scripts/prepare-team05-local.mjs /tmp/team05-local-evidence seed, then run the server on that DB and set ASA_QA_ORIGIN.",
+  );
+}
+function requireCase<T>(value: T | null, description: string): T {
+  if (value === null) {
+    throw new Error(
+      `runtime scenario prerequisite not met: ${description}. ` +
+        "The server has stored rows but not the row this contract needs; seed a complete LOCAL TEST scenario " +
+        "(docs/testing.md) — do not weaken this assertion.",
+    );
+  }
+  return value;
+}
+
+describe.skipIf(!scenarioReady)("opportunities surface (live server)", () => {
   beforeAll(async () => {
     (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
     // the page's relative fetches must resolve to the QA origin
@@ -118,16 +151,19 @@ describe.skipIf(!serverUp)("opportunities surface (live server)", () => {
   });
 
   // The regression case below can only be exercised when the store actually
-  // HOLDS such an opportunity. When TTT discovery is down the scan stores
-  // nothing (count 0, nothing simulated), so the case does not exist — skip it
-  // with a stated reason instead of dereferencing null, and never fake a pass.
-  it.skipIf(!liveCases.rejectedWithRiskPass)("renders the REJECTED opportunity as REJECTED, never as READY", async () => {
-    const seen = await waitFor(liveCases.rejectedWithRiskPass!.symbol);
+  // HOLDS such an opportunity. The whole suite is gated on a NON-EMPTY store
+  // (see scenarioReady above): when the backend answers with rows, the required
+  // regression case is a hard prerequisite — a seeded-but-incomplete scenario
+  // fails here with the exact missing case instead of silently skipping the
+  // rule it exists to protect (never fake a pass).
+  it("renders the REJECTED opportunity as REJECTED, never as READY", async () => {
+    const rejected = requireCase(liveCases.rejectedWithRiskPass, "an opportunity stored as REJECTED whose risk verdict is pass (portfolio/daily-loss block)");
+    const seen = await waitFor(rejected.symbol);
     expect(seen, "the stored opportunity must be rendered from the live API").toBe(true);
     const text = host.textContent ?? "";
-    expect(text).toContain(liveCases.rejectedWithRiskPass!.symbol);
+    expect(text).toContain(rejected.symbol);
     // the row's own verdict word must be REJECTED
-    const row = text.slice(text.indexOf(liveCases.rejectedWithRiskPass!.symbol));
+    const row = text.slice(text.indexOf(rejected.symbol));
     expect(row.slice(0, 400)).toContain("REJECTED");
     // and it must be marked not actionable
     expect(text.toLowerCase()).toContain("not actionable");
@@ -151,9 +187,9 @@ describe.skipIf(!serverUp)("opportunities surface (live server)", () => {
     expect(row).not.toMatch(/^READY/);
   });
 
-  it.skipIf(!liveCases.rejectedWithRiskPass)("the dossier gate ledger names every boundary for the REJECTED row", async () => {
+  it("the dossier gate ledger names every boundary for the REJECTED row", async () => {
     // open the dossier of the risk-pass-but-rejected row (the regression case)
-    const symbol = liveCases.rejectedWithRiskPass!.symbol;
+    const symbol = requireCase(liveCases.rejectedWithRiskPass, "the REJECTED-with-risk-pass row for the dossier ledger").symbol;
     expect(await waitFor(symbol)).toBe(true);
     const btn = Array.from(host.querySelectorAll("button")).find((b) =>
       (b.getAttribute("aria-label") ?? "").toLowerCase().includes("inspect opportunity details"),
@@ -211,4 +247,56 @@ describe.skipIf(!serverUp)("opportunities surface (live server)", () => {
     }
     expect(chips.some((c) => /UNAVAILABLE|LOADING|EMPTY|REJECTED|READY|EXPIRED/.test(c))).toBe(true);
   });
+});
+
+/**
+ * HONEST EMPTY STATE — the mirror of the skip above.
+ *
+ * When a server IS answering but its store holds nothing, the surface must say
+ * so in the backend's own words. An empty store is not an error, and it must
+ * never be dressed up as a row or a blank verdict. This block therefore runs
+ * exactly when the QA origin answers with ZERO stored opportunities: the
+ * populated cases are the seeded suite above, and between them there is no
+ * state in which this file silently passes without asserting anything.
+ */
+describe.skipIf(!serverUp || scenarioReady)("opportunities surface — empty store (live server)", () => {
+  let emptyRoot: Root | null = null;
+  let emptyHost: HTMLElement;
+
+  beforeAll(async () => {
+    (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (typeof input === "string" && input.startsWith("/")) return realFetch(`${ORIGIN}${input}`, init);
+      return realFetch(input as never, init as never);
+    }) as typeof fetch;
+    emptyHost = document.createElement("div");
+    document.body.appendChild(emptyHost);
+    const { LanguageProvider } = await import("../src/components/lang");
+    const mod = await import("../src/app/opportunities/page");
+    emptyRoot = createRoot(emptyHost);
+    await act(async () => {
+      emptyRoot!.render(createElement(LanguageProvider, null, createElement(mod.default)));
+    });
+  });
+
+  afterAll(async () => {
+    if (emptyRoot) await act(async () => { emptyRoot?.unmount(); });
+    emptyHost.remove();
+    globalThis.fetch = realFetch;
+  });
+
+  it("states the EMPTY truth — never a blank chip and never a fabricated row", async () => {
+    const end = Date.now() + 15000;
+    while (Date.now() < end) {
+      if (emptyHost.textContent?.includes("EMPTY")) break;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    const text = emptyHost.textContent ?? "";
+    expect(text, "an answering-but-empty backend must be stated as EMPTY").toContain("EMPTY");
+    expect(text.toLowerCase(), "the empty state must say nothing is simulated").toContain("nothing is simulated");
+    const chips = Array.from(emptyHost.querySelectorAll("[data-state], .badge, span"))
+      .map((el) => el.textContent?.trim() ?? "")
+      .filter(Boolean);
+    expect(chips.every((c) => c.length > 0), "no chip may be an empty string").toBe(true);
+  }, 30000);
 });

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getRepo } from "@/db/sqlite";
 import { opportunityFreshness } from "@/lib/pipeline/orchestrator";
 
-import { parseStoredPayload } from "@/lib/pipeline/provenance";
+import { parseStoredPayload, snapshotIdentityCheck } from "@/lib/pipeline/provenance";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +46,9 @@ export async function GET(req: Request): Promise<NextResponse> {
       },
       signal_id: signal?.id ?? null,
       signal_state: signal?.state ?? null,
+      // Provenance integrity: the stored decision identity must not be
+      // internally contradictory (see snapshotIdentityCheck).
+      snapshot_identity: snapshotIdentityCheck(payload),
       actionable: decisionState === "READY" && fresh.state === "READY" && !signalTerminal,
       note: "Score is deterministic, never a calibrated probability. READY describes stored admission; actionable filters source freshness and linked lifecycle, not a fresh risk certificate. Publication revalidates current gates.",
     };

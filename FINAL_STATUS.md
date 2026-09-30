@@ -1,5 +1,12 @@
 # AsA — Current Status
 
+> **POINT-IN-TIME RECORD.** The measurements below were generated at the commit
+> named in the next paragraph and describe THAT revision, not current `HEAD`.
+> They are retained as history and must not be read as a statement about the
+> present checkout. Current measured state (gates, suites, prerequisites) lives
+> in `docs/testing.md`; the closure contract lives in
+> `docs/roadmap/ASA_100_PERCENT_CONTRACT.md`.
+
 **Generated:** 2026-09-30 07:35 UTC
 **Commit:** `97c6be1` — equals `git rev-parse HEAD` at generation (stamped at package time)
 **Phase:** CLOSURE FIX — timeframe single-source + RSS SSRF + chart import topology + docs reconcile
@@ -73,3 +80,36 @@ curl "$HOST/api/market/history?symbol=BTCUSDT&tf=1h&sync=full&limit=1"
 - **Chart import topology:** `tests/team02-import-topology.test.ts` now allows the pure `src/lib/domain/timeframes.ts` constant as the single permitted domain import for the chart.
 - **Regression tests:** `tests/timeframe-unification.test.ts` (10 checks) and `tests/rss-ssrf.test.ts` (13 checks) added.
 - **Docs reconciled:** `MACHINE_READABLE_STATUS.json` regenerated via `brain:audit` (2026-09-30), `FINAL_STATUS.md` refreshed, README brain fragment count updated.
+
+## Fixes in the delivery-truth pass (2026-09-30, second pass — same day)
+
+- **Outbox failure taxonomy (closure §17):** `telegram_outbox.error_kind` (migration
+  v5, guarded ALTER) records WHY a row is terminal/retrying —
+  `POISON_PAYLOAD | LINK_NOT_DELIVERABLE | TRANSPORT_REJECTED |
+  TRANSPORT_BUDGET_EXHAUSTED | INTERRUPTED_AMBIGUOUS | INFRASTRUCTURE |
+  NOT_CONFIGURED | DRY_RUN`. An expired/terminal linked advisory is no longer
+  mislabelled "poison payload"; SENT clears the classification and legacy rows
+  stay NULL rather than being retro-classified.
+- **Contradictory decision provenance is now detected, not papered over:** the
+  two stored decision-window copies (`chart_evidence.snapshot` and
+  `provenance.data.snapshot`) are compared; `snapshot_identity`
+  (`AGREED | SINGLE_SOURCE | CONTRADICTION | ABSENT`) is exposed on
+  `/api/signals` and `/api/opportunities`, and `/api/charts/[id]` answers
+  **409 `contradictory decision provenance`** instead of rendering either copy.
+- **Cross-process verification:** `tests/cross-process-outbox.test.ts` drives the
+  real SQLite repository from separate OS processes — exclusive claims under
+  6-way contention, stale-owner write rejection, interrupted-final-attempt
+  recovery (COMPLETE → SENT / INCOMPLETE → DEAD), publication atomicity with no
+  orphan outbox rows, per-claim attempt accounting, forged-claim rejection.
+- **Runtime QA prerequisite contract:** `tests/runtime-opportunities.test.ts`
+  skips with an explicit seeding instruction when the server stores nothing, and
+  fails with the exact missing case when rows exist but are incomplete; the
+  answering-but-empty store is now asserted as the honest EMPTY state instead of
+  being skipped. Measured after this pass: `npm test` = **91 files (87 passed /
+  4 skipped), 1574 tests (1561 passed / 13 skipped)** with no server reachable;
+  the four runtime suites are green against the seeded LOCAL TEST scenario
+  (12 passed / 1 skipped) and the empty-store direction passes 7 / 6 skipped.
+- **Measured end-to-end on the rebuilt app:** outbox row 3 (`sig-77ee1c4aba1293c6`)
+  reports `DEAD · LINK_NOT_DELIVERABLE · attempts 0`; the tampered provenance copy
+  and the zeroed `chart_source.sha256` both answer **409** on JSON and PNG while
+  the pristine record stays `VERIFIED`/`AGREED`.

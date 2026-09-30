@@ -61,6 +61,43 @@ export interface JournalRow {
   r_multiple: number | null;
 }
 
+/**
+ * WHY an outbox row is not SENT — the failure taxonomy (closure §17).
+ *
+ * The row's `error` string is human prose and may change wording; this token is
+ * the stable, machine-checkable classification the API/UI/operator surface must
+ * use. It separates conditions that were previously collapsed into one generic
+ * "poison payload" path:
+ *
+ *   POISON_PAYLOAD             the stored content can NEVER be delivered
+ *                              (unparseable JSON, invalid shape, oversized
+ *                              text): deterministic, zero provider requests.
+ *   LINK_NOT_DELIVERABLE       the content is well-formed but the linked
+ *                              signal is gone/terminal/expired, or the outbox
+ *                              row no longer matches its immutable decision:
+ *                              terminal by POLICY, not by content.
+ *   TRANSPORT_REJECTED         the provider refused a sub-step (retryable
+ *                              until the transport budget is exhausted).
+ *   TRANSPORT_BUDGET_EXHAUSTED the row died after spending real transport
+ *                              attempts.
+ *   INTERRUPTED_AMBIGUOUS      the final attempt was interrupted and provider
+ *                              acceptance cannot be proven: never reported as
+ *                              SENT.
+ *   INFRASTRUCTURE             unexpected local/infrastructure failure
+ *                              (transient by nature; retryable).
+ *   NOT_CONFIGURED / DRY_RUN   preflight: nothing was ever sent and no
+ *                              transport attempt was consumed.
+ */
+export type OutboxErrorKind =
+  | "POISON_PAYLOAD"
+  | "LINK_NOT_DELIVERABLE"
+  | "TRANSPORT_REJECTED"
+  | "TRANSPORT_BUDGET_EXHAUSTED"
+  | "INTERRUPTED_AMBIGUOUS"
+  | "INFRASTRUCTURE"
+  | "NOT_CONFIGURED"
+  | "DRY_RUN";
+
 export interface OutboxRow {
   id: number;
   kind: string;
@@ -76,6 +113,8 @@ export interface OutboxRow {
    */
   attempts: number;
   error: string | null;
+  /** stable classification of `error`; NULL on SENT rows and legacy rows. */
+  error_kind: OutboxErrorKind | null;
   created_ms: number;
   sent_ms: number | null;
   /** current delivery-cycle owner (T05 T3); NULL = unclaimed */
@@ -222,8 +261,17 @@ export interface Repo {
    * applies while that exact claim is still the owner (stale owners cannot
    * corrupt a reclaimed row) and the claim is released. WITHOUT `claim` this
    * can only annotate an unclaimed retryable row, never SENT. NEVER touches attempts.
+   *
+   * `error_kind` is the stable failure classification (see OutboxErrorKind);
+   * it is cleared on SENT so a delivered row never carries a stale reason.
    */
-  outboxMark(id: number, state: OutboxRow["state"], error?: string | null, claim?: OutboxClaim | null): boolean;
+  outboxMark(
+    id: number,
+    state: OutboxRow["state"],
+    error?: string | null,
+    claim?: OutboxClaim | null,
+    error_kind?: OutboxErrorKind | null,
+  ): boolean;
   /**
    * Persist an updated payload for an outbox row (e.g. delivery sub-step
    * progress). With `claim`, only while that exact claim is still the owner.
