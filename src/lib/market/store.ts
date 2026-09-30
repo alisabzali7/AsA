@@ -15,7 +15,7 @@ import {
   type SeriesCoverage,
 } from "../domain/types";
 import { isOperationalSymbol, operationalUniverse } from "./operational-universe";
-import { MINUTE_MS } from "../domain/timeframes";
+import { MINUTE_MS, getTimeframe } from "../domain/timeframes";
 import { eventBus } from "../events";
 
 export interface SymbolMeta {
@@ -196,7 +196,18 @@ export class MarketStore {
     }
     const candles = series.candles;
     let gaps = 0;
-    const stepSec = tfMinutesFor(tf);
+    const stepSec = tfStepSec(tf);
+    if (stepSec === null) {
+      const cov: SeriesCoverage = {
+        symbol, timeframe: tf, first_ts_ms: candles[0].t * 1000, last_ts_ms: candles[candles.length - 1].t * 1000,
+        bar_count: candles.length, gap_count: 0, duplicates: 0,
+        native_or_derived: series.native ? "NATIVE" : "DERIVED", derivation_source_tf: series.derived_source_tf,
+        source: "ttt", last_fetch_ms: fetchedAt ?? series.fetched_at_ms, status: "ERROR", target_bars: 0,
+        reason: `unsupported timeframe '${tf}' — gap detection unavailable`,
+      };
+      this.coverage.set(key, cov);
+      return cov;
+    }
     for (let i = 1; i < candles.length; i++) {
       if (candles[i].t - candles[i - 1].t > stepSec * 1.5) gaps++;
     }
@@ -334,9 +345,13 @@ function nn(v: number): number | null {
   return Number.isFinite(v) ? v : null;
 }
 
-function tfMinutesFor(tf: string): number {
-  const m: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "45m": 2700, "1h": 3600, "2h": 7200, "4h": 14400, "8h": 28800, "1d": 86400 };
-  return m[tf] ?? 3600;
+/**
+ * Single source of timeframe bar duration (seconds). Delegates to the canonical
+ * domain registry so no second table can drift. Unknown timeframes fail closed.
+ */
+function tfStepSec(tf: string): number | null {
+  const spec = getTimeframe(tf);
+  return spec ? spec.minutes * 60 : null;
 }
 
 export { MINUTE_MS };
