@@ -12,11 +12,13 @@
  *   - SENDING : a consumer holds an UNEXPIRED claim (transport cycle in progress)
  *   - FAILED  : row FAILED (retryable) and no live claim
  *   - SENT    : full logical delivery accepted by the provider
- *   - DEAD    : terminal after the transport budget (or poison payload)
+ *   - DEAD    : terminal after the transport budget, a deterministic content
+ *               failure (poison payload) or a link that can no longer be
+ *               delivered — `error_kind` states WHICH, never one generic label
  *   - UNLINKED: signal has no outbox row (never published, or the legacy
  *               fallback found nothing) — reported as such, never as "sent"
  */
-import type { OutboxRow, Repo, SignalRow } from "../../db/repo";
+import type { OutboxErrorKind, OutboxRow, Repo, SignalRow } from "../../db/repo";
 
 export type DeliveryState = "QUEUED" | "SENDING" | "FAILED" | "SENT" | "DEAD" | "UNLINKED";
 
@@ -40,6 +42,13 @@ export interface SignalDeliveryView {
   /** logical TRANSPORT attempts consumed (T05 T3 semantics) */
   attempts: number | null;
   error: string | null;
+  /**
+   * Stable classification of `error` (OutboxErrorKind); null when the row has
+   * no recorded failure or predates the taxonomy. NEVER inferred from the
+   * prose: an unclassified legacy DEAD row stays null rather than being
+   * retro-labeled.
+   */
+  error_kind: OutboxErrorKind | null;
   progress: DeliveryProgressView | null;
   /** publication instant — when the signal row + outbox row were written */
   queued_ms: number | null;
@@ -102,6 +111,7 @@ export function signalDelivery(repo: Repo, sig: SignalRow, nowMs = Date.now()): 
     outbox_state: row?.state ?? null,
     attempts: row?.attempts ?? null,
     error: row?.error ?? null,
+    error_kind: row?.error_kind ?? null,
     progress: row ? progressOf(row) : null,
     queued_ms: row?.created_ms ?? null,
     sent_ms: row?.sent_ms ?? null,
@@ -121,4 +131,75 @@ export function parseStoredPayload(json: string): { payload: Record<string, unkn
     }
   } catch { /* explicit unavailable below */ }
   return { payload: {}, status: "UNAVAILABLE" };
+}
+
+/**
+ * DECISION-SNAPSHOT IDENTITY AGREEMENT (provenance integrity).
+ *
+ * A published payload carries the decision window identity in TWO places: the
+ * immutable decision snapshot (`provenance.data.snapshot`) and the chart
+ * evidence the renderer verifies (`chart_evidence.snapshot`). The publisher
+ * writes both from ONE object, so in a healthy database they always agree.
+ *
+ * If they ever disagree — storage corruption, a partial write, an out-of-band
+ * edit — the record contains CONTRADICTORY provenance. That must be reported,
+ * never silently resolved by picking one copy: `/api/charts` verifies against
+ * `chart_evidence`, so a consumer reading the other copy would otherwise
+ * believe an unverified identity had been checked.
+ *
+ * None of these states is "verified": AGREED means the two stored copies are
+ * consistent, not that the venue's candles still reproduce the fingerprint
+ * (that is `verifyDecisionSnapshot`'s separate, independent check).
+ */
+export type SnapshotIdentityState = "AGREED" | "SINGLE_SOURCE" | "CONTRADICTION" | "ABSENT";
+
+export interface SnapshotIdentityCheck {
+  state: SnapshotIdentityState;
+  reason: string;
+}
+
+function describeSnapshot(s: { symbol: string; timeframe: string; as_of_t: number; closed_bars: number; input_fingerprint: string }): string {
+  return `${s.symbol}@${s.timeframe} as_of ${s.as_of_t}, ${s.closed_bars} bars, fingerprint ${s.input_fingerprint.slice(0, 12)}…`;
+}
+
+function snapshotFields(value: unknown): { symbol: string; timeframe: string; as_of_t: number; closed_bars: number; input_fingerprint: string } | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const s = value as Record<string, unknown>;
+  if (typeof s.symbol !== "string" || typeof s.timeframe !== "string"
+    || typeof s.as_of_t !== "number" || !Number.isFinite(s.as_of_t)
+    || typeof s.closed_bars !== "number" || !Number.isFinite(s.closed_bars)
+    || typeof s.input_fingerprint !== "string") return null;
+  return { symbol: s.symbol, timeframe: s.timeframe, as_of_t: s.as_of_t, closed_bars: s.closed_bars, input_fingerprint: s.input_fingerprint };
+}
+
+export function snapshotIdentityCheck(payload: Record<string, unknown>): SnapshotIdentityCheck {
+  const provenance = payload.provenance;
+  const provenanceSnapshot = provenance !== null && typeof provenance === "object" && !Array.isArray(provenance)
+    ? (provenance as Record<string, unknown>).data
+    : null;
+  const fromProvenance = provenanceSnapshot !== null && typeof provenanceSnapshot === "object" && !Array.isArray(provenanceSnapshot)
+    ? (provenanceSnapshot as Record<string, unknown>).snapshot
+    : null;
+  const evidence = payload.chart_evidence;
+  const fromEvidence = evidence !== null && typeof evidence === "object" && !Array.isArray(evidence)
+    ? (evidence as Record<string, unknown>).snapshot
+    : null;
+
+  const a = snapshotFields(fromProvenance);
+  const b = snapshotFields(fromEvidence);
+  if (!a && !b) return { state: "ABSENT", reason: "neither stored copy carries a parsable decision snapshot (legacy record)" };
+  if (!a || !b) {
+    return {
+      state: "SINGLE_SOURCE",
+      reason: a ? "only provenance.data.snapshot carries the decision identity (chart evidence has none)" : "only chart_evidence.snapshot carries the decision identity (provenance has none)",
+    };
+  }
+  const same = a.symbol === b.symbol && a.timeframe === b.timeframe && a.as_of_t === b.as_of_t
+    && a.closed_bars === b.closed_bars && a.input_fingerprint === b.input_fingerprint;
+  return same
+    ? { state: "AGREED", reason: `both stored copies name the same decision window (${a.symbol}@${a.timeframe} as_of ${a.as_of_t}, ${a.closed_bars} bars, fingerprint ${a.input_fingerprint.slice(0, 12)}…)` }
+    : {
+      state: "CONTRADICTION",
+      reason: `stored provenance copies disagree: provenance.data.snapshot=${describeSnapshot(a)} vs chart_evidence.snapshot=${describeSnapshot(b)} — refusing to present either as verified`,
+    };
 }

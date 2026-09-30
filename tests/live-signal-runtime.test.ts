@@ -545,8 +545,14 @@ describe("T05 T4 runtime path: candle.closed → scanSymbol → publishSignal �
     expect(old.outbox_id).toBeNull();
     const r2 = new SqliteRepo(file); // reopen: no error, no duplicate column
     expect(r2.signalByOpp("opp-old")!.id).toBe("sig-old");
-    const migr = new Database(file, { readonly: true }).prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[];
-    expect(migr.map((m) => m.version)).toEqual([1, 2, 3, 4]);
+    // The migration log is append-only: every guarded upgrade must be present
+    // exactly once, in order, with its recorded note — a new migration appends
+    // a version instead of rewriting an existing entry.
+    const migr = new Database(file, { readonly: true })
+      .prepare("SELECT version, note FROM schema_migrations ORDER BY version")
+      .all() as { version: number; note: string }[];
+    expect(migr.map((m) => m.version)).toEqual([1, 2, 3, 4, 5]);
+    expect(migr[4].note).toMatch(/error_kind/);
   });
 });
 

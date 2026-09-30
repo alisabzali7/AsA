@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { ASA_DB_PATH } from "../lib/env";
-import type { Repo, OpportunityRow, SignalRow, SignalTransitionRow, JournalRow, OutboxRow, OutboxClaim, AiCallRow, NewsRow, RetentionRunRow, BacktestJobRow } from "./repo";
+import type { Repo, OpportunityRow, SignalRow, SignalTransitionRow, JournalRow, OutboxRow, OutboxClaim, OutboxErrorKind, AiCallRow, NewsRow, RetentionRunRow, BacktestJobRow } from "./repo";
 import { OUTBOX_MAX_ATTEMPTS } from "./repo";
 import { assertSignalTransition } from "../lib/pipeline/signal-lifecycle";
 
@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS telegram_outbox (
   id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL,
   payload_json TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'QUEUED',
   attempts INTEGER NOT NULL DEFAULT 0, error TEXT,
+  -- stable failure classification (OutboxErrorKind); NULL on SENT/legacy rows
+  error_kind TEXT,
   created_ms INTEGER NOT NULL, sent_ms INTEGER,
   -- T05 T3 claim/lease: ownership of one delivery cycle. NULL = unclaimed.
   claimed_by TEXT, claim_ms INTEGER, claim_expires_ms INTEGER
@@ -147,6 +149,17 @@ export class SqliteRepo implements Repo {
     ); CREATE INDEX IF NOT EXISTS idx_signal_transitions ON signal_transitions(signal_id, id);`);
     this.db.prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_ms, note) VALUES (4, ?, ?)")
       .run(Date.now(), "signal transition audit; historical transitions not fabricated");
+    // v5: outbox failure taxonomy. Legacy rows keep a NULL kind — their prose
+    // error stays readable but is never retro-classified into a taxonomy value
+    // the old code did not compute.
+    if (!cols.has("error_kind")) {
+      this.db.exec("ALTER TABLE telegram_outbox ADD COLUMN error_kind TEXT");
+      this.db.prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_ms, note) VALUES (5, ?, ?)")
+        .run(Date.now(), "telegram_outbox error_kind added (stable failure classification)");
+    } else {
+      this.db.prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_ms, note) VALUES (5, ?, ?)")
+        .run(Date.now(), "telegram_outbox error_kind present (fresh schema or previously migrated)");
+    }
   }
 
   configGet(k: string): string | null {
@@ -291,6 +304,7 @@ export class SqliteRepo implements Repo {
       SET state=CASE WHEN (${complete}) THEN 'SENT' ELSE 'DEAD' END,
         sent_ms=CASE WHEN (${complete}) THEN COALESCE(sent_ms, @now) ELSE sent_ms END,
         error=CASE WHEN (${complete}) THEN NULL ELSE 'transport budget exhausted during interrupted delivery; provider acceptance may be unknown' END,
+        error_kind=CASE WHEN (${complete}) THEN NULL ELSE 'INTERRUPTED_AMBIGUOUS' END,
         claimed_by=NULL, claim_ms=NULL, claim_expires_ms=NULL
       WHERE state IN ('QUEUED','FAILED') AND attempts >= @max
         AND (claimed_by IS NULL OR claim_expires_ms IS NULL OR claim_expires_ms <= @now)`)
@@ -350,7 +364,13 @@ export class SqliteRepo implements Repo {
       RETURNING attempts`).get({ id, token: claim.token, claimed: claim.claimed_at_ms, now: Date.now(), max: OUTBOX_MAX_ATTEMPTS }) as { attempts: number } | undefined;
     return row?.attempts ?? null;
   }
-  outboxMark(id: number, state: OutboxRow["state"], error: string | null = null, claim: OutboxClaim | null = null): boolean {
+  outboxMark(
+    id: number,
+    state: OutboxRow["state"],
+    error: string | null = null,
+    claim: OutboxClaim | null = null,
+    error_kind: OutboxErrorKind | null = null,
+  ): boolean {
     const now = Date.now();
     // Unowned preflight can annotate only unclaimed retryable rows; never
     // report success, steal a lease, or resurrect terminal delivery.
@@ -359,10 +379,18 @@ export class SqliteRepo implements Repo {
       ? "claimed_by=@token AND claim_ms=@claimed AND claim_expires_ms > @now"
       : "claimed_by IS NULL";
     return this.db.prepare(`UPDATE telegram_outbox SET state=@state, error=@error,
+      error_kind=@error_kind,
       sent_ms=CASE WHEN @state='SENT' THEN @now ELSE sent_ms END,
       claimed_by=NULL, claim_ms=NULL, claim_expires_ms=NULL
       WHERE id=@id AND state IN ('QUEUED','FAILED') AND ${owner}`)
-      .run({ id, state, error, now, ...(claim ? { token: claim.token, claimed: claim.claimed_at_ms } : {}) }).changes === 1;
+      .run({
+        id, state, error, now,
+        // A delivered row carries no failure reason at all. A non-delivered
+        // row written without an explicit kind records UNKNOWN (NULL) rather
+        // than inheriting a previous cycle's classification.
+        error_kind: state === "SENT" ? null : error_kind,
+        ...(claim ? { token: claim.token, claimed: claim.claimed_at_ms } : {}),
+      }).changes === 1;
   }
   outboxSetPayload(id: number, payload_json: string, claim: OutboxClaim | null = null): boolean {
     const owner = claim
