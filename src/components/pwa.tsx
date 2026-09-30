@@ -96,7 +96,7 @@ export function usePwaInstall() {
 }
 
 export function PwaRegistrator() {
-  const { lang } = useLang();
+  const { t } = useLang();
   const [updated, setUpdated] = useState(false);
 
   useEffect(() => {
@@ -151,18 +151,18 @@ export function PwaRegistrator() {
     >
       <span className="h-2 w-2 rounded-full bg-[var(--color-up)] animate-ping" aria-hidden />
       <span className="flex-1" dir="auto">
-        {lang === "fa" ? "نسخه جدید AsA آماده است" : "A newer AsA build is ready"}
+        {t("pwa", "updateReady")}
       </span>
       <button
         className="focus-ring btn btn-gold !py-1 !px-2.5 text-[10.5px] font-bold"
         onClick={() => window.location.reload()}
       >
-        {lang === "fa" ? "بارگذاری مجدد" : "Reload"}
+        {t("pwa", "reload")}
       </button>
       <button
         className="focus-ring btn !py-1 !px-2 text-[10.5px]"
         onClick={() => setUpdated(false)}
-        aria-label="dismiss update notice"
+        aria-label={t("pwa", "dismissUpdate")}
       >
         ✕
       </button>
@@ -171,7 +171,7 @@ export function PwaRegistrator() {
 }
 
 export function PwaInstallBanner() {
-  const { lang } = useLang();
+  const { t } = useLang();
   const { isInstallable, isStandalone, triggerInstall } = usePwaInstall();
   const [dismissed, setDismissed] = useState(false);
 
@@ -188,12 +188,10 @@ export function PwaInstallBanner() {
         </span>
         <div className="min-w-0">
           <h4 className="text-xs font-bold text-text truncate">
-            {lang === "fa" ? "نصب اپلیکیشن PWA ترمینال AsA" : "Install AsA Terminal PWA"}
+            {t("pwa", "installTitle")}
           </h4>
           <p className="text-[10.5px] text-muted truncate">
-            {lang === "fa"
-              ? "دسترسی مستقیم و سریع از صفحه اصلی گوشی یا دسکتاپ"
-              : "Fast, standalone terminal access on Android or desktop"}
+            {t("pwa", "installDescription")}
           </p>
         </div>
       </div>
@@ -204,12 +202,12 @@ export function PwaInstallBanner() {
           className="focus-ring btn btn-gold !py-1 !px-2.5 text-xs font-bold"
         >
           <IconZap size={12} />
-          <span>{lang === "fa" ? "نصب" : "Install"}</span>
+          <span>{t("pwa", "install")}</span>
         </button>
         <button
           onClick={() => setDismissed(true)}
           className="focus-ring btn !py-1 !px-2 text-xs"
-          aria-label="dismiss"
+          aria-label={t("pwa", "dismiss")}
         >
           ✕
         </button>

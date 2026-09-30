@@ -1,4 +1,4 @@
-/* AsA app-shell service worker (asa-shell-v1) — Team 04 (PWA/app-shell).
+/* AsA app-shell service worker (asa-shell-v2) — Team 04 (PWA/app-shell).
  *
  * TRUTHFULNESS CONTRACT (absolute):
  *   - /api/* is NEVER intercepted, cached or replayed. Market truth always
@@ -17,7 +17,7 @@
  */
 "use strict";
 
-const VERSION = "asa-shell-v1";
+const VERSION = "asa-shell-v2";
 const PAGE_CACHE = VERSION + "-pages";
 const STATIC_CACHE = VERSION + "-static";
 const MAX_PAGES = 12;

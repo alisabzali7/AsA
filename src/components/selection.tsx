@@ -50,7 +50,9 @@ const listeners = new Set<() => void>();
 function read(): AsaSelection {
   if (typeof window === "undefined") return EMPTY;
   try {
-    const raw = window.localStorage.getItem(SELECTION_KEY) ?? (readLegacySelection() ? JSON.stringify(readLegacySelection()) : null);
+    const canonical = window.localStorage.getItem(SELECTION_KEY);
+    const migrated = canonical ? null : readLegacySelection();
+    const raw = canonical ?? (migrated ? JSON.stringify(migrated) : null);
     if (!raw) return EMPTY;
     const j = JSON.parse(raw) as Partial<AsaSelection>;
     return {

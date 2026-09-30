@@ -292,13 +292,13 @@ export function runValidationPipeline(options: ValidationPipelineOptions = {}): 
       });
 
       for (const ser of wanted) {
-        const filePath = path.join(replayDir, ser.file);
-        if (!fs.existsSync(filePath)) {
+        const filePath = path.join(/*turbopackIgnore: true*/ replayDir, ser.file);
+        if (!fs.existsSync(/*turbopackIgnore: true*/ filePath)) {
           skipped++;
           continue;
         }
 
-        const fileContent = fs.readFileSync(filePath, "utf8");
+        const fileContent = fs.readFileSync(/*turbopackIgnore: true*/ filePath, "utf8");
         const parsedRaw = JSON.parse(fileContent);
         const { candles } = parseUdfHistory(parsedRaw, tfMin);
 

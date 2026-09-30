@@ -32,7 +32,7 @@ export interface BoardRow {
 export interface BoardShape { ok: boolean; rows: BoardRow[]; stats_age_ms: number | null; focus: string; ts: number }
 
 interface FlashMark { at: number; up: boolean }
-const WINDOW_ROWS = 60;
+const WINDOW_ROWS = 60; // Long universes stay windowed; disclose the windowed rows mechanism.
 
 type FilterMode = "all" | "watchlist" | "gainers" | "losers" | "volume";
 type SortKey = "symbol" | "price" | "change" | "volume" | "funding" | "oi" | "age";
@@ -105,7 +105,7 @@ export function MarketBoard({
         result = result.filter((r) => r.change24hPct != null && r.change24hPct < 0);
         break;
       case "volume":
-        result = [...result].sort((a, b) => (b.volume24hQuote ?? 0) - (a.volume24hQuote ?? 0)).slice(0, 30);
+        result = [...result].sort((a, b) => (b.volume24hQuote ?? -Infinity) - (a.volume24hQuote ?? -Infinity)).slice(0, 30);
         break;
       default:
         break;
@@ -183,18 +183,18 @@ export function MarketBoard({
             value={search}
             onChange={setSearch}
             onClear={() => setSearch("")}
-            placeholder="Filter symbols (e.g. BTC, ETH)…"
+            placeholder={t("board", "searchPlaceholder")}
             className="w-[220px]"
           />
           <FilterBar<FilterMode>
             active={filterMode}
             onChange={setFilterMode}
             filters={[
-              { id: "all", label: "All Universe", count: rows.length },
-              { id: "watchlist", label: "★ Watchlist", count: watchlist.length },
-              { id: "gainers", label: "▲ Gainers" },
-              { id: "losers", label: "▼ Losers" },
-              { id: "volume", label: "💎 Top Vol" },
+              { id: "all", label: t("board", "all"), count: rows.length },
+              { id: "watchlist", label: `★ ${t("board", "watchlist")}`, count: watchlist.length },
+              { id: "gainers", label: `▲ ${t("board", "gainers")}` },
+              { id: "losers", label: `▼ ${t("board", "losers")}` },
+              { id: "volume", label: `💎 ${t("board", "topVolume")}` },
             ]}
           />
         </div>
@@ -202,11 +202,13 @@ export function MarketBoard({
         <div className="flex items-center gap-2 text-[10.5px] text-muted ms-auto">
           {boardReady && (
             <span>
-              showing <strong className="text-text mono">{sorted.length}</strong> of <strong className="text-text mono">{rows.length}</strong> pairs
-              {sweepEff !== null && <span className="text-dim"> · age {fmtAge(sweepEff)}</span>}
+              {t("board", "showing")
+                .replace("{n}", String(sorted.length))
+                .replace("{total}", String(rows.length))}
+              {sweepEff !== null && <span className="text-dim"> · {t("market", "age")} {fmtAge(sweepEff)}</span>}
             </span>
           )}
-          {needWindow && <span className="mono text-[9px] text-dim">windowed {start + 1}–{start + count}</span>}
+          {needWindow && <span className="mono text-[9px] text-dim">{t("board", "windowedLabel")}: {start + 1}–{start + count}</span>}
         </div>
       </div>
 
@@ -233,12 +235,12 @@ export function MarketBoard({
               {head("symbol", t("market", "symbol"), "start")}
               {head("price", t("market", "price"), "end")}
               {head("change", t("market", "change24h"), "end")}
-              {head("volume", "Vol 24h", "end")}
+              {head("volume", t("market", "volume"), "end")}
               {head("funding", t("market", "funding"), "end")}
               {head("oi", t("market", "oi"), "end")}
               {head("age", t("market", "age"), "start")}
               <th scope="col">{t("market", "lastUpdate")}</th>
-              <th className="w-20 text-center" scope="col">actions</th>
+              <th className="w-20 text-center" scope="col">{t("board", "actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -273,7 +275,7 @@ export function MarketBoard({
                     <button
                       onClick={() => toggleWatchlist(r.symbol)}
                       className="focus-ring icon-btn !h-6 !w-6 text-muted hover:text-gold"
-                      title={isPinned ? "remove from watchlist" : "pin to watchlist"}
+                      title={isPinned ? t("board", "unpin") : t("board", "pin")}
                       aria-pressed={isPinned}
                     >
                       {isPinned ? <IconPinFilled size={12} className="text-gold" /> : <IconPin size={12} />}
@@ -336,14 +338,14 @@ export function MarketBoard({
                     <div className="flex items-center justify-center gap-1">
                       <button
                         className="focus-ring icon-btn !h-6 !w-6 hover:text-gold"
-                        title="open inspector"
+                        title={t("board", "openInspector")}
                         onClick={() => setInspectedSymbol(r.symbol)}
                       >
                         <IconInfo size={12} />
                       </button>
                       <button
                         className="focus-ring icon-btn !h-6 !w-6 hover:text-gold"
-                        title="open on chart"
+                        title={t("board", "openChart")}
                         onClick={() => {
                           setSel({ symbol: r.symbol });
                           onFocus?.(r.symbol);
@@ -362,20 +364,22 @@ export function MarketBoard({
               </tr>
             )}
             {status === "LOADING" && (
-              <tr><td colSpan={10} className="py-6 text-center text-muted">requesting the first TTT snapshot…</td></tr>
+              <tr><td colSpan={10} className="py-6 text-center text-muted">{t("board", "loading")}</td></tr>
             )}
             {status !== "LOADING" && !boardReady && (
               <tr>
                 <td colSpan={10} className="py-6 text-center text-muted">
-                  no board rows — {failure?.server_state ? `the provider reports ${failure.server_state}` : "no authoritative answer received yet"}
+                  {failure?.server_state
+                    ? t("board", "noRowsReason").replace("{reason}", `${t("board", "state")}: ${failure.server_state}`)
+                    : t("board", "noRowsReason").replace("{reason}", t("board", "noAuthoritative"))}
                 </td>
               </tr>
             )}
             {boardReady && rows.length === 0 && (
-              <tr><td colSpan={10} className="py-6 text-center text-muted">the universe answered, but has no rows yet</td></tr>
+              <tr><td colSpan={10} className="py-6 text-center text-muted">{t("board", "noRows")}</td></tr>
             )}
             {boardReady && rows.length > 0 && sorted.length === 0 && (
-              <tr><td colSpan={10} className="py-6 text-center text-dim">No symbols match current search/filter</td></tr>
+              <tr><td colSpan={10} className="py-6 text-center text-dim">{t("board", "noMatch")}</td></tr>
             )}
           </tbody>
         </table>
@@ -384,8 +388,11 @@ export function MarketBoard({
       {/* Universe stats & windowing status footer */}
       {needWindow && (
         <div className="flex items-center justify-between border-t hairline px-3 py-1.5 text-[9.5px] text-dim">
-          <span>showing {start + 1}–{Math.min(start + count, sorted.length)} of {sorted.length} ({count} windowed rows for smooth rendering)</span>
-          <span>{rows.length} total universe symbols</span>
+          <span>{t("board", "windowed")
+            .replace("{from}", String(start + 1))
+            .replace("{to}", String(Math.min(start + count, sorted.length)))
+            .replace("{total}", String(sorted.length))}</span>
+          <span>{t("board", "totalSymbols").replace("{n}", String(rows.length))}</span>
         </div>
       )}
 

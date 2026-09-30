@@ -92,7 +92,9 @@ const liveCases = await (async (): Promise<{ rejectedWithRiskPass: LiveOpp | nul
   }
 })();
 
-describe.skipIf(!serverUp)("opportunities surface (live server)", () => {
+// This suite needs the real stored regression row; an empty local database is
+// an honest unavailable fixture, not evidence that the UI passed the workflow.
+describe.skipIf(!serverUp || !liveCases.rejectedWithRiskPass)("opportunities surface (live server)", () => {
   beforeAll(async () => {
     (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
     // the page's relative fetches must resolve to the QA origin

@@ -51,8 +51,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <AppShell>{children}</AppShell>
             <CommandPalette />
           </ToastProvider>
+          <PwaRegistrator />
         </LanguageProvider>
-        <PwaRegistrator />
       </body>
     </html>
   );
